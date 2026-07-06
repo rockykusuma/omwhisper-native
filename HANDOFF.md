@@ -27,7 +27,7 @@ polish backends, not "always local."
 | Milestone | Status |
 |---|---|
 | M0 — Repo + pipeline | ✅ Done. Confirmed building and running in Xcode (menu bar icon shows). |
-| M1 — Core loop MVP | 🔶 Code written and committed, **not yet confirmed compiling in Xcode**. This is the very next thing to do. |
+| M1 — Core loop MVP | 🔶 **Compiles clean** as of `410fd2a` (Xcode 26.6 / macOS 26.5 SDK). First compile surfaced five Swift 6 concurrency errors — all fixed. Not yet live-smoke-tested; that's the next thing to do. |
 | M2–M5 | ⬜ Not started. |
 
 Git log (all committed, `main` branch):
@@ -67,8 +67,11 @@ Be honest with the user about this distinction — it matters:
   is the part most likely to need small compiler-driven fixes — the reasoning is sound but Swift 6
   diagnostics can be picky about exact placement.
 
-**First thing to do in a new session with Xcode access**: open the project, build (`⌘B`), and
-fix whatever the compiler flags. Expect the concurrency annotations to need the most attention.
+**Build is now green** (commit `410fd2a`) — the five first-compile errors were exactly the
+concurrency ones predicted here (region isolation on the `sending` audio stream, `@Sendable`
+convert block, `@MainActor`-default isolation on a helper, `@Observable`+`lazy`). **First thing to
+do now**: grant mic + Speech Recognition + Accessibility permissions and run the live smoke test
+(step 2 below), then measure against the M1 sign-off criteria.
 
 ## Key files (M1)
 

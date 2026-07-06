@@ -142,9 +142,10 @@ are still in place before assuming the fix is elsewhere.
 - **M0 — Repo + pipeline** ✅ done: Xcode project, package/folder skeleton, CI, committed shared
   scheme, build-release script. Confirmed building and running in Xcode (menu bar icon shows).
 - **M1 — Core loop MVP** (in progress): hotkey → capture → SpeechTranscriber streaming → live
-  overlay partials → paste on stop. Implemented; not yet compile-verified in Xcode (see Progress
-  Tracker below) or measured against the sign-off criteria (partial lag, stop-to-paste latency,
-  accuracy spike vs. Parakeet).
+  overlay partials → paste on stop. Implemented and **now compiles clean** (Xcode 26.6 / macOS 26.5
+  SDK, commit `410fd2a` fixed the first-compile Swift 6 concurrency errors). Not yet live-smoke-tested
+  or measured against the sign-off criteria (partial lag, stop-to-paste latency, accuracy spike vs.
+  Parakeet) — that's the next step.
 - **M2 — Daily-driver parity**: Settings UI, PTT, history + importer, vocabulary UI, sounds,
   launch-at-login, Sparkle, onboarding.
 - **M3 — AI polish**: Foundation Models default backend, styles system, Ollama + cloud backends,
@@ -159,7 +160,7 @@ are still in place before assuming the fix is elsewhere.
 | Milestone | Status | Notes |
 |-----------|--------|-------|
 | M0 — Repo + pipeline | ✅ Done | pbxproj configured (bundle ID, macOS 26.0 target, sandbox off, Swift 6 language mode); source skeleton; CLAUDE.md/README/CI/build-release.sh; committed shared xcscheme (`omwhisper-native`, not autocreated — see naming gotcha). Confirmed build+run in Xcode. |
-| M1 — Core loop MVP | 🔶 In progress | `AppleEngine` (SpeechAnalyzer/SpeechTranscriber, streaming partial/final), `BufferConverter` (mic format → analyzer format), `GlobalHotkey` (system-wide Cmd+Shift+V via NSEvent monitors), `OverlayPanel`/`OverlayView` (non-activating NSPanel HUD), `AppState` orchestration (start/stop, permissions, paste-on-stop) all written. **Not yet built in Xcode** — no Swift toolchain in the dev sandbox, so none of this is compile-verified yet. Next: build in Xcode, fix any compile errors, then measure against the M1 sign-off criteria and run the WER spike vs. Parakeet. |
+| M1 — Core loop MVP | 🔶 In progress | `AppleEngine` (SpeechAnalyzer/SpeechTranscriber, streaming partial/final), `BufferConverter` (mic format → analyzer format), `GlobalHotkey` (system-wide Cmd+Shift+V via NSEvent monitors), `OverlayPanel`/`OverlayView` (non-activating NSPanel HUD), `AppState` orchestration (start/stop, permissions, paste-on-stop) all written. **Compiles clean** as of commit `410fd2a` (Xcode 26.6 / macOS 26.5 SDK) — the first compile surfaced five Swift 6 region-isolation / actor-isolation errors, all fixed (see commit). Next: live smoke test (grant mic + speech, dictate), then measure against the M1 sign-off criteria and run the WER spike vs. Parakeet. |
 | M2–M5 | ⬜ Not started | See milestone descriptions above. |
 
 ## Explicitly Dropped vs. the Tauri App
