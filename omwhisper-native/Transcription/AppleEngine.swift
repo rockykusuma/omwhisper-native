@@ -43,69 +43,76 @@ struct AppleEngine: TranscriptionEngine {
     // async model calls) and must not run pinned to MainActor, which is this
     // project's default actor isolation for unannotated declarations.
     nonisolated func transcribe(
-        _ audio: AsyncStream<AVAudioPCMBuffer>
+        _ audio: sending AsyncStream<AVAudioPCMBuffer>
     ) -> AsyncThrowingStream<TranscriptEvent, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: .current) else {
-                        throw EngineError.localeUnsupported
-                    }
+        // makeStream (rather than the AsyncThrowingStream { continuation } builder)
+        // so the producing Task is created directly in this function's region and
+        // `audio` is transferred into it exactly once. The builder form kept `audio`
+        // captured by both the builder closure and the nested Task, which Swift 6
+        // region isolation rejects as a potential data race.
+        let (stream, continuation) = AsyncThrowingStream<TranscriptEvent, Error>.makeStream()
 
-                    let transcriber = SpeechTranscriber(
-                        locale: locale,
-                        transcriptionOptions: [],
-                        reportingOptions: [.volatileResults],
-                        attributeOptions: []
-                    )
-
-                    try await Self.ensureAssetsInstalled(for: transcriber)
-
-                    guard let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
-                        throw EngineError.audioFormatUnavailable
-                    }
-
-                    let analyzer = SpeechAnalyzer(modules: [transcriber])
-                    let (inputSequence, inputBuilder) = AsyncStream<AnalyzerInput>.makeStream()
-
-                    // Drain transcriber.results concurrently with feeding audio in below —
-                    // volatile (dimmed, may be replaced) vs final (append, never rewritten).
-                    let resultsTask = Task {
-                        do {
-                            for try await result in transcriber.results {
-                                let text = String(result.text.characters)
-                                continuation.yield(result.isFinal ? .final(text) : .partial(text))
-                            }
-                        } catch {
-                            continuation.finish(throwing: error)
-                        }
-                    }
-
-                    try await analyzer.start(inputSequence: inputSequence)
-
-                    let converter = BufferConverter()
-                    for await buffer in audio {
-                        guard let converted = try? converter.convertBuffer(buffer, to: analyzerFormat) else {
-                            continue // drop malformed buffer, keep the session alive
-                        }
-                        inputBuilder.yield(AnalyzerInput(buffer: converted))
-                    }
-
-                    // Mic stream ended (recording stopped) — flush remaining audio through
-                    // the analyzer and let the last volatile result settle into a final one.
-                    inputBuilder.finish()
-                    try await analyzer.finalizeAndFinishThroughEndOfInput()
-                    resultsTask.cancel()
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
+        let task = Task {
+            do {
+                guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: .current) else {
+                    throw EngineError.localeUnsupported
                 }
-            }
 
-            continuation.onTermination = { _ in
-                task.cancel()
+                let transcriber = SpeechTranscriber(
+                    locale: locale,
+                    transcriptionOptions: [],
+                    reportingOptions: [.volatileResults],
+                    attributeOptions: []
+                )
+
+                try await Self.ensureAssetsInstalled(for: transcriber)
+
+                guard let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+                    throw EngineError.audioFormatUnavailable
+                }
+
+                let analyzer = SpeechAnalyzer(modules: [transcriber])
+                let (inputSequence, inputBuilder) = AsyncStream<AnalyzerInput>.makeStream()
+
+                // Drain transcriber.results concurrently with feeding audio in below —
+                // volatile (dimmed, may be replaced) vs final (append, never rewritten).
+                let resultsTask = Task {
+                    do {
+                        for try await result in transcriber.results {
+                            let text = String(result.text.characters)
+                            continuation.yield(result.isFinal ? .final(text) : .partial(text))
+                        }
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+
+                try await analyzer.start(inputSequence: inputSequence)
+
+                let converter = BufferConverter()
+                for await buffer in audio {
+                    guard let converted = try? converter.convertBuffer(buffer, to: analyzerFormat) else {
+                        continue // drop malformed buffer, keep the session alive
+                    }
+                    inputBuilder.yield(AnalyzerInput(buffer: converted))
+                }
+
+                // Mic stream ended (recording stopped) — flush remaining audio through
+                // the analyzer and let the last volatile result settle into a final one.
+                inputBuilder.finish()
+                try await analyzer.finalizeAndFinishThroughEndOfInput()
+                resultsTask.cancel()
+                continuation.finish()
+            } catch {
+                continuation.finish(throwing: error)
             }
         }
+
+        continuation.onTermination = { _ in
+            task.cancel()
+        }
+
+        return stream
     }
 
     /// Downloads the on-device model for `transcriber`'s locale if it isn't already

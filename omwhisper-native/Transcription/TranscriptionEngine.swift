@@ -34,7 +34,11 @@ protocol TranscriptionEngine: Sendable {
     /// Implementations should mark this `nonisolated` — transcription is
     /// CPU/async-heavy and must not run pinned to MainActor (the project's
     /// default actor isolation).
+    ///
+    /// `audio` is `sending`: the engine takes exclusive ownership so it can feed
+    /// the stream to a background Task. Callers must not use the stream after the
+    /// call (Swift 6 region isolation enforces this).
     func transcribe(
-        _ audio: AsyncStream<AVAudioPCMBuffer>
+        _ audio: sending AsyncStream<AVAudioPCMBuffer>
     ) -> AsyncThrowingStream<TranscriptEvent, Error>
 }

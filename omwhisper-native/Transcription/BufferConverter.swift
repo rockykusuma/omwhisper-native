@@ -13,6 +13,16 @@
 // (one buffer converted at a time, never concurrently) — see AppleEngine.
 @preconcurrency import AVFoundation
 
+/// One-shot flag for the AVAudioConverter input block. Mutated only inside a
+/// single synchronous `convertBuffer` call, never across threads — hence
+/// @unchecked Sendable rather than a lock.
+// nonisolated: the project defaults every unannotated type to @MainActor, which
+// would make `bufferProcessed` actor-isolated and unmutable from the nonisolated
+// convert block. This tiny holder is touched only there, single-threaded.
+private nonisolated final class ConversionState: @unchecked Sendable {
+    var bufferProcessed = false
+}
+
 final class BufferConverter {
     enum ConverterError: Error {
         case failedToCreateConverter
@@ -45,12 +55,16 @@ final class BufferConverter {
         }
 
         var nsError: NSError?
-        var bufferProcessed = false
 
+        // The convert input block is @Sendable, so it can't mutate a captured
+        // local var. Box the one-shot "already handed over the buffer" flag: this
+        // whole method runs synchronously on one thread (see type comment), so
+        // @unchecked Sendable is honest here.
+        let state = ConversionState()
         let status = converter.convert(to: conversionBuffer, error: &nsError) { _, inputStatusPointer in
-            defer { bufferProcessed = true }
-            inputStatusPointer.pointee = bufferProcessed ? .noDataNow : .haveData
-            return bufferProcessed ? nil : buffer
+            defer { state.bufferProcessed = true }
+            inputStatusPointer.pointee = state.bufferProcessed ? .noDataNow : .haveData
+            return state.bufferProcessed ? nil : buffer
         }
 
         guard status != .error else {

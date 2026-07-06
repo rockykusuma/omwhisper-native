@@ -7,6 +7,7 @@
 //  hotkey -> AudioCapture -> TranscriptionEngine -> overlay partials -> paste on stop.
 //
 
+import AppKit
 import AVFoundation
 import Foundation
 import Observation
@@ -43,7 +44,10 @@ final class AppState {
     private let audioCapture = AudioCapture()
     private let engine: TranscriptionEngine = AppleEngine()
     private let overlay = OverlayPanel()
-    private lazy var hotkey = GlobalHotkey(
+    // @ObservationIgnored: hotkey is a collaborator, not observable UI state, and
+    // @Observable can't instrument a `lazy` stored property (it rewrites stored
+    // vars into computed ones). lazy is needed because the initializer captures self.
+    @ObservationIgnored private lazy var hotkey = GlobalHotkey(
         keyCode: GlobalHotkey.vKeyCode,
         modifiers: [.command, .shift]
     ) { [weak self] in
