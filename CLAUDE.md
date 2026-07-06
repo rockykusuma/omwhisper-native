@@ -20,6 +20,15 @@ kept as the Windows release and as a spec/behavior reference — see `docs/NATIV
 - **Bundle ID**: `com.omwhisper.mac` (imports transcription history from the old app's
   `com.omwhisper.app` data dir on first run — see M2).
 - **Apple Developer Team ID**: `Y87BZN47C5` (already set in `project.pbxproj`).
+- **Language mode**: Swift 6 (`SWIFT_VERSION = 6.0`, all targets), with
+  `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` + `SWIFT_APPROACHABLE_CONCURRENCY = YES` — every
+  unannotated declaration is `@MainActor` by default. See "Concurrency" below before writing
+  anything that touches audio callbacks or background work.
+- **Naming gotcha**: the Xcode *target* (and its scheme) is named `omwhisper-native` —
+  `PRODUCT_NAME` is set to `OmWhisper` (so the built app/bundle display as "OmWhisper"), but
+  `xcodebuild -scheme ...` and CI must use `omwhisper-native`. The scheme is committed at
+  `omwhisper-native.xcodeproj/xcshareddata/xcschemes/omwhisper-native.xcscheme` — it is NOT
+  autocreated on a fresh clone, so don't delete it.
 
 ## North Star
 
@@ -52,26 +61,35 @@ Sign-off criteria (gate M1 and M4):
 
 ```
 omwhisper-native/
-├── omwhisper-native.xcodeproj/         # Xcode project (file-system-synced groups — no manual pbxproj edits to add/remove files)
+├── omwhisper-native.xcodeproj/
+│   ├── xcshareddata/xcschemes/omwhisper-native.xcscheme  # committed — see naming gotcha above
+│   └── project.pbxproj                 # file-system-synced groups — no manual edits to add/remove files
 ├── omwhisper-native/                   # App target
-│   ├── OmWhisperApp.swift              # @main — MenuBarExtra + Settings scene
-│   ├── AppState.swift                  # @Observable root state, single source of truth
+│   ├── OmWhisperApp.swift              # @main — MenuBarExtra + Settings scene; starts the global hotkey
+│   ├── AppState.swift                  # @MainActor @Observable root state + M1 core-loop orchestration
 │   ├── Transcription/
-│   │   └── TranscriptionEngine.swift   # Core contract: protocol + TranscriptEvent (.partial/.final)
+│   │   ├── TranscriptionEngine.swift   # Core contract: protocol + TranscriptEvent (.partial/.final)
+│   │   ├── AppleEngine.swift           # Default engine: SpeechAnalyzer + SpeechTranscriber (macOS 26)
+│   │   └── BufferConverter.swift       # AVAudioConverter wrapper: mic format -> analyzer's format
 │   ├── Capture/
 │   │   └── AudioCapture.swift          # AVAudioEngine mic capture → AsyncStream<AVAudioPCMBuffer>
+│   ├── Hotkeys/
+│   │   └── GlobalHotkey.swift          # System-wide Cmd+Shift+V via NSEvent monitors
 │   ├── Paste/
 │   │   └── PasteService.swift          # Frontmost-app capture, CGEventPost paste, clipboard restore
 │   ├── Polish/
 │   │   └── PolishBackend.swift         # AI text-polish contract (stub — wired in M3)
 │   ├── UI/
 │   │   ├── MenuContent.swift           # Menu-bar dropdown (Start/Stop, Settings, Quit)
-│   │   └── SettingsView.swift          # Settings window (General tab only so far)
+│   │   ├── SettingsView.swift          # Settings window (General tab only so far)
+│   │   ├── OverlayPanel.swift          # Non-activating NSPanel HUD, bottom-center, never steals focus
+│   │   └── OverlayView.swift           # SwiftUI content: status dot + live partial/final transcript
 │   └── Assets.xcassets
 ├── omwhisper-nativeTests/              # Swift Testing (@testable import OmWhisper)
 ├── omwhisper-nativeUITests/            # XCUITest
 ├── docs/
-│   └── NATIVE_MIGRATION_PLAN.md        # Milestones M0–M5, architecture, risks, parity checklist (Appendix B)
+│   ├── NATIVE_MIGRATION_PLAN.md        # Milestones M0–M5, architecture, risks, parity checklist (Appendix B)
+│   └── DICTATION_GAP_ANALYSIS.md       # Why SpeechTranscriber vs. the Tauri app's pipeline
 ├── scripts/
 │   └── build-release.sh                # xcodebuild archive → notarytool → .dmg → SHA-256
 └── .github/workflows/ci.yml            # build + test on macOS runner
@@ -81,6 +99,32 @@ omwhisper-native/
 Adding, moving, or deleting a `.swift` file on disk is enough — Xcode picks it up automatically.
 Do not hand-edit `project.pbxproj` file references.
 
+## Concurrency
+
+The project sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`: every type/function without an
+explicit annotation is implicitly `@MainActor`-isolated. This is the right default for UI and
+state (`AppState`, `GlobalHotkey`, `OverlayPanel` are all effectively `@MainActor`), but it is
+**wrong** for anything that genuinely runs off the main thread — most importantly
+`AVAudioEngine`'s tap callback, which fires on its own real-time render thread regardless of
+what Swift infers. Two escape hatches are used deliberately, and any new code touching audio
+buffers or background transcription work should follow the same pattern:
+
+- **`nonisolated`** on functions/properties that must run (or be callable) off MainActor —
+  e.g. `AudioCapture.start()/stop()`, `AppleEngine.transcribe(_:)`. A `nonisolated func`'s
+  `Task { }` runs on the cooperative thread pool, not MainActor.
+- **`nonisolated(unsafe)`** on the small pieces of mutable state those nonisolated code paths
+  touch, paired with a real lock (`OSAllocatedUnfairLock` in `AudioCapture`) — never rely on
+  actor isolation to protect state a background thread writes to.
+- **`@preconcurrency import AVFoundation`** wherever `AVAudioPCMBuffer`/`AVAudioConverter`
+  cross a `Task` boundary — these AVFoundation types are not `Sendable`, and we've asserted the
+  actual safety invariant ourselves (single producer → single consumer per buffer) rather than
+  fighting the compiler. `Speech` (SpeechAnalyzer/SpeechTranscriber) is a newer, concurrency-first
+  API and needs no such treatment.
+
+If a build error mentions an actor-isolation or Sendable violation in `AudioCapture`,
+`BufferConverter`, or `AppleEngine`, check that the `nonisolated`/`nonisolated(unsafe)` markers
+are still in place before assuming the fix is elsewhere.
+
 ## Key Contracts
 
 - `TranscriptionEngine` — `func transcribe(_ audio: AsyncStream<AVAudioPCMBuffer>) -> AsyncThrowingStream<TranscriptEvent, Error>`,
@@ -89,15 +133,18 @@ Do not hand-edit `project.pbxproj` file references.
   replaces the Tauri app's VAD worker, sentinel channels, and two-pass decode entirely.
 - `AppState` — the single `@Observable` store. Settings persist via `UserDefaults` (with a
   one-time importer for the old `settings.json` planned in M2). No component does its own
-  read-modify-write of settings.
+  read-modify-write of settings. Also owns the M1 core loop: `toggleDictation()` →
+  `startDictation()`/`stopDictation()` wire `AudioCapture` → `AppleEngine` → `OverlayPanel` → `PasteService`.
 - `PolishBackend` — `func polish(_ text: String, style: PolishStyle) async throws -> String`.
 
 ## Milestones (see `docs/NATIVE_MIGRATION_PLAN.md` for full detail)
 
-- **M0 — Repo + pipeline** (current): Xcode project, package/folder skeleton, CI, Developer ID
-  signing + notarization working end-to-end on a hello-world menu bar app.
-- **M1 — Core loop MVP**: hotkey → capture → SpeechTranscriber streaming → live overlay partials
-  → paste on stop. Includes a WER accuracy spike vs. Parakeet. Go/no-go gate on SpeechTranscriber.
+- **M0 — Repo + pipeline** ✅ done: Xcode project, package/folder skeleton, CI, committed shared
+  scheme, build-release script. Confirmed building and running in Xcode (menu bar icon shows).
+- **M1 — Core loop MVP** (in progress): hotkey → capture → SpeechTranscriber streaming → live
+  overlay partials → paste on stop. Implemented; not yet compile-verified in Xcode (see Progress
+  Tracker below) or measured against the sign-off criteria (partial lag, stop-to-paste latency,
+  accuracy spike vs. Parakeet).
 - **M2 — Daily-driver parity**: Settings UI, PTT, history + importer, vocabulary UI, sounds,
   launch-at-login, Sparkle, onboarding.
 - **M3 — AI polish**: Foundation Models default backend, styles system, Ollama + cloud backends,
@@ -106,6 +153,14 @@ Do not hand-edit `project.pbxproj` file references.
   per-backend selector UI.
 - **M5 — Beta → release → freeze**: parity audit, landing page + version.json migration, beta
   soak, then freeze the Tauri repo.
+
+## Progress Tracker
+
+| Milestone | Status | Notes |
+|-----------|--------|-------|
+| M0 — Repo + pipeline | ✅ Done | pbxproj configured (bundle ID, macOS 26.0 target, sandbox off, Swift 6 language mode); source skeleton; CLAUDE.md/README/CI/build-release.sh; committed shared xcscheme (`omwhisper-native`, not autocreated — see naming gotcha). Confirmed build+run in Xcode. |
+| M1 — Core loop MVP | 🔶 In progress | `AppleEngine` (SpeechAnalyzer/SpeechTranscriber, streaming partial/final), `BufferConverter` (mic format → analyzer format), `GlobalHotkey` (system-wide Cmd+Shift+V via NSEvent monitors), `OverlayPanel`/`OverlayView` (non-activating NSPanel HUD), `AppState` orchestration (start/stop, permissions, paste-on-stop) all written. **Not yet built in Xcode** — no Swift toolchain in the dev sandbox, so none of this is compile-verified yet. Next: build in Xcode, fix any compile errors, then measure against the M1 sign-off criteria and run the WER spike vs. Parakeet. |
+| M2–M5 | ⬜ Not started | See milestone descriptions above. |
 
 ## Explicitly Dropped vs. the Tauri App
 
@@ -116,7 +171,7 @@ Windows support (stays on Tauri) · Whisper/Moonshine engines · VAD settings UI
 
 ```bash
 # Build + test
-xcodebuild -scheme OmWhisper -project omwhisper-native.xcodeproj build test
+xcodebuild -scheme omwhisper-native -project omwhisper-native.xcodeproj build test
 
 # Release (archive → notarize → dmg)
 bash scripts/build-release.sh

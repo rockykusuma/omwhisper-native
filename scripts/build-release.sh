@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 PROJECT="$PROJECT_ROOT/omwhisper-native.xcodeproj"
-SCHEME="OmWhisper"
+SCHEME="omwhisper-native"
 BUILD_DIR="$PROJECT_ROOT/.build-release"
 ARCHIVE_PATH="$BUILD_DIR/OmWhisper.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"

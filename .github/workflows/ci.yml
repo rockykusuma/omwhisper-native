@@ -28,7 +28,7 @@ jobs:
         run: |
           xcodebuild \
             -project omwhisper-native.xcodeproj \
-            -scheme OmWhisper \
+            -scheme omwhisper-native \
             -destination 'platform=macOS' \
             build \
             CODE_SIGNING_ALLOWED=NO
@@ -37,7 +37,7 @@ jobs:
         run: |
           xcodebuild \
             -project omwhisper-native.xcodeproj \
-            -scheme OmWhisper \
+            -scheme omwhisper-native \
             -destination 'platform=macOS' \
             test \
             CODE_SIGNING_ALLOWED=NO
