@@ -25,9 +25,11 @@ struct PasteService {
         NSWorkspace.shared.open(url)
     }
 
-    /// Put `text` on the pasteboard, send Cmd+V to the frontmost app, then restore
-    /// the previous pasteboard contents after `restoreDelay`.
-    static func paste(_ text: String, restoreDelay: Duration = .seconds(2)) async {
+    /// Put `text` on the pasteboard and send Cmd+V to the frontmost app. Returns
+    /// immediately; the previous pasteboard contents are restored `restoreDelay`
+    /// later on a detached timeline so the caller (stopDictation) isn't blocked for
+    /// two seconds before it can reset state / hide the overlay / accept the hotkey.
+    static func paste(_ text: String, restoreDelay: Duration = .seconds(2)) {
         let pasteboard = NSPasteboard.general
         let saved = pasteboard.string(forType: .string)
 
@@ -36,10 +38,15 @@ struct PasteService {
 
         sendCmdV()
 
-        try? await Task.sleep(for: restoreDelay)
-        if let saved {
-            pasteboard.clearContents()
-            pasteboard.setString(saved, forType: .string)
+        // ponytail: only .string is preserved (M1); non-text clipboard content is
+        // still lost on restore — that's finding M1, fix when the clipboard-
+        // preservation work lands.
+        Task {
+            try? await Task.sleep(for: restoreDelay)
+            if let saved {
+                pasteboard.clearContents()
+                pasteboard.setString(saved, forType: .string)
+            }
         }
     }
 

@@ -40,7 +40,15 @@ final class AudioCapture {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
 
-        let (stream, continuation) = AsyncStream.makeStream(of: AVAudioPCMBuffer.self)
+        // Bounded so a stalled consumer (converter/ASR falling behind the mic)
+        // drops stale audio to recover latency instead of queuing unbounded —
+        // otherwise partial lag and memory both grow without limit.
+        // ponytail: ~4s cushion at 48kHz/4096-frame buffers; the queue only fills
+        // under a pathological stall, never in normal real-time operation.
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: AVAudioPCMBuffer.self,
+            bufferingPolicy: .bufferingNewest(48)
+        )
         state.withLock { $0.continuation = continuation }
 
         // This closure runs on AVAudioEngine's real-time render thread. It must
@@ -77,3 +85,4 @@ final class AudioCapture {
         return min(1, sqrt(sum / Float(n)) * 10)
     }
 }
+

@@ -15,7 +15,18 @@ struct MenuContent: View {
         }
         .keyboardShortcut("v", modifiers: [.command, .shift])
 
+        if let error = appState.errorMessage {
+            Divider()
+            Text(error)
+        }
+
         Divider()
+
+        if !appState.hasAccessibilityPermission {
+            Button("Grant Accessibility Access…") {
+                PasteService.openAccessibilitySettings()
+            }
+        }
 
         Button("Settings…") { openSettings() }
         Button("Quit OmWhisper") { NSApplication.shared.terminate(nil) }

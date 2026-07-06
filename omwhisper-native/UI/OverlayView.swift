@@ -16,7 +16,7 @@ struct OverlayView: View {
         switch appState.dictation {
         case .recording: return .red
         case .finalizing: return .yellow
-        case .idle: return .gray
+        case .idle, .starting: return .gray   // overlay isn't shown until .recording; .starting is cosmetic
         }
     }
 

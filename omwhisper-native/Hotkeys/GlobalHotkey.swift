@@ -11,6 +11,9 @@
 //
 
 import AppKit
+import os
+
+private let hotkeyLog = Logger(subsystem: "com.omwhisper.mac", category: "GlobalHotkey")
 
 @MainActor
 final class GlobalHotkey {
@@ -37,19 +40,24 @@ final class GlobalHotkey {
         // (PasteService.hasAccessibilityPermission) — until granted, this monitor is
         // installed but silently receives nothing.
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            hotkeyLog.debug("global keyDown: keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)")
             self?.handleIfMatch(event)
         }
 
         // Local monitor: fires when OmWhisper itself (e.g. the Settings window) is
         // frontmost, and swallows the event so it doesn't also type "v" into a field.
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            hotkeyLog.debug("local keyDown: keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)")
             guard let self else { return event }
             if self.matches(event) {
+                hotkeyLog.info("local hotkey matched — firing action")
                 self.action()
                 return nil
             }
             return event
         }
+
+        hotkeyLog.info("start — global monitor=\(self.globalMonitor != nil), local monitor=\(self.localMonitor != nil)")
     }
 
     func stop() {
@@ -65,6 +73,7 @@ final class GlobalHotkey {
 
     private func handleIfMatch(_ event: NSEvent) {
         guard matches(event) else { return }
+        hotkeyLog.info("global hotkey matched — firing action")
         action()
     }
 

@@ -5,7 +5,10 @@
 //  Menu-bar dictation app. See CLAUDE.md and docs/NATIVE_MIGRATION_PLAN.md.
 //
 
+import os
 import SwiftUI
+
+private let appLog = Logger(subsystem: "com.omwhisper.mac", category: "App")
 
 @main
 struct OmWhisperApp: App {
@@ -17,9 +20,9 @@ struct OmWhisperApp: App {
                 .environment(appState)
         } label: {
             // TODO(M2): swap for the ॐ template icon from the Tauri repo's tray-icon.png
-            Image(systemName: appState.dictation == .idle ? "waveform" : "waveform.badge.mic")
+            Image(systemName: appState.dictation == .idle ? "mic" : "mic.fill")
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()
