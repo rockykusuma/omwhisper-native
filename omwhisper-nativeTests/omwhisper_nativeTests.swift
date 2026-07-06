@@ -6,7 +6,7 @@
 //
 
 import Testing
-@testable import omwhisper_native
+@testable import OmWhisper
 
 struct omwhisper_nativeTests {
 
