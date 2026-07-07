@@ -44,6 +44,13 @@ Sign-off criteria (gate M1 and M4):
 4. Technical vocabulary respected via context hints (custom vocab → engine biasing / cloud keyterms).
 5. PTT starts instantly on keydown.
 
+**Measured status (2026-07-07, live on-device, 9 dictation runs via `Logger(category: "Latency")`):**
+- **#2 passes solidly**: stop-to-paste measured 108ms–697ms across every run, always under the 700ms bar.
+- **#3 confirmed** live — pasted output shows correct capitalization/terminal punctuation with zero configuration.
+- **#5 shipped** — Fn/Globe push-to-talk (`PushToTalkMonitor`), feels instant in practice (not separately latency-measured).
+- **#1 not consistently met**: early runs measured ~4s and were initially suspected as an engine/setup bug — root-caused instead to human speech-onset delay after pressing the hotkey (the engine's own setup chain measured 8–42ms; mic buffers reach the analyzer within ~0.1s — see git history on `AppleEngine.swift`, since reverted). With speech content pre-decided to remove "what do I say" think-time, repeat runs landed at 1.3–2.0s, with one outlier at 0.89s — so sub-1s is achievable but not the norm. The gap is likely a mix of unavoidable human reaction time and the model's own minimum buffering before its first hypothesis; the current instrumentation (timed from recording-start, not actual speech-onset) can't separate the two. Untangling further needs VAD-based speech-onset detection — deferred, not pursued.
+- **#4 not started** — no `contextualStrings`/vocab biasing yet (M2).
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -160,8 +167,8 @@ are still in place before assuming the fix is elsewhere.
 | Milestone | Status | Notes |
 |-----------|--------|-------|
 | M0 — Repo + pipeline | ✅ Done | pbxproj configured (bundle ID, macOS 26.0 target, sandbox off, Swift 6 language mode); source skeleton; CLAUDE.md/README/CI/build-release.sh; committed shared xcscheme (`omwhisper-native`, not autocreated — see naming gotcha). Confirmed build+run in Xcode. |
-| M1 — Core loop MVP | 🔶 In progress | `AppleEngine` (SpeechAnalyzer/SpeechTranscriber, streaming partial/final), `BufferConverter` (mic format → analyzer format), `GlobalHotkey` (system-wide Cmd+Shift+V via NSEvent monitors), `OverlayPanel`/`OverlayView` (non-activating NSPanel HUD), `AppState` orchestration (start/stop, permissions, paste-on-stop) all written. **Compiles clean** as of commit `410fd2a` (Xcode 26.6 / macOS 26.5 SDK) — the first compile surfaced five Swift 6 region-isolation / actor-isolation errors, all fixed (see commit). Next: live smoke test (grant mic + speech, dictate), then measure against the M1 sign-off criteria and run the WER spike vs. Parakeet. |
-| M2–M5 | ⬜ Not started | See milestone descriptions above. |
+| M1 — Core loop MVP | 🔶 Live, sign-off pending on #1 | Running live end-to-end (2026-07-07) after fixing three session-blocking bugs: SwiftUI `MenuBarExtra` silently dropping real clicks on macOS 26 (→ AppKit `NSStatusItem`); Hardened Runtime with no `audio-input` entitlement (mic permission silently denied, no prompt); an off-MainActor `SFSpeechRecognizer` callback crashing under Swift 6 isolation checks. Pulled forward from M2: push-to-talk (`PushToTalkMonitor`, hold Fn/Globe), start/stop sounds, paste-reliability hardening (Accessibility-gated, no more silent no-ops), richer menu-bar icon states. See "Measured status" under Sign-off criteria above for the numbers — #2/#3/#5 pass, #1 doesn't consistently, #4 not started. WER spike vs. Parakeet still owed. |
+| M2–M5 | ⬜ Not started | See milestone descriptions above. Note: PTT, sounds, and paste-reliability hardening (all nominally M2) already shipped as part of closing out M1 — see M1 row. |
 
 ## Explicitly Dropped vs. the Tauri App
 
