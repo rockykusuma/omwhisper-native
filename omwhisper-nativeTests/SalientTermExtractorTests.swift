@@ -45,7 +45,7 @@ struct SalientTermExtractorTests {
 
     @Test func detectsRareWords() async {
         let words = await SalientTermExtractor.rareWords(in: "Please check the polymorphism in that classe")
-        #expect(!words.isEmpty)
+        #expect(words.contains(where: { $0.caseInsensitiveCompare("classe") == .orderedSame }))
     }
 
     @Test func commonWordsNotFlaggedAsRare() async {
@@ -58,7 +58,7 @@ struct SalientTermExtractorTests {
         let terms = await SalientTermExtractor.extractSalientTerms(from: text)
         #expect(terms.contains("Sarah Connor"))
         #expect(terms.contains("getUserById"))
-        #expect(!terms.isEmpty)
+        #expect(terms.contains(where: { $0.caseInsensitiveCompare("classe") == .orderedSame }))
     }
 
     @Test func dedupesCaseInsensitively() async {
