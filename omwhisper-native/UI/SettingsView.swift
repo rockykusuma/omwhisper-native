@@ -17,6 +17,9 @@ struct SettingsView: View {
             Tab("Vocabulary", systemImage: "textformat.abc") {
                 VocabularySettingsView()
             }
+            Tab("AI", systemImage: "sparkles") {
+                AISettingsView()
+            }
             Tab("About", systemImage: "info.circle") {
                 AboutSettingsView()
             }
