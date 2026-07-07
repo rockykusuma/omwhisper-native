@@ -3,6 +3,7 @@
 //  omwhisper-nativeTests
 //
 
+import Foundation
 import Testing
 @testable import OmWhisper
 
@@ -50,5 +51,26 @@ struct SalientTermExtractorTests {
     @Test func commonWordsNotFlaggedAsRare() async {
         let words = await SalientTermExtractor.rareWords(in: "the quick brown fox jumps over the lazy dog")
         #expect(words.isEmpty)
+    }
+
+    @Test func combinesAllThreeCategories() async {
+        let text = "Sarah Connor uses getUserById in her codebase with polymorphism and classe issues."
+        let terms = await SalientTermExtractor.extractSalientTerms(from: text)
+        #expect(terms.contains("Sarah Connor"))
+        #expect(terms.contains("getUserById"))
+        #expect(!terms.isEmpty)
+    }
+
+    @Test func dedupesCaseInsensitively() async {
+        let text = "getUserById GetUserById"
+        let terms = await SalientTermExtractor.extractSalientTerms(from: text)
+        let matching = terms.filter { $0.caseInsensitiveCompare("getUserById") == .orderedSame }
+        #expect(matching.count == 1)
+    }
+
+    @Test func respectsLimit() async {
+        let text = (1...50).map { "properNoun\($0) getFunctionCall\($0)" }.joined(separator: " ")
+        let terms = await SalientTermExtractor.extractSalientTerms(from: text, limit: 5)
+        #expect(terms.count <= 5)
     }
 }

@@ -70,4 +70,21 @@ nonisolated enum SalientTermExtractor {
         }
         return results
     }
+
+    /// Merges all three categories, case-insensitive dedupe (first-seen casing
+    /// wins), capped at `limit` — kept separate from the user's own
+    /// customVocabulary, which is never trimmed.
+    static func extractSalientTerms(from text: String, limit: Int = 30) async -> [String] {
+        var seen = Set<String>()
+        var results: [String] = []
+        let candidates = properNouns(in: text) + codeIdentifiers(in: text) + (await rareWords(in: text))
+        for term in candidates {
+            let key = term.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            results.append(term)
+            if results.count >= limit { break }
+        }
+        return results
+    }
 }
