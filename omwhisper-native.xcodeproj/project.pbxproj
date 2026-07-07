@@ -205,7 +205,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# GENERATE_INFOPLIST_FILE's INFOPLIST_KEY_* synthesis only recognizes\n# Apple's own known keys (LSUIElement, NS*UsageDescription, etc.) -- a\n# third-party key like SUFeedURL is silently dropped even though the\n# build setting itself resolves fine. Patch it in directly instead.\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Delete :SUFeedURL\" \"$PLIST\" 2>/dev/null\n/usr/libexec/PlistBuddy -c \"Add :SUFeedURL string ${INFOPLIST_KEY_SUFeedURL}\" \"$PLIST\"\n";
+			shellScript = "# GENERATE_INFOPLIST_FILE's INFOPLIST_KEY_* synthesis only recognizes\n# Apple's own known keys (LSUIElement, NS*UsageDescription, etc.) -- a\n# third-party key like SUFeedURL is silently dropped even though the\n# build setting itself resolves fine. Patch it in directly instead.\n# NSAudioCaptureUsageDescription hits the same gap -- confirmed empirically\n# (PlistBuddy Print came back \"Does Not Exist\" despite the build setting\n# being set), even though it's a first-party Apple TCC key -- this Xcode's\n# synthesis list just doesn't include it yet.\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Delete :SUFeedURL\" \"$PLIST\" 2>/dev/null\n/usr/libexec/PlistBuddy -c \"Add :SUFeedURL string ${INFOPLIST_KEY_SUFeedURL}\" \"$PLIST\"\n/usr/libexec/PlistBuddy -c \"Delete :NSAudioCaptureUsageDescription\" \"$PLIST\" 2>/dev/null\n/usr/libexec/PlistBuddy -c \"Add :NSAudioCaptureUsageDescription string ${INFOPLIST_KEY_NSAudioCaptureUsageDescription}\" \"$PLIST\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -379,6 +379,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = OmWhisper;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
+				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "OmWhisper needs system audio access to record the other side of your meetings, with your consent each time.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OmWhisper uses Apple's on-device speech recognition to turn your voice into text.";
 				INFOPLIST_KEY_SUFeedURL = "https://omwhisper.in/appcast.xml";
@@ -419,6 +420,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = OmWhisper;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
+				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "OmWhisper needs system audio access to record the other side of your meetings, with your consent each time.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OmWhisper uses Apple's on-device speech recognition to turn your voice into text.";
 				INFOPLIST_KEY_SUFeedURL = "https://omwhisper.in/appcast.xml";

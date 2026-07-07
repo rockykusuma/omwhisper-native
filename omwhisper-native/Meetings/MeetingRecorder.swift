@@ -21,25 +21,34 @@
 //     device (the physical mic, as a sub-device) and that tap into one
 //     virtual input device. Reading through the aggregate rather than the raw
 //     mic device sidesteps the same VoIP-app-holds-the-mic-exclusively
-//     problem SCK's captureMicrophone solved, without ScreenCaptureKit: VoIP
-//     apps (Zoom, Teams, WhatsApp, etc.) hold the input device exclusively
-//     during a call, so a plain AVAudioEngine tap on the raw device records
-//     silence while a call is active -- the aggregate's own HAL-level
-//     composition doesn't compete for that same exclusive grab.
-//  3. AVAudioEngine's input node is pointed at the aggregate device via
-//     kAudioOutputUnitProperty_CurrentDevice -- the exact mechanism
-//     AudioCapture.setInputDevice(_:on:) already uses for mic device
-//     selection, reused rather than reimplemented.
+//     problem SCK's captureMicrophone solved, without ScreenCaptureKit.
+//  3. Read via raw CoreAudio HAL I/O (AudioDeviceCreateIOProcIDWithBlock +
+//     AudioDeviceStart directly on the aggregate device) -- NOT AVAudioEngine.
+//     An AVAudioEngine-based version was tried first (pointing the engine's
+//     input node at the aggregate via kAudioOutputUnitProperty_CurrentDevice,
+//     the same mechanism AudioCapture.setInputDevice(_:on:) uses for mic
+//     device selection), but it never worked live: the aggregate device
+//     itself verifiably has the correct channel count (confirmed via a direct
+//     HAL query independent of AVAudioEngine), yet AVAudioEngine's tap
+//     callback never fired even once, across three targeted fixes (a settle
+//     delay after aggregate creation, and two different attempts at
+//     explicit-format construction to route around AVAudioInputNode's stale
+//     cached format). AVAudioEngine's higher-level abstraction is evidently
+//     not built for exotic freshly-created virtual/tap-backed devices the way
+//     it is for real hardware. Raw HAL I/O is the standard, lower-level path
+//     other audio-only meeting recorders use for exactly this device shape.
 //
 //  Net effect: only Microphone permission (already granted for dictation via
 //  the existing audio-input entitlement), no Screen Recording prompt, no
 //  video frame, no system sharing indicator.
 //
-//  The aggregate delivers ONE multi-channel buffer per tap (mic channels
-//  first, then the stereo tap's channels -- fixed by the sub-device/tap
-//  ordering this code controls), not two separate callbacks the way SCK gave
-//  us, so each buffer is sliced by channel range into two AVAudioPCMBuffers
-//  before writing to me.caf/them.caf.
+//  Each HAL IO cycle delivers an AudioBufferList with two separate
+//  AudioBuffers -- confirmed live, not assumed: buffer[0] is the mic
+//  sub-device (mono), buffer[1] is the stereo tap (interleaved), in the fixed
+//  order this file's own sub-device/tap list construction controls. Not one
+//  combined multi-channel buffer, and not two separate callbacks the way SCK
+//  gave us -- each buffer is deinterleaved into its own AVAudioPCMBuffer and
+//  written straight to me.caf/them.caf, no channel-range slicing needed.
 //
 //  Two independent .caf files, not one interleaved file -- them.caf (system
 //  audio) and me.caf (mic) -- matching the original design, which keeps later
@@ -47,10 +56,10 @@
 //
 //  Concurrency note (the exact lesson the SCK crash taught, still applicable
 //  here): the project defaults new declarations to @MainActor
-//  (SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor), but AVAudioEngine's tap
-//  callback genuinely runs on its own real-time render thread, matching
-//  AudioCapture's own documented rationale. nonisolated + one
-//  OSAllocatedUnfairLock-protected State bundle, not per-property locking.
+//  (SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor), but the HAL IOProc block
+//  genuinely runs on its own real-time thread, matching AudioCapture's own
+//  documented rationale. nonisolated + one OSAllocatedUnfairLock-protected
+//  State bundle, not per-property locking.
 //
 
 @preconcurrency import AVFoundation
@@ -66,7 +75,6 @@ final class MeetingRecorder: @unchecked Sendable {
         var systemFile: AVAudioFile?
         var micFile: AVAudioFile?
         var meetingDirectory: URL?
-        var micChannelCount: Int = 1
         /// Loudest mic sample seen this recording, in linear amplitude (0...1) --
         /// logged as a warning on stop() if it never exceeds roughly -100dBFS,
         /// the "calling app blocked mic capture" self-check ported from smriti.
@@ -74,9 +82,15 @@ final class MeetingRecorder: @unchecked Sendable {
     }
 
     nonisolated private let state = OSAllocatedUnfairLock(initialState: State())
-    nonisolated(unsafe) private let engine = AVAudioEngine()
     nonisolated(unsafe) private var tapID: AudioObjectID = kAudioObjectUnknown
     nonisolated(unsafe) private var aggregateDeviceID: AudioObjectID = kAudioObjectUnknown
+    nonisolated(unsafe) private var ioProcID: AudioDeviceIOProcID?
+    /// The aggregate delivers each stream (mic sub-device, stereo tap) as its
+    /// own separate AudioBuffer within one AudioBufferList -- NOT one combined
+    /// multi-channel buffer -- confirmed live: mNumberBuffers=2, buffer[0] 1ch
+    /// (mic), buffer[1] 2ch interleaved (tap). Only the sample rate is shared
+    /// across streams; each buffer's own channel count comes from the HAL callback.
+    nonisolated(unsafe) private var streamSampleRate: Double = 48000
 
     nonisolated var meetingDirectory: URL? {
         state.withLock { $0.meetingDirectory }
@@ -87,7 +101,6 @@ final class MeetingRecorder: @unchecked Sendable {
 
         let micDeviceID = try Self.defaultInputDeviceID()
         let micUID = try Self.deviceUID(of: micDeviceID)
-        let micChannelCount = try Self.inputChannelCount(of: micDeviceID)
 
         let ownProcessID = try Self.ownProcessObjectID()
         let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [ownProcessID])
@@ -98,7 +111,11 @@ final class MeetingRecorder: @unchecked Sendable {
             throw Self.error("AudioHardwareCreateProcessTap", tapStatus)
         }
         tapID = newTapID
-        let tapUID = tapDescription.uuid.uuidString
+        // NOT tapDescription.uuid.uuidString -- that's just the client-set
+        // description identifier. kAudioTapPropertyUID is the actual
+        // persistent UID CoreAudio expects in kAudioSubTapUIDKey below,
+        // queried the same way deviceUID(of:) reads a real device's UID.
+        let tapUID = try Self.tapUID(of: newTapID)
 
         let aggregateUID = UUID().uuidString
         let description: [String: Any] = [
@@ -119,7 +136,8 @@ final class MeetingRecorder: @unchecked Sendable {
         aggregateDeviceID = newAggregateID
 
         do {
-            try Self.setInputDevice(aggregateDeviceID, on: engine.inputNode)
+            let asbd = try Self.inputStreamFormat(of: aggregateDeviceID)
+            streamSampleRate = asbd.mSampleRate
         } catch {
             teardownHardware()
             throw error
@@ -127,27 +145,33 @@ final class MeetingRecorder: @unchecked Sendable {
 
         state.withLock { s in
             s.meetingDirectory = dir
-            s.micChannelCount = micChannelCount
         }
 
-        let format = engine.inputNode.outputFormat(forBus: 0)
-        engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
-            self?.handle(buffer)
+        var newIOProcID: AudioDeviceIOProcID?
+        let procStatus = AudioDeviceCreateIOProcIDWithBlock(&newIOProcID, aggregateDeviceID, nil) { [weak self] _, inInputData, _, _, _ in
+            self?.handleRaw(inInputData)
         }
-
-        do {
-            engine.prepare()
-            try engine.start()
-        } catch {
-            engine.inputNode.removeTap(onBus: 0)
+        guard procStatus == noErr, let newIOProcID else {
             teardownHardware()
-            throw error
+            throw Self.error("AudioDeviceCreateIOProcIDWithBlock", procStatus)
+        }
+        ioProcID = newIOProcID
+
+        let startStatus = AudioDeviceStart(aggregateDeviceID, newIOProcID)
+        guard startStatus == noErr else {
+            _ = AudioDeviceDestroyIOProcID(aggregateDeviceID, newIOProcID)
+            ioProcID = nil
+            teardownHardware()
+            throw Self.error("AudioDeviceStart", startStatus)
         }
     }
 
     nonisolated func stop() async {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        if let ioProcID {
+            _ = AudioDeviceStop(aggregateDeviceID, ioProcID)
+            _ = AudioDeviceDestroyIOProcID(aggregateDeviceID, ioProcID)
+            self.ioProcID = nil
+        }
         teardownHardware()
 
         let peak = state.withLock { s -> Float in
@@ -171,16 +195,21 @@ final class MeetingRecorder: @unchecked Sendable {
         }
     }
 
-    /// Runs on AVAudioEngine's real-time render thread -- must never touch
-    /// MainActor state directly, matching AudioCapture's tap callback rationale.
-    nonisolated private func handle(_ buffer: AVAudioPCMBuffer) {
-        let micChannelCount = state.withLock { $0.micChannelCount }
-        guard let micBuffer = Self.slice(buffer, channelRange: 0..<micChannelCount) else { return }
-        let systemChannelCount = Int(buffer.format.channelCount) - micChannelCount
-        let systemBuffer = systemChannelCount > 0
-            ? Self.slice(buffer, channelRange: micChannelCount..<Int(buffer.format.channelCount))
-            : nil
+    /// Runs on the HAL's real-time IO thread -- must never touch MainActor
+    /// state directly, matching AudioCapture's tap callback rationale.
+    /// The aggregate delivers exactly two streams as separate AudioBuffers
+    /// (confirmed live) -- buffer[0] is the mic sub-device, buffer[1] is the
+    /// stereo tap, in the fixed order this file's own sub-device/tap list
+    /// construction controls. No channel-range slicing needed.
+    nonisolated private func handleRaw(_ bufferList: UnsafePointer<AudioBufferList>) {
+        let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: bufferList))
+        guard abl.count >= 2,
+              let micBuffer = Self.pcmBuffer(from: abl[0], sampleRate: streamSampleRate),
+              let systemBuffer = Self.pcmBuffer(from: abl[1], sampleRate: streamSampleRate) else { return }
+        handle(mic: micBuffer, system: systemBuffer)
+    }
 
+    nonisolated private func handle(mic micBuffer: AVAudioPCMBuffer, system systemBuffer: AVAudioPCMBuffer) {
         let peak = Self.peak(of: micBuffer)
         state.withLock { s in
             s.micPeak = max(s.micPeak, peak)
@@ -190,7 +219,7 @@ final class MeetingRecorder: @unchecked Sendable {
                 }
                 try? s.micFile?.write(from: micBuffer)
             }
-            if let systemBuffer, let url = s.meetingDirectory?.appendingPathComponent("them.caf") {
+            if let url = s.meetingDirectory?.appendingPathComponent("them.caf") {
                 if s.systemFile == nil {
                     s.systemFile = try? AVAudioFile(forWriting: url, settings: systemBuffer.format.settings)
                 }
@@ -199,27 +228,32 @@ final class MeetingRecorder: @unchecked Sendable {
         }
     }
 
-    /// Copies a contiguous channel range out of a multi-channel buffer into a
-    /// fresh buffer of its own -- AVAudioFile.write(from:) writes every
-    /// channel in the buffer it's given, so each track needs its own
-    /// standalone buffer rather than a view into the combined one.
-    nonisolated private static func slice(_ buffer: AVAudioPCMBuffer, channelRange: Range<Int>) -> AVAudioPCMBuffer? {
-        guard !channelRange.isEmpty,
-              channelRange.upperBound <= Int(buffer.format.channelCount),
-              let sourceData = buffer.floatChannelData,
-              let slicedFormat = AVAudioFormat(
-                commonFormat: buffer.format.commonFormat,
-                sampleRate: buffer.format.sampleRate,
-                channels: AVAudioChannelCount(channelRange.count),
-                interleaved: false
+    /// Deinterleaves one raw HAL AudioBuffer into a fresh, standalone
+    /// AVAudioPCMBuffer -- AVAudioFile.write(from:) and floatChannelData both
+    /// expect non-interleaved buffers, matching every other buffer in this
+    /// codebase (AudioCapture, BufferConverter).
+    nonisolated private static func pcmBuffer(from audioBuffer: AudioBuffer, sampleRate: Double) -> AVAudioPCMBuffer? {
+        let channelCount = Int(audioBuffer.mNumberChannels)
+        let bytesPerSample = MemoryLayout<Float>.size
+        guard channelCount > 0,
+              let sourceData = audioBuffer.mData,
+              audioBuffer.mDataByteSize > 0 else { return nil }
+        let frameCount = Int(audioBuffer.mDataByteSize) / bytesPerSample / channelCount
+        guard frameCount > 0,
+              let format = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32, sampleRate: sampleRate,
+                channels: AVAudioChannelCount(channelCount), interleaved: false
               ),
-              let sliced = AVAudioPCMBuffer(pcmFormat: slicedFormat, frameCapacity: buffer.frameCapacity),
-              let destData = sliced.floatChannelData else { return nil }
-        sliced.frameLength = buffer.frameLength
-        for (destChannel, sourceChannel) in channelRange.enumerated() {
-            destData[destChannel].update(from: sourceData[sourceChannel], count: Int(buffer.frameLength))
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frameCount)),
+              let destData = buffer.floatChannelData else { return nil }
+        buffer.frameLength = AVAudioFrameCount(frameCount)
+        let source = sourceData.assumingMemoryBound(to: Float.self)
+        for frame in 0..<frameCount {
+            for channel in 0..<channelCount {
+                destData[channel][frame] = source[frame * channelCount + channel]
+            }
         }
-        return sliced
+        return buffer
     }
 
     nonisolated private static func peak(of buffer: AVAudioPCMBuffer) -> Float {
@@ -293,41 +327,39 @@ final class MeetingRecorder: @unchecked Sendable {
         return uid.takeRetainedValue() as String
     }
 
-    nonisolated private static func inputChannelCount(of deviceID: AudioDeviceID) throws -> Int {
+    nonisolated private static func tapUID(of tapObjectID: AudioObjectID) throws -> String {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mSelector: kAudioTapPropertyUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var uid: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = withUnsafeMutablePointer(to: &uid) {
+            AudioObjectGetPropertyData(tapObjectID, &address, 0, nil, &size, $0)
+        }
+        guard status == noErr, let uid else { throw error("kAudioTapPropertyUID", status) }
+        return uid.takeRetainedValue() as String
+    }
+
+    /// Only the sample rate is read from this -- per-buffer channel counts
+    /// come from the HAL callback itself (see handleRaw), since the aggregate
+    /// delivers the mic and tap as two separately-shaped AudioBuffers, not
+    /// one stream this ASBD alone could fully describe.
+    /// kAudioDevicePropertyStreamFormat is deprecated in favor of querying
+    /// the stream object directly, but still functions correctly and is far
+    /// simpler for what this needs.
+    nonisolated private static func inputStreamFormat(of deviceID: AudioDeviceID) throws -> AudioStreamBasicDescription {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamFormat,
             mScope: kAudioDevicePropertyScopeInput,
             mElement: kAudioObjectPropertyElementMain
         )
-        var dataSize: UInt32 = 0
-        var status = AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &dataSize)
-        guard status == noErr, dataSize > 0 else { throw error("kAudioDevicePropertyStreamConfiguration size", status) }
-
-        let bufferListPointer = UnsafeMutableRawPointer.allocate(byteCount: Int(dataSize), alignment: MemoryLayout<AudioBufferList>.alignment)
-        defer { bufferListPointer.deallocate() }
-        status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, bufferListPointer)
-        guard status == noErr else { throw error("kAudioDevicePropertyStreamConfiguration", status) }
-
-        let bufferList = bufferListPointer.assumingMemoryBound(to: AudioBufferList.self)
-        let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
-        let channelCount = buffers.reduce(0) { $0 + Int($1.mNumberChannels) }
-        return max(1, channelCount)
-    }
-
-    /// Mirrors AudioCapture.setInputDevice(_:on:) exactly -- same mechanism,
-    /// now pointed at our aggregate device instead of a physical one.
-    nonisolated private static func setInputDevice(_ deviceID: AudioDeviceID, on node: AVAudioInputNode) throws {
-        guard let audioUnit = node.audioUnit else { return }
-        var mutableDeviceID = deviceID
-        let status = AudioUnitSetProperty(
-            audioUnit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &mutableDeviceID,
-            UInt32(MemoryLayout<AudioDeviceID>.size)
-        )
-        guard status == noErr else { throw error("kAudioOutputUnitProperty_CurrentDevice", status) }
+        var asbd = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &asbd)
+        guard status == noErr else { throw error("kAudioDevicePropertyStreamFormat", status) }
+        return asbd
     }
 
     nonisolated private static func makeMeetingDirectory(appName: String) throws -> URL {
