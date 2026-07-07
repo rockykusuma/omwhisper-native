@@ -6,7 +6,7 @@
 ._*
 
 # Custom folder icons
-Icon
+Icon
 
 # Volume root files
 .DocumentRevisions-V100
@@ -65,3 +65,7 @@ playground.xcworkspace
 # Package.resolved
 # Local git worktrees (superpowers:using-git-worktrees)
 .worktrees/
+
+### Python (plugin skill scripts)
+__pycache__/
+*.pyc

@@ -71,11 +71,33 @@ colors in the overlay.
 - Panel frame becomes ~500×100 to fit (update `OverlayPanel.makePanel` and
   keep `position()` math).
 
-### Idle-listening compact form (optional, phase 2)
+### Overlay styles (user setting — decided 2026-07-07)
 
-When no words have arrived yet, the pill may render orb-only (~80pt circle)
-and expand horizontally on the first partial (spring, 300ms). Ship the
-full-width pill first; add the compact form once the rest is stable.
+The overlay is one engine with **three user-selectable presentations**
+(`overlayStyle` setting; picker with live previews + auto-demo in the hub's
+settings). Reference mockup: `docs/overlay-styles.html`. Decided 2026-07-07:
+**Orb is the canonical minimal style**; **Whisper line** ships as a third,
+ultra-minimal tier (competitive answer to Wispr Flow's Flow Bar lozenge,
+but ours keeps the micro-ॐ brand mark — never a bars-only capsule).
+
+| Style | Form | Shows |
+|---|---|---|
+| **Full** (default) | the pill below (~500×100pt) | orb + status label + live 2-line transcript |
+| **Orb** (minimal) | ~96pt circle | orb only — field reacts to voice, finalize pulse, no text |
+| **Whisper line** (ultra-minimal) | ~132×38pt lozenge | micro-ॐ + 5 amplitude bars, nothing else |
+
+Rules that hold across ALL styles (this is what keeps minimal honest):
+- Same state machine, same entrance/exit physics, same timings (§4).
+- Warming is visible on keydown in every style.
+- Finalize pulse still seals the dictation (orb pulse; in Whisper line the
+  bars flash mint once).
+- **Errors always surface**: minimal styles transiently expand into a small
+  capsule showing `NOTHING HEARD` (§9) — silence must never look like
+  success, regardless of how minimal the user went.
+- Style switching applies from the next dictation; never mid-session.
+
+This supersedes the earlier "idle-listening compact form" idea (orb-only was
+phase-2 speculative; it is now simply the **Orb** style).
 
 ## 4. State machine
 

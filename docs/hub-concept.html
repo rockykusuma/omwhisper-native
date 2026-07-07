@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OmWhisper — Hub Window Concept ("Liquid Emerald")</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* ============ Porcelain — the OmWhisper app palette ============ */
+  :root{
+    --bg:#F7FAF8; --panel:#FFFFFF; --panel2:#F0F5F1; --ink:#0F241B; --dim:#66796F;
+    --faint:#DCE7DF; --em:#0FA97C; --mint:#0D9488; --teal:#0E7490; --err:#F87171; --hair:#E3ECE5;
+    --page:#EDF2EE;
+    --aurora1:rgba(16,185,129,.10); --aurora2:rgba(14,116,144,.07);
+    --side1:rgba(255,255,255,.72); --side2:rgba(246,250,247,.72);
+    --numA:#0FA97C; --numB:#0E7490;             /* big-number gradient */
+    --accent-tint:rgba(15,169,124,.07);          /* hovers, chips bg */
+    --accent-tint2:rgba(15,169,124,.13);         /* active nav */
+    --accent-line:rgba(15,169,124,.4);           /* hover borders */
+    --navink:#41564b; --rowink:#22382e; --headink:#22382e; --dayink:#3e5a4d;
+    --winborder:#E0EAE2; --winshadow:0 46px 110px rgba(23,58,44,.16), 0 2px 8px rgba(23,58,44,.05);
+    --mpbg:rgba(255,255,255,.9); --lastbg:rgba(240,245,241,.9);
+    --kbdbg:#EDF4EF; --kbdline:#D5E2D8; --btnink:#FFFFFF;
+    --traffic:#DCE7DF; --privacydim:#7d948a;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:var(--page);
+    display:flex;align-items:center;justify-content:center;min-height:100vh;
+    font-family:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);
+    padding:24px;transition:background .4s ease;
+  }
+  /* subtle aurora behind the window so the glass has something to refract */
+  body::before{
+    content:"";position:fixed;inset:0;
+    background:
+      radial-gradient(600px 400px at 20% 20%, var(--aurora1), transparent 70%),
+      radial-gradient(700px 500px at 85% 75%, var(--aurora2), transparent 70%);
+    pointer-events:none;
+  }
+
+  /* ============ the hub window ============ */
+  .window{
+    width:1060px;height:680px;border-radius:16px;position:relative;overflow:hidden;
+    background:var(--bg);
+    border:1px solid var(--winborder);
+    box-shadow:var(--winshadow);
+    display:flex;transition:background .4s ease;
+  }
+  .traffic{position:absolute;top:16px;left:16px;display:flex;gap:8px;z-index:60}
+  .traffic i{width:12px;height:12px;border-radius:50%;background:var(--traffic);display:block}
+
+  /* ============ glass sidebar ============ */
+  .sidebar{
+    width:224px;flex:none;padding:52px 12px 14px;
+    background:linear-gradient(180deg, var(--side1), var(--side2));
+    backdrop-filter:blur(30px) saturate(1.3);
+    border-right:1px solid var(--hair);
+    display:flex;flex-direction:column;gap:2px;position:relative;
+  }
+  .side-brand{display:flex;align-items:center;gap:10px;padding:2px 10px 16px}
+  .side-brand canvas{width:34px;height:34px}
+  .side-brand b{font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .side-brand small{display:block;font-size:10.5px;color:var(--dim);margin-top:1px}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav a{
+    display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;
+    color:var(--navink);font-size:13.5px;text-decoration:none;cursor:pointer;
+    transition:background .15s ease,color .15s ease;position:relative;
+  }
+  .nav a:hover{background:var(--accent-tint);color:var(--ink)}
+  .nav a.on{background:var(--accent-tint2);color:var(--ink)}
+  .nav a.on::before{
+    content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:2.5px;border-radius:2px;
+    background:linear-gradient(180deg,var(--em),var(--teal));
+  }
+  .nav a svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6;flex:none;opacity:.85}
+  .nav a.on svg{stroke:var(--em);opacity:1}
+  .nav .soon{margin-left:auto;font-size:9.5px;letter-spacing:.06em;color:var(--dim);
+    border:1px solid var(--faint);border-radius:99px;padding:1.5px 7px}
+  .spacer{flex:1}
+  .side-foot{padding:8px 10px;border-top:1px solid var(--hair)}
+  .side-foot .row{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--dim);padding:5px 0;cursor:pointer}
+  .side-foot .row:hover{color:var(--ink)}
+  .side-foot svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.6}
+  .privacy-dot{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--privacydim);padding:7px 0 0}
+  .privacy-dot i{width:6px;height:6px;border-radius:50%;background:var(--em);box-shadow:0 0 8px rgba(52,211,153,.7)}
+
+  /* ============ content ============ */
+  .content{flex:1;position:relative;overflow:hidden}
+  .view{position:absolute;inset:0;padding:46px 40px 28px;overflow-y:auto;opacity:0;pointer-events:none;transition:opacity .35s ease}
+  .view.on{opacity:1;pointer-events:auto}
+  .view::-webkit-scrollbar{width:0}
+  .eyebrow{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--em);margin-bottom:8px}
+  h1{font-size:28px;font-weight:600;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:14px;margin-top:6px}
+
+  /* ---- home: stats ---- */
+  .stats{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:14px;margin-top:28px}
+  .card{background:var(--panel);border:1px solid var(--hair);border-radius:16px;padding:20px 22px;position:relative;overflow:hidden}
+  .card .label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+  .big{font-size:44px;font-weight:700;letter-spacing:-.03em;line-height:1.1;margin-top:10px;
+    background:linear-gradient(135deg,var(--numA),var(--numB));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .big small{font-size:16px;font-weight:500;color:var(--dim);-webkit-text-fill-color:var(--dim);margin-left:6px;letter-spacing:0}
+  .card .foot{font-size:12px;color:var(--dim);margin-top:8px}
+  .card .foot b{color:var(--dayink);font-weight:500}
+  /* breathing streak line */
+  .streakline{margin-top:16px;height:34px;display:flex;align-items:flex-end;gap:5px}
+  .streakline i{flex:1;border-radius:3px 3px 0 0;background:linear-gradient(180deg,rgba(52,211,153,.55),rgba(52,211,153,.10));
+    animation:breathebar 5s ease-in-out infinite}
+  @keyframes breathebar{0%,100%{opacity:.75}50%{opacity:1}}
+
+  /* ---- recent dictations ---- */
+  .sect{display:flex;align-items:baseline;justify-content:space-between;margin:34px 0 12px}
+  .sect h3{font-size:14px;font-weight:600;color:var(--headink)}
+  .sect a{font-size:12px;color:var(--dim);cursor:pointer}
+  .sect a:hover{color:var(--em)}
+  .rows{display:flex;flex-direction:column;gap:8px}
+  .rowc{
+    background:var(--panel);border:1px solid var(--hair);border-radius:13px;padding:13px 16px;
+    display:flex;align-items:center;gap:13px;cursor:default;transition:border-color .15s,transform .15s;position:relative;
+  }
+  .rowc:hover{border-color:var(--accent-line)}
+  .appic{width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-size:15px;background:var(--panel2);border:1px solid var(--hair)}
+  .rowc .txt{flex:1;min-width:0}
+  .rowc .txt p{font-size:13.5px;color:var(--rowink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rowc .txt small{font-size:11px;color:var(--dim)}
+  .rowc .meta{font-size:11px;color:var(--dim);flex:none}
+  .rowc .acts{display:none;gap:6px;position:absolute;right:12px;background:var(--panel);padding-left:10px}
+  .rowc:hover .acts{display:flex}
+  .rowc:hover .meta{opacity:0}
+  .chip{font-size:11px;color:var(--mint);border:1px solid var(--accent-line);border-radius:99px;padding:3px 10px;cursor:pointer;background:var(--accent-tint)}
+  .chip:hover{background:var(--accent-tint2)}
+
+  /* ---- history timeline ---- */
+  .dayhead{display:flex;align-items:center;gap:12px;margin:26px 0 10px}
+  .dayhead b{font-size:12.5px;color:var(--dayink);font-weight:600;letter-spacing:.02em}
+  .dayhead span{font-size:11px;color:var(--dim)}
+  .dayhead::after{content:"";flex:1;height:1px;background:var(--hair)}
+  .search{
+    margin-top:24px;display:flex;align-items:center;gap:10px;background:var(--panel);
+    border:1px solid var(--hair);border-radius:11px;padding:10px 14px;color:var(--dim);font-size:13.5px;
+  }
+  .search svg{width:15px;height:15px;stroke:var(--dim);fill:none;stroke-width:1.6}
+  .search input{background:none;border:none;outline:none;color:var(--ink);font-family:inherit;font-size:13.5px;flex:1}
+  .meetcard{border-left:2.5px solid var(--teal)}
+  .meetcard .txt p{color:var(--headink)}
+  .badge-meet{font-size:9.5px;letter-spacing:.08em;color:var(--teal);border:1px solid rgba(45,212,191,.35);border-radius:99px;padding:1.5px 7px;margin-left:8px}
+
+  /* ---- empty state (meetings) ---- */
+  .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center}
+  .empty canvas{width:120px;height:120px;margin-bottom:18px}
+  .empty h2{font-size:19px;font-weight:600}
+  .empty p{color:var(--dim);font-size:13.5px;margin-top:8px;max-width:380px;line-height:1.6}
+  .empty .chip{margin-top:18px}
+
+  /* ---- vocabulary ---- */
+  .vocabwrap{margin-top:26px;display:flex;flex-wrap:wrap;gap:8px}
+  .vchip{font-size:13px;color:var(--rowink);background:var(--panel);border:1px solid var(--hair);border-radius:99px;padding:6px 14px;display:flex;gap:8px;align-items:center}
+  .vchip:hover{border-color:var(--accent-line)}
+  .vchip i{color:var(--dim);cursor:pointer;font-style:normal}
+  .vchip.add{color:var(--em);border-style:dashed;cursor:pointer;border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.04)}
+
+  /* ---- AI styles ---- */
+  .stylegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:26px}
+  .stylecard{background:var(--panel);border:1px solid var(--hair);border-radius:14px;padding:16px;cursor:pointer;transition:all .15s}
+  .stylecard:hover{border-color:var(--accent-line)}
+  .stylecard.on{border-color:var(--em);background:var(--accent-tint);box-shadow:0 0 24px rgba(52,211,153,.08)}
+  .stylecard b{font-size:13.5px;display:flex;align-items:center;gap:7px}
+  .stylecard.on b::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--em);box-shadow:0 0 8px var(--em)}
+  .stylecard p{font-size:11.5px;color:var(--dim);margin-top:6px;line-height:1.5}
+
+  /* ============ menu-bar mini panel preview ============ */
+  .mb-toggle{
+    position:absolute;top:14px;right:16px;z-index:70;font-size:11.5px;color:var(--dim);
+    background:var(--mpbg);border:1px solid var(--hair);border-radius:99px;padding:6px 14px;
+    cursor:pointer;font-family:inherit;backdrop-filter:blur(10px);
+  }
+  .mb-toggle:hover{color:var(--mint);border-color:var(--accent-line)}
+  .minipanel{
+    position:absolute;top:46px;right:16px;width:270px;z-index:65;
+    background:var(--mpbg);backdrop-filter:blur(28px) saturate(1.3);
+    border:1px solid rgba(52,211,153,.22);border-radius:18px;padding:16px;
+    box-shadow:0 26px 70px rgba(0,0,0,.6);
+    opacity:0;transform:translateY(-8px) scale(.98);pointer-events:none;
+    transition:all .28s cubic-bezier(.2,.9,.3,1.15);
+  }
+  .minipanel.show{opacity:1;transform:none;pointer-events:auto}
+  .mp-head{display:flex;align-items:center;gap:10px}
+  .mp-head canvas{width:40px;height:40px}
+  .mp-head b{font-size:13px}
+  .mp-head small{display:block;font-size:10.5px;color:var(--dim);margin-top:1px}
+  .mp-btn{
+    margin-top:13px;width:100%;padding:11px 0;border-radius:12px;border:none;cursor:pointer;font-family:inherit;
+    font-size:13.5px;font-weight:600;color:var(--btnink);background:linear-gradient(135deg,var(--em),var(--teal));
+    box-shadow:0 6px 22px rgba(52,211,153,.25);
+  }
+  .mp-row{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:11.5px;color:var(--dim)}
+  .mp-last{margin-top:12px;background:var(--lastbg);border:1px solid var(--hair);border-radius:11px;padding:10px 12px}
+  .mp-last p{font-size:12px;color:var(--rowink);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mp-last small{font-size:10px;color:var(--dim)}
+  .kbd{background:var(--kbdbg);border:1px solid var(--kbdline);border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-family:ui-monospace,monospace;font-size:10.5px;color:var(--mint)}
+  .proto-note{position:fixed;bottom:10px;left:0;right:0;text-align:center;color:var(--dim);opacity:.6;font-size:12px;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<div class="window">
+  <div class="traffic"><i></i><i></i><i></i></div>
+  <button class="mb-toggle" onclick="document.getElementById('mp').classList.toggle('show')">☰ preview menu-bar panel</button>
+
+  <!-- menu-bar mini panel -->
+  <div class="minipanel" id="mp">
+    <div class="mp-head">
+      <canvas id="orbMP" width="80" height="80"></canvas>
+      <div><b>Ready</b><small>Parakeet-quality, on this Mac</small></div>
+    </div>
+    <button class="mp-btn">● Start dictating &nbsp;<span style="opacity:.55;font-weight:500">⌘⇧V</span></button>
+    <div class="mp-row"><span>Polish style</span><span class="chip" style="font-size:10.5px">Smart Correct ▾</span></div>
+    <div class="mp-last">
+      <p>Let's move the standup to 10:30 tomorrow and keep the demo slot as is.</p>
+      <small>→ Slack · 2 min ago · <u style="cursor:pointer">copy</u></small>
+    </div>
+    <div class="mp-row" style="margin-top:10px"><span>Open OmWhisper</span><span class="kbd">⌘O</span></div>
+  </div>
+
+  <!-- ============ sidebar ============ -->
+  <aside class="sidebar">
+    <div class="side-brand">
+      <canvas id="orbSide" width="68" height="68"></canvas>
+      <div><b>OmWhisper</b><small>2.0 · listening locally</small></div>
+    </div>
+    <nav class="nav" id="nav">
+      <a class="on" data-v="home"><svg viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5M5.5 10v9.5h13V10"/></svg>Home</a>
+      <a data-v="history"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>History</a>
+      <a data-v="meetings"><svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M8 3.5v3M16 3.5v3"/></svg>Meetings<span class="soon">S3</span></a>
+      <a data-v="vocab"><svg viewBox="0 0 24 24"><path d="M5 4.5h11a2.5 2.5 0 0 1 2.5 2.5v12.5H7A2 2 0 0 1 5 17.5z"/><path d="M5 17.5A2 2 0 0 1 7 15.5h11.5"/></svg>Vocabulary</a>
+      <a data-v="ai"><svg viewBox="0 0 24 24"><path d="M12 3.5l1.8 4.7 4.7 1.8-4.7 1.8L12 16.5l-1.8-4.7L5.5 10l4.7-1.8z"/><path d="M18.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/></svg>AI Polish</a>
+      <a data-v="memory"><svg viewBox="0 0 24 24"><path d="M12 4a5 5 0 0 1 5 5c2 .6 3.5 2.2 3.5 4.3 0 2.4-2 4.2-4.5 4.2h-8C5.5 17.5 3.5 15.7 3.5 13.3 3.5 11.2 5 9.6 7 9a5 5 0 0 1 5-5z"/></svg>Memory<span class="soon">S5</span></a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="side-foot">
+      <div class="row"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M18.4 5.6l-1.8 1.8M7.4 16.6l-1.8 1.8"/></svg>Settings</div>
+      <div class="privacy-dot"><i></i>All processing on this Mac</div>
+    </div>
+  </aside>
+
+  <!-- ============ content views ============ -->
+  <main class="content">
+
+    <!-- HOME -->
+    <section class="view on" id="v-home">
+      <div class="eyebrow">Tuesday, July 7</div>
+      <h1>Good morning, R</h1>
+      <p class="sub">You've spoken instead of typed for 6 days straight.</p>
+
+      <div class="stats">
+        <div class="card">
+          <div class="label">Words today</div>
+          <div class="big" id="stWords">0</div>
+          <div class="streakline">
+            <i style="height:40%"></i><i style="height:62%"></i><i style="height:48%"></i>
+            <i style="height:75%"></i><i style="height:58%"></i><i style="height:88%"></i><i style="height:66%"></i>
+          </div>
+        </div>
+        <div class="card">
+          <div class="label">Time saved</div>
+          <div class="big" id="stTime">0<small>min</small></div>
+          <div class="foot">vs typing at <b>45 wpm</b></div>
+        </div>
+        <div class="card">
+          <div class="label">Speaking pace</div>
+          <div class="big" id="stWpm">0<small>wpm</small></div>
+          <div class="foot"><b>2.1×</b> your typing speed</div>
+        </div>
+      </div>
+
+      <div class="sect"><h3>Recent</h3><a onclick="switchView('history')">View all →</a></div>
+      <div class="rows">
+        <div class="rowc">
+          <div class="appic">💬</div>
+          <div class="txt"><p>Let's move the standup to 10:30 tomorrow and keep the demo slot as is.</p><small>Slack · Smart Correct</small></div>
+          <div class="meta">2 min ago</div>
+          <div class="acts"><span class="chip">Copy</span><span class="chip">Re-polish</span></div>
+        </div>
+        <div class="rowc">
+          <div class="appic">✉️</div>
+          <div class="txt"><p>Hi Sarah, following up on the beta invite — we're targeting the last week of July…</p><small>Mail · Email Format</small></div>
+          <div class="meta">1 hr ago</div>
+          <div class="acts"><span class="chip">Copy</span><span class="chip">Re-polish</span></div>
+        </div>
+        <div class="rowc">
+          <div class="appic">📝</div>
+          <div class="txt"><p>Overlay idea: the finalize pulse could double as the paste confirmation…</p><small>Notes · raw</small></div>
+          <div class="meta">3 hrs ago</div>
+          <div class="acts"><span class="chip">Copy</span><span class="chip">Re-polish</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section class="view" id="v-history">
+      <div class="eyebrow">Everything you said</div>
+      <h1>History</h1>
+      <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><input placeholder="Search your words… (full-text, instant)"></div>
+
+      <div class="dayhead"><b>Today</b><span>14 dictations · 1,284 words</span></div>
+      <div class="rows">
+        <div class="rowc">
+          <div class="appic">💬</div>
+          <div class="txt"><p>Let's move the standup to 10:30 tomorrow and keep the demo slot as is.</p><small>Slack · 09:41</small></div>
+          <div class="meta">18 words</div>
+          <div class="acts"><span class="chip">Copy</span><span class="chip">Delete</span></div>
+        </div>
+        <div class="rowc meetcard">
+          <div class="appic">🎧</div>
+          <div class="txt"><p>Design sync — decisions: hub window approved; action: R to review onboarding copy<span class="badge-meet">MEETING</span></p><small>Google Meet · 09:00 · 32 min · transcript + summary</small></div>
+          <div class="meta">32 min</div>
+          <div class="acts"><span class="chip">Open</span><span class="chip">Summary</span></div>
+        </div>
+        <div class="rowc">
+          <div class="appic">✉️</div>
+          <div class="txt"><p>Hi Sarah, following up on the beta invite — we're targeting the last week of July…</p><small>Mail · 08:52</small></div>
+          <div class="meta">64 words</div>
+          <div class="acts"><span class="chip">Copy</span><span class="chip">Delete</span></div>
+        </div>
+      </div>
+
+      <div class="dayhead"><b>Yesterday</b><span>21 dictations · 2,013 words</span></div>
+      <div class="rows">
+        <div class="rowc">
+          <div class="appic">🌐</div>
+          <div class="txt"><p>The frontier plan looks right — sequence whisper mode after the FluidAudio work lands.</p><small>Chrome · 18:22</small></div>
+          <div class="meta">15 words</div>
+          <div class="acts"><span class="chip">Copy</span><span class="chip">Delete</span></div>
+        </div>
+        <div class="rowc">
+          <div class="appic">📝</div>
+          <div class="txt"><p>Brain dump: onboarding should end with the orb flying into the menu bar, that's the moment…</p><small>Notes · 16:05</small></div>
+          <div class="meta">142 words</div>
+          <div class="acts"><span class="chip">Copy</span><span class="chip">Delete</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MEETINGS (empty state) -->
+    <section class="view" id="v-meetings">
+      <div class="empty">
+        <canvas id="orbMeet" width="240" height="240"></canvas>
+        <h2>Meetings, remembered</h2>
+        <p>When any app opens your microphone, OmWhisper will ask — one click to record, transcribe on-device, and file a summary with decisions and action items here. Nothing is ever recorded without you.</p>
+        <span class="chip">Coming in S3 · consent-first, always local</span>
+      </div>
+    </section>
+
+    <!-- VOCABULARY -->
+    <section class="view" id="v-vocab">
+      <div class="eyebrow">Teach it your words</div>
+      <h1>Vocabulary</h1>
+      <p class="sub">These terms bias transcription — names, jargon, projects. Context-aware dictation adds what's on your screen automatically.</p>
+      <div class="vocabwrap">
+        <span class="vchip">Parakeet <i>×</i></span><span class="vchip">FluidAudio <i>×</i></span>
+        <span class="vchip">Smriti <i>×</i></span><span class="vchip">CGEventTap <i>×</i></span>
+        <span class="vchip">omwhisper-native <i>×</i></span><span class="vchip">SpeechTranscriber <i>×</i></span>
+        <span class="vchip">Kusuma <i>×</i></span><span class="vchip add">+ Add word</span>
+      </div>
+      <div class="sect" style="margin-top:36px"><h3>Replacements</h3><a>+ Add</a></div>
+      <div class="rows">
+        <div class="rowc"><div class="txt"><p>"om whisper" <span style="color:var(--dim)">→</span> OmWhisper</p></div><div class="meta">whole word</div></div>
+        <div class="rowc"><div class="txt"><p>"swift ui" <span style="color:var(--dim)">→</span> SwiftUI</p></div><div class="meta">whole word</div></div>
+      </div>
+    </section>
+
+    <!-- AI POLISH -->
+    <section class="view" id="v-ai">
+      <div class="eyebrow">Voice → words → intent</div>
+      <h1>AI Polish</h1>
+      <p class="sub">On-device by default (Apple Foundation Models). Your text never leaves unless you choose a cloud backend.</p>
+      <div class="stylegrid">
+        <div class="stylecard on"><b>Smart Correct</b><p>Fixes fillers, self-corrections, grammar. The invisible default.</p></div>
+        <div class="stylecard"><b>Professional</b><p>Polished business tone for docs and email.</p></div>
+        <div class="stylecard"><b>Casual</b><p>Relaxed, chat-ready. Slack-native.</p></div>
+        <div class="stylecard"><b>Concise</b><p>Says it in half the words.</p></div>
+        <div class="stylecard"><b>Email Format</b><p>Greeting, body, sign-off — structured.</p></div>
+        <div class="stylecard"><b>Meeting Notes</b><p>Decisions and action items, extracted.</p></div>
+      </div>
+    </section>
+
+    <!-- MEMORY (empty state) -->
+    <section class="view" id="v-memory">
+      <div class="empty">
+        <canvas id="orbMem" width="240" height="240"></canvas>
+        <h2>A memory of your Mac</h2>
+        <p>Search everything you've seen, dictated, and discussed — stored in one local file you can open, inspect, or delete. Ask Claude about your own day. Off until you turn it on.</p>
+        <span class="chip">Coming in S5 · one SQLite file, yours</span>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<p class="proto-note">concept mockup · "Liquid Emerald" hub window · omwhisper-native</p>
+
+<script>
+/* ===== the Om orb (shared engine — port of OVERLAY_SPEC §5) =====
+   Theme-aware: on dark grounds the field is additive light; on Porcelain the
+   blobs render as saturated watercolor washes and the glyph is deep emerald ink. */
+const orbTheme={
+  /* Porcelain orb: watercolor emerald washes + deep-emerald ink glyph.
+     (The overlay HUD keeps the dark additive-light orb per OVERLAY_SPEC.) */
+  blobs:[[16,185,129],[13,148,136],[5,150,105]],blobA:(a)=>.10+a*.14,comp:'source-over',
+  ring:(a)=>`rgba(13,148,136,${.15+a*.3})`,under:'rgba(255,255,255,.85)',
+  glyph:(l)=>`rgba(${6+Math.round(6*l)},${95+Math.round(40*l)},${70+Math.round(35*l)},1)`,
+  shadow:(l)=>`rgba(16,185,129,${.2+l*.3})`
+};
+class OmOrb{
+  constructor(id){this.cv=document.getElementById(id);this.ctx=this.cv.getContext('2d');
+    this.S=this.cv.width;this.k=this.S/256;this.glow=.6;}
+  draw(t,amp){
+    const{ctx,S,k}=this,c=S/2,T=orbTheme;ctx.clearRect(0,0,S,S);
+    ctx.globalCompositeOperation=T.comp;
+    for(let i=0;i<3;i++){
+      const phi=i*2.1,col=T.blobs[i],R=(27+amp*16)*2*k,w1=(3+amp*8)*2*k,w2=(2+amp*4)*2*k;
+      ctx.beginPath();
+      for(let a=0;a<=64;a++){const th=a/64*2*Math.PI;
+        const r=R+Math.sin(3*th+t/300+phi)*w1+Math.sin(5*th-t/200+phi)*w2;
+        const x=c+Math.cos(th)*r,y=c+Math.sin(th)*r;a?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+      ctx.closePath();ctx.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${T.blobA(amp)})`;ctx.fill();
+    }
+    ctx.beginPath();ctx.arc(c,c,(34+amp*20+Math.sin(t/600)*2)*2*k,0,7);
+    ctx.strokeStyle=T.ring(amp);ctx.lineWidth=3*k;ctx.stroke();
+    ctx.globalCompositeOperation='source-over';
+    const breath=1+.02*Math.sin(t/900),lum=Math.min(1,this.glow*.55+amp*.5);
+    ctx.font=`${36*2*k*breath}px "Devanagari Sangam MN","Noto Sans Devanagari",serif`;
+    ctx.textAlign='center';ctx.textBaseline='alphabetic';
+    const m=ctx.measureText('ॐ');
+    const gy=c+(m.actualBoundingBoxAscent-m.actualBoundingBoxDescent)/2-3*2*k;
+    ctx.fillStyle=T.under;ctx.fillText('ॐ',c+3*k,gy+3*k);
+    ctx.shadowColor=T.shadow(lum);ctx.shadowBlur=(14+lum*22)*k;
+    ctx.fillStyle=T.glyph(lum);
+    ctx.fillText('ॐ',c,gy);ctx.shadowBlur=0;
+  }
+}
+const orbs=['orbSide','orbMP','orbMeet','orbMem'].map(id=>new OmOrb(id));
+let amp=.12;
+(function loop(t){
+  const target=.10+Math.abs(Math.sin(t/1400))*.06;   // idle: barely alive, never dead
+  amp+=(target-amp)*.05;
+  orbs.forEach(o=>{if(o.cv.offsetParent!==null)o.draw(t,amp);});
+  requestAnimationFrame(loop);
+})(0);
+
+/* ===== nav ===== */
+function switchView(v){
+  document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('on',a.dataset.v===v));
+  document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s.id==='v-'+v));
+}
+document.querySelectorAll('.nav a').forEach(a=>a.onclick=()=>switchView(a.dataset.v));
+
+/* ===== stat count-ups ===== */
+function countUp(id,to,dur,suffix){
+  const el=document.getElementById(id);const t0=performance.now();
+  (function tick(t){const p=Math.min((t-t0)/dur,1);
+    el.childNodes[0].nodeValue=Math.round(to*(1-Math.pow(1-p,3))).toLocaleString();
+    if(p<1)requestAnimationFrame(tick);})(t0);
+}
+setTimeout(()=>{countUp('stWords',1284,1100);countUp('stTime',19,1100);countUp('stWpm',96,1100);},400);
+</script>
+</body>
+</html>

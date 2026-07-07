@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OmWhisper — Overlay Styles (Full · Orb · Whisper line)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* HUD palette is ALWAYS dark (OVERLAY_SPEC §1.5) — the desktop behind is light to prove it floats */
+  :root{
+    --hudbg:rgba(10,15,13,.92); --hudborder:rgba(52,211,153,.35);
+    --ink:#EAFFF5; --dim:#5D7A6E; --em:#34D399; --mint:#6EE7B7; --teal:#2DD4BF;
+    --volatile:rgba(110,231,183,.5); --err:#F87171;
+    --pbg:#F7FAF8; --pink:#0F241B; --pdim:#66796F; --phair:#E3ECE5; --pem:#0FA97C;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    font-family:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    background:linear-gradient(160deg,#DCE9E1 0%,#EDF2EE 40%,#E3EDE6 100%);
+    min-height:100vh;overflow:hidden;color:var(--pink);
+  }
+  /* ===== fake desktop content so the HUD visibly floats over work ===== */
+  .fakewin{
+    position:absolute;top:70px;left:50%;transform:translateX(-50%);width:640px;
+    background:#fff;border:1px solid var(--phair);border-radius:12px;
+    box-shadow:0 30px 70px rgba(23,58,44,.14);overflow:hidden;
+  }
+  .fakewin .bar{height:30px;background:#F3F7F4;border-bottom:1px solid var(--phair);display:flex;align-items:center;padding:0 12px;gap:7px}
+  .fakewin .bar i{width:9px;height:9px;border-radius:50%;background:#DCE7DF}
+  .fakewin .bar span{margin-left:8px;font-size:11.5px;color:var(--pdim)}
+  .fakewin .doc{min-height:120px;padding:18px 20px;font-size:15.5px;line-height:1.65;color:var(--pink)}
+  .caret{display:inline-block;width:2px;height:1.1em;background:var(--pem);vertical-align:text-bottom;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .pasted{animation:pastein .5s ease-out both}
+  @keyframes pastein{from{background:rgba(15,169,124,.16)}to{background:transparent}}
+
+  /* ===== settings picker (Porcelain, as it would appear in the hub) ===== */
+  .picker{
+    position:absolute;top:290px;left:50%;transform:translateX(-50%);width:640px;
+    background:#fff;border:1px solid var(--phair);border-radius:14px;padding:18px 20px;
+    box-shadow:0 20px 50px rgba(23,58,44,.10);
+  }
+  .picker h3{font-size:13px;font-weight:600}
+  .picker p{font-size:11.5px;color:var(--pdim);margin-top:3px}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+  .scard{
+    border:1.5px solid var(--phair);border-radius:12px;padding:12px;cursor:pointer;text-align:center;
+    transition:all .18s ease;background:#FBFDFB;
+  }
+  .scard:hover{border-color:rgba(15,169,124,.4)}
+  .scard.on{border-color:var(--pem);background:rgba(15,169,124,.06);box-shadow:0 0 0 3px rgba(15,169,124,.08)}
+  .scard b{font-size:12.5px;display:block}
+  .scard small{font-size:10.5px;color:var(--pdim);display:block;margin-top:3px;line-height:1.45}
+  /* mini previews inside cards */
+  .prev{height:44px;display:flex;align-items:center;justify-content:center;margin-bottom:8px}
+  .prev .mini-pill{width:120px;height:26px;border-radius:13px;background:var(--hudbg);border:1px solid var(--hudborder);display:flex;align-items:center;gap:5px;padding:0 7px}
+  .prev .mini-pill i{width:10px;height:10px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#34D399,#0b3f30)}
+  .prev .mini-pill s{flex:1;height:3px;border-radius:2px;background:linear-gradient(90deg,rgba(110,231,183,.9),rgba(110,231,183,.25));text-decoration:none}
+  .prev .mini-orb{width:30px;height:30px;border-radius:50%;background:var(--hudbg);border:1px solid var(--hudborder);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--em)}
+  .prev .mini-loz{width:64px;height:20px;border-radius:10px;background:var(--hudbg);border:1px solid var(--hudborder);display:flex;align-items:center;justify-content:center;gap:2.5px}
+  .prev .mini-loz i{width:2.5px;border-radius:2px;background:var(--mint);height:8px;animation:mbar 1s ease-in-out infinite}
+  .prev .mini-loz i:nth-child(2){height:12px;animation-delay:.15s}.prev .mini-loz i:nth-child(3){height:6px;animation-delay:.3s}
+  .prev .mini-loz i:nth-child(4){height:11px;animation-delay:.45s}.prev .mini-loz i:nth-child(5){height:7px;animation-delay:.6s}
+  @keyframes mbar{0%,100%{transform:scaleY(.6)}50%{transform:scaleY(1)}}
+
+  .tryrow{display:flex;align-items:center;gap:12px;margin-top:16px;justify-content:center}
+  .hint{font-size:12px;color:var(--pdim)}
+  .hint kbd{background:#EDF4EF;border:1px solid #D5E2D8;border-bottom-width:2px;border-radius:6px;padding:2px 9px;font-family:ui-monospace,monospace;font-size:11px;color:var(--pem)}
+  .ghostbtn{background:none;border:1px solid var(--phair);border-radius:99px;color:var(--pdim);font-size:11.5px;padding:6px 14px;cursor:pointer;font-family:inherit}
+  .ghostbtn:hover{color:var(--err);border-color:rgba(248,113,113,.4)}
+
+  /* ===== THE HUD (bottom-center, always dark) ===== */
+  .hudwrap{position:fixed;left:0;right:0;bottom:56px;display:flex;justify-content:center;pointer-events:none;z-index:50}
+  .hud{
+    background:var(--hudbg);border:1px solid var(--hudborder);
+    box-shadow:0 18px 50px rgba(0,0,0,.45), 0 0 40px rgba(52,211,153,.08);
+    display:flex;align-items:center;color:var(--ink);
+    opacity:0;transform:translateY(90px);
+  }
+  .hud.enter{transition:all .35s cubic-bezier(.2,.9,.3,1.2);opacity:1;transform:none}
+  .hud.exit{transition:all .3s ease-in;opacity:0;transform:translateY(90px)}
+  .hud.errflash{border-color:rgba(248,113,113,.65);box-shadow:0 18px 50px rgba(0,0,0,.45),0 0 34px rgba(248,113,113,.25)}
+
+  /* style: FULL — the approved pill */
+  .hud.style-full{width:500px;height:100px;border-radius:28px;gap:14px;padding:8px 22px 8px 8px}
+  .hud.style-full canvas{width:84px;height:84px;flex:none}
+  .hud .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;text-align:left}
+  .hud .status{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);height:14px}
+  .hud .status.fin{color:var(--mint)}
+  .hud .status.err{color:var(--err)}
+  .hud .transcript{
+    font-size:15px;line-height:1.55;height:46px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;
+    -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 10px);mask-image:linear-gradient(to bottom,transparent 0,#000 10px);
+  }
+  .transcript .finw{color:var(--ink)}
+  .transcript .vol{color:var(--volatile)}
+  .transcript .white .finw,.transcript .white .vol{color:#fff}
+  .word{display:inline-block;animation:wordin .18s ease-out both}
+  @keyframes wordin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* style: ORB — compact circle, nothing else */
+  .hud.style-orb{width:96px;height:96px;border-radius:50%;justify-content:center;padding:0}
+  .hud.style-orb canvas{width:84px;height:84px}
+  .hud.style-orb .body{display:none}
+
+  /* style: LINE — the whisper lozenge */
+  .hud.style-line{width:132px;height:38px;border-radius:19px;justify-content:center;gap:3px;padding:0 14px}
+  .hud.style-line canvas{display:none}
+  .hud.style-line .body{display:none}
+  .hud.style-line .om-micro{font-size:14px;color:var(--em);margin-right:7px;text-shadow:0 0 8px rgba(52,211,153,.6)}
+  .hud.style-line .bars{display:flex;align-items:center;gap:3px;height:20px}
+  .hud.style-line .bars i{width:3px;border-radius:2px;background:var(--mint);height:6px;transition:height .09s linear}
+  /* error mini-label used by minimal styles when transiently expanded */
+  .hud .errlabel{display:none;font-size:11px;letter-spacing:.08em;color:var(--err);white-space:nowrap;padding:0 6px}
+  .hud.expanded-err{width:auto;min-width:180px;border-radius:19px;padding:0 18px;height:38px}
+  .hud.expanded-err .errlabel{display:block}
+  .hud.expanded-err canvas,.hud.expanded-err .bars,.hud.expanded-err .om-micro{display:none!important}
+
+  .eyebrow{position:absolute;top:26px;left:50%;transform:translateX(-50%);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#4d685c}
+  .proto-note{position:fixed;bottom:14px;left:0;right:0;text-align:center;color:#7c948a;font-size:11.5px;font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<div class="eyebrow">Overlay style — user choice, one dictation engine</div>
+
+<!-- fake target app -->
+<div class="fakewin">
+  <div class="bar"><i></i><i></i><i></i><span>Notes — your text lands here</span></div>
+  <div class="doc" id="doc"><span class="caret"></span></div>
+</div>
+
+<!-- settings picker exactly as it would appear in the hub's Porcelain UI -->
+<div class="picker">
+  <h3>Recording overlay</h3>
+  <p>How OmWhisper appears while you dictate. Every style shows warming, listening, and errors — minimal styles just skip the live words.</p>
+  <div class="cards">
+    <div class="scard on" data-s="full" onclick="setStyle('full')">
+      <div class="prev"><div class="mini-pill"><i></i><s></s></div></div>
+      <b>Full</b><small>Orb + live words as you speak. See everything land.</small>
+    </div>
+    <div class="scard" data-s="orb" onclick="setStyle('orb')">
+      <div class="prev"><canvas id="miniOrb" width="88" height="88" style="width:44px;height:44px"></canvas></div>
+      <b>Orb</b><small>Just the orb, breathing with your voice. No text.</small>
+    </div>
+    <div class="scard" data-s="line" onclick="setStyle('line')">
+      <div class="prev"><div class="mini-loz"><i></i><i></i><i></i><i></i><i></i></div></div>
+      <b>Whisper line</b><small>A tiny pulse of sound. Barely there.</small>
+    </div>
+  </div>
+  <div class="tryrow">
+    <span class="hint">Hold <kbd>space</kbd> to dictate (simulated) · release to finish</span>
+    <button class="ghostbtn" onclick="simulateSilence()">Simulate silence → error</button>
+  </div>
+</div>
+
+<!-- the HUD -->
+<div class="hudwrap"><div class="hud style-full" id="hud">
+  <canvas id="orb" width="168" height="168"></canvas>
+  <div class="body">
+    <div class="status" id="status">…</div>
+    <div class="transcript" id="tr"><div></div></div>
+  </div>
+  <div class="bars" id="bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="errlabel">NOTHING HEARD</div>
+</div></div>
+
+<p class="proto-note">overlay styles concept · HUD stays dark over any desktop (spec §1.5) · desktop shown in Porcelain</p>
+
+<script>
+/* ===== dark HUD orb (OVERLAY_SPEC §5) ===== */
+class OmOrb{
+  constructor(id){this.cv=document.getElementById(id);this.ctx=this.cv.getContext('2d');
+    this.S=this.cv.width;this.k=this.S/256;this.glow=.6;this.pulses=[];}
+  pulse(){this.pulses.push({r:34*2*this.k,a:.55});this.glow=1;setTimeout(()=>this.glow=.6,140);}
+  draw(t,amp){
+    const{ctx,S,k}=this,c=S/2;ctx.clearRect(0,0,S,S);
+    ctx.globalCompositeOperation='lighter';
+    const B=[[52,211,153],[45,212,191],[110,231,183]];
+    for(let i=0;i<3;i++){
+      const phi=i*2.1,col=B[i],R=(27+amp*16)*2*k,w1=(3+amp*8)*2*k,w2=(2+amp*4)*2*k;
+      ctx.beginPath();
+      for(let a=0;a<=64;a++){const th=a/64*2*Math.PI;
+        const r=R+Math.sin(3*th+t/300+phi)*w1+Math.sin(5*th-t/200+phi)*w2;
+        a?ctx.lineTo(c+Math.cos(th)*r,c+Math.sin(th)*r):ctx.moveTo(c+Math.cos(th)*r,c+Math.sin(th)*r);}
+      ctx.closePath();ctx.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${.16+amp*.2})`;ctx.fill();
+    }
+    ctx.beginPath();ctx.arc(c,c,(34+amp*20+Math.sin(t/600)*2)*2*k,0,7);
+    ctx.strokeStyle=`rgba(110,231,183,${.1+amp*.3})`;ctx.lineWidth=3*k;ctx.stroke();
+    this.pulses=this.pulses.filter(p=>{p.r+=6.4*k;p.a-=.02;if(p.a<=0)return false;
+      ctx.beginPath();ctx.arc(c,c,p.r,0,7);ctx.strokeStyle=`rgba(110,231,183,${p.a})`;ctx.lineWidth=4*k;ctx.stroke();return true;});
+    ctx.globalCompositeOperation='source-over';
+    const breath=1+.02*Math.sin(t/900),lum=Math.min(1,this.glow*.55+amp*.5);
+    ctx.font=`${36*2*k*breath}px "Devanagari Sangam MN","Noto Sans Devanagari",serif`;
+    ctx.textAlign='center';ctx.textBaseline='alphabetic';
+    const m=ctx.measureText('ॐ');
+    const gy=c+(m.actualBoundingBoxAscent-m.actualBoundingBoxDescent)/2-3*2*k;
+    ctx.fillStyle='rgba(4,52,44,.9)';ctx.fillText('ॐ',c+3*k,gy+3*k);
+    ctx.shadowColor=`rgba(52,211,153,${.35+lum*.45})`;ctx.shadowBlur=(14+lum*22)*k;
+    ctx.fillStyle=`rgba(${234+Math.round(21*lum)},255,${245+Math.round(10*lum)},1)`;
+    ctx.fillText('ॐ',c,gy);ctx.shadowBlur=0;
+  }
+}
+const orb=new OmOrb('orb');
+const miniOrb=new OmOrb('miniOrb');
+let amp=.12,speaking=false;
+const barsEl=[...document.querySelectorAll('#bars i')];
+(function loop(t){
+  const target=speaking?.35+Math.random()*.45:.12;
+  amp+=(target-amp)*(target>amp?.3:.08);
+  /* the settings card preview is ALWAYS alive — a gentle idle murmur */
+  miniOrb.draw(t,.14+Math.abs(Math.sin(t/1100))*.12);
+  if(hud.classList.contains('enter')){
+    orb.draw(t,amp);
+    if(style==='line') barsEl.forEach((b,i)=>{b.style.height=(5+amp*16*(0.6+Math.sin(t/140+i*1.1)*0.4+Math.random()*.3))+'px';});
+  }
+  requestAnimationFrame(loop);
+})(0);
+
+/* ===== style switching (the user's toggle) ===== */
+const hud=document.getElementById('hud');
+let style='full';
+let demoTimers=[];
+function setStyle(s){
+  style=s;
+  hud.className='hud style-'+s;
+  document.querySelectorAll('.scard').forEach(c=>c.classList.toggle('on',c.dataset.s===s));
+  document.getElementById('bars').style.display = s==='line'?'flex':'none';
+  if(s==='line'&&!document.getElementById('omMicro')) hud.insertAdjacentHTML('afterbegin','<span class="om-micro" id="omMicro">ॐ</span>');
+  if(s!=='line') document.getElementById('omMicro')?.remove();
+  autoDemo();                                 // selecting a style immediately demos it
+}
+/* ===== auto-preview: a 4s hands-free dictation so every style shows itself ===== */
+function autoDemo(){
+  demoTimers.forEach(clearTimeout);demoTimers=[];clearInterval(dictTimer);
+  wIdx=0;speaking=false;
+  hud.classList.remove('exit','errflash','expanded-err');hud.classList.add('enter');
+  st.textContent='…';st.className='status';tr.replaceChildren();
+  demoTimers.push(setTimeout(()=>{st.textContent='LISTENING';speaking=true;
+    if(style==='full'){holding=true;stream();demoTimers.push(setTimeout(()=>{holding=false;},2600));}
+  },420));
+  demoTimers.push(setTimeout(()=>{
+    speaking=false;st.textContent='FINALIZING';st.className='status fin';orb.pulse();
+    if(style==='full'&&wIdx>0){const text=sentence.split(' ').slice(0,wIdx).join(' ')+'.';
+      clearInterval(dictTimer);tr.innerHTML='<div class="white"><span class="finw">'+text+'</span></div>';}
+  },3100));
+  demoTimers.push(setTimeout(()=>{hud.classList.remove('enter');hud.classList.add('exit');},3650));
+}
+setStyle('full');
+
+/* ===== dictation simulation — same engine, three presentations ===== */
+const sentence="The overlay should match how much attention each person wants to give it";
+let holding=false,wIdx=0,dictTimer=null;
+const st=document.getElementById('status'),tr=document.getElementById('tr');
+
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&!holding){e.preventDefault();holding=true;start();}});
+document.addEventListener('keyup',e=>{if(e.code==='Space'&&holding){e.preventDefault();holding=false;stop();}});
+
+function start(){
+  demoTimers.forEach(clearTimeout);demoTimers=[];   // a real hold interrupts any preview
+  wIdx=0;speaking=true;
+  hud.classList.remove('exit','errflash','expanded-err');hud.classList.add('enter');
+  st.textContent='…';st.className='status';tr.replaceChildren();
+  document.getElementById('doc').innerHTML='<span class="caret"></span>';
+  setTimeout(()=>{if(!holding)return;st.textContent='LISTENING';stream();},400);
+}
+function stream(){
+  const words=sentence.split(' ');
+  dictTimer=setInterval(()=>{
+    if(!holding||wIdx>=words.length){clearInterval(dictTimer);if(wIdx>=words.length){holding=false;stop();}return;}
+    wIdx++;
+    if(style==='full'){
+      const finCount=Math.max(0,wIdx-3),line=document.createElement('div');
+      if(finCount){const s=document.createElement('span');s.className='finw';s.textContent=words.slice(0,finCount).join(' ')+' ';line.appendChild(s);}
+      words.slice(finCount,wIdx).forEach((w,i,arr)=>{const s=document.createElement('span');
+        s.className='vol'+(i===arr.length-1?' word':'');s.textContent=w+' ';line.appendChild(s);});
+      tr.replaceChildren(line);
+    }
+  },230);
+}
+function stop(){
+  clearInterval(dictTimer);speaking=false;
+  if(wIdx===0){hud.classList.remove('enter');hud.classList.add('exit');return;}  /* short-hold cancel */
+  const text=sentence.split(' ').slice(0,wIdx).join(' ')+'.';
+  st.textContent='FINALIZING';st.className='status fin';
+  if(style==='full'){tr.innerHTML='<div class="white"><span class="finw">'+text+'</span></div>';}
+  orb.pulse();
+  setTimeout(()=>{
+    hud.classList.remove('enter');hud.classList.add('exit');
+    document.getElementById('doc').innerHTML='<span class="pasted">'+text+'</span><span class="caret"></span>';
+  },520);
+}
+/* ===== the rule that keeps minimal styles honest: errors always surface ===== */
+function simulateSilence(){
+  hud.classList.remove('exit');hud.classList.add('enter');
+  st.textContent='…';st.className='status';tr.replaceChildren();
+  setTimeout(()=>{st.textContent='LISTENING';},400);
+  setTimeout(()=>{
+    st.textContent='NOTHING HEARD';st.className='status err';
+    hud.classList.add('errflash');
+    if(style!=='full') hud.classList.add('expanded-err');   /* minimal styles expand transiently */
+    setTimeout(()=>{hud.classList.remove('enter');hud.classList.add('exit');
+      setTimeout(()=>hud.classList.remove('errflash','expanded-err'),400);},900);
+  },1600);
+}
+</script>
+</body>
+</html>
