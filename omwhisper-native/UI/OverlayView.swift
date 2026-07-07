@@ -137,43 +137,32 @@ struct OverlayView: View {
     }
 
     private var transcriptZone: some View {
-        let lineHeight: CGFloat = 15 * 1.55
         // No "Listening…"/"Finishing up…" placeholder here — the status label
         // above already says LISTENING/FINALIZING; repeating it in the
         // transcript zone too just says the same thing twice. Blank until real
         // words arrive reads fine given the label + reactive orb are already
         // communicating the state.
+        //
+        // ponytail: a manual .fixedSize + .frame(maxHeight:, alignment: .bottom)
+        // + .clipped() stack was tried here first (to hand-roll "grow to
+        // content, cap at 2 lines, bottom-anchored") and empirically did NOT
+        // shrink to 1-line content — the parent VStack kept expanding the
+        // flexible frame to the full 2-line cap regardless. .lineLimit(1...2)
+        // is Text's own native range-based sizing and does this correctly:
+        // natural height for 1 line, caps and truncates at 2. Trade-off: the
+        // spec's soft top-gradient-fade (for the ">2 lines" case) is dropped in
+        // favor of a plain "…" prefix — .truncationMode(.head) keeps the
+        // *newest* text visible when it truncates, which was the actual
+        // requirement; revisit the fade only if the plain ellipsis looks bad live.
         return transcriptText
             .font(.system(size: 15))
-        // No .lineLimit here on purpose: it would truncate to the FIRST N lines
-        // (tail-cut with an ellipsis), which is the opposite of what we want —
-        // freezing the view once text exceeds 2 lines instead of scrolling.
-        .multilineTextAlignment(.leading)
-        // Without this, Text can use the frame's PROPOSED height (not just
-        // width) to decide how many lines to even lay out — silently limiting
-        // it to what fits, rather than growing past it for .clipped() below to
-        // trim. fixedSize forces Text to report its full natural height
-        // (still wrapping to the proposed WIDTH) regardless of what height the
-        // frame constrains it to — this is what actually makes "grow, then
-        // clip the overflow" work instead of "truncate invisibly."
-        .fixedSize(horizontal: false, vertical: true)
-        // maxHeight (not a fixed height) so a single line hugs the label
-        // directly instead of always reserving a phantom second line's worth
-        // of empty space above it — the cap still kicks in once content grows
-        // past 2 lines, clipping/scrolling exactly as before.
-        .frame(maxHeight: lineHeight * 2, alignment: .bottom)
-        .clipped()
-        .mask(
-            VStack(spacing: 0) {
-                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 8)
-                Color.black
-            }
-        )
-        // Whole-block crossfade on every transcript change — see the type's
-        // header comment on why this is block-level, not per-word.
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: appState.finalizedTranscript)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: appState.volatileTranscript)
+            .multilineTextAlignment(.leading)
+            .lineLimit(1...2)
+            .truncationMode(.head)
+            // Whole-block crossfade on every transcript change — see the type's
+            // header comment on why this is block-level, not per-word.
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: appState.finalizedTranscript)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: appState.volatileTranscript)
     }
 }
 
