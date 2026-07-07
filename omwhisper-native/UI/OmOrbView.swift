@@ -163,7 +163,10 @@ struct OmOrbView: View {
 
     private func drawGlyph(context: inout GraphicsContext, center: CGPoint, amp: Float, glow: Double, t: TimeInterval, dictation: DictationState, elapsed: TimeInterval) {
         let breath = 1 + 0.02 * sin(t / 0.9)
-        let size: CGFloat = 44 * breath
+        // ponytail: spec §5.3 says ~44pt within the 64pt zone (68% fill) — too
+        // large next to the 11-15pt label/transcript text once seen live; sized
+        // down to read as a compact icon rather than dominate the pill.
+        let size: CGFloat = 20 * breath
         let rect = CGRect(x: center.x - size / 2, y: center.y - size / 2 + 2, width: size, height: size)
         let lum = min(1, glow * 0.55 + Double(amp) * 0.5)
         let color = glyphLuminanceColor(lum)
@@ -214,7 +217,7 @@ struct OmOrbView: View {
         context.blendMode = .plusLighter
         context.fill(ringPath(center: center, radius: radius), with: .color(Color.omEmerald.opacity(alpha)))
 
-        let size: CGFloat = 44
+        let size: CGFloat = 44   // matches drawGlyph's sizing (see its ponytail note)
         let rect = CGRect(x: center.x - size / 2, y: center.y - size / 2 + 2, width: size, height: size)
         // Stroke-draw becomes a plain fade (no trim animation).
         let fadeIn = dictation == .starting ? min(1, elapsed / 0.24) : 1
