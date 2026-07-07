@@ -59,9 +59,16 @@ nonisolated enum SalientTermExtractor {
         let ns = text as NSString
         var results: [String] = []
         var offset = 0
-        while offset < ns.length {
+        // ponytail: iteration cap, not just a length check — guards against a
+        // zero-length match ever stalling `offset` (NSSpellChecker's contract
+        // doesn't rule it out) and against pathological input turning a screen's
+        // worth of on-demand text into hundreds of sequential spell-check calls
+        // on the main thread. 500 is comfortably above any real captured window.
+        var iterations = 0
+        while offset < ns.length, iterations < 500 {
+            iterations += 1
             let misspelled = checker.checkSpelling(of: text, startingAt: offset)
-            guard misspelled.location != NSNotFound else { break }
+            guard misspelled.location != NSNotFound, misspelled.length > 0 else { break }
             let word = ns.substring(with: misspelled)
             if word.count >= 4 {
                 results.append(word)
