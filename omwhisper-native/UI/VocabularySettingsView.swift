@@ -61,6 +61,13 @@ struct VocabularySettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Use On-Screen Context", isOn: $state.contextAwareDictationEnabled)
+                Text("Reads the frontmost window's visible text when dictation starts, to bias recognition toward names and terms already on screen. Nothing is stored. Off by default.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }
