@@ -15,36 +15,60 @@
 //  audio) and me.caf (mic) -- matching smriti's proven approach, which keeps
 //  later per-track transcription simple.
 //
-//  nonisolated: SCStream callbacks arrive on the sample-handler queue, not
-//  MainActor, matching AudioCapture's rationale.
+//  Concurrency note (found via a real crash during live verification): the
+//  project defaults new declarations to @MainActor (SWIFT_DEFAULT_ACTOR_ISOLATION
+//  = MainActor), but SCStream invokes SCStreamOutput/SCStreamDelegate callbacks
+//  on `sampleQueue` below, not MainActor. Without `nonisolated`, Swift infers
+//  this whole class as MainActor-isolated, and the runtime's isolation checker
+//  traps (dispatch_assert_queue_fail / EXC_BREAKPOINT) the instant a real sample
+//  buffer arrives on the wrong executor -- confirmed via an actual crash report
+//  (OmWhisper-2026-07-07-232744.ips) whose faulting thread was
+//  "com.omwhisper.mac.meeting-recorder" inside `stream(_:didOutputSampleBuffer:of:)`.
+//  Exactly AudioCapture's rationale for its tap callback: nonisolated + a lock
+//  around the mutable state a background callback touches. `SCStream` itself
+//  isn't Sendable (an Apple type we don't control), so — matching how
+//  AudioCapture keeps its own non-Sendable `AVAudioEngine` as a separate
+//  `nonisolated(unsafe)` property rather than inside its locked State — `stream`
+//  lives outside the lock too. It's safe unguarded because only start()/stop()
+//  ever touch it, and the MeetingWatcher state machine calling this type never
+//  invokes them concurrently with each other. The two audio files and the peak
+//  meter, which the sample-queue callback genuinely does touch concurrently
+//  with start()/stop(), are the pieces that need the lock.
 //
 
 @preconcurrency import AVFoundation
+@preconcurrency import ScreenCaptureKit
 import Foundation
-import ScreenCaptureKit
 import os
 
-private let meetingLog = Logger(subsystem: "com.omwhisper.mac", category: "MeetingRecorder")
+nonisolated private let meetingLog = Logger(subsystem: "com.omwhisper.mac", category: "MeetingRecorder")
 
 final class MeetingRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
-    private var stream: SCStream?
-    private var systemFile: AVAudioFile?
-    private var micFile: AVAudioFile?
-    private let sampleQueue = DispatchQueue(label: "com.omwhisper.mac.meeting-recorder")
-    private(set) var meetingDirectory: URL?
-    /// Loudest mic sample seen this recording, in linear amplitude (0...1) --
-    /// logged as a warning on stop() if it never exceeds roughly -100dBFS, the
-    /// "calling app blocked mic capture" self-check ported from smriti.
-    private var micPeak: Float = 0
+    private struct State {
+        var systemFile: AVAudioFile?
+        var micFile: AVAudioFile?
+        var meetingDirectory: URL?
+        /// Loudest mic sample seen this recording, in linear amplitude (0...1) --
+        /// logged as a warning on stop() if it never exceeds roughly -100dBFS,
+        /// the "calling app blocked mic capture" self-check ported from smriti.
+        var micPeak: Float = 0
+    }
 
-    func start(appName: String) async throws {
+    nonisolated private let state = OSAllocatedUnfairLock(initialState: State())
+    nonisolated(unsafe) private var stream: SCStream?
+    nonisolated private let sampleQueue = DispatchQueue(label: "com.omwhisper.mac.meeting-recorder")
+
+    nonisolated var meetingDirectory: URL? {
+        state.withLock { $0.meetingDirectory }
+    }
+
+    nonisolated func start(appName: String) async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
         guard let display = content.displays.first else {
             throw NSError(domain: "MeetingRecorder", code: 1, userInfo: [NSLocalizedDescriptionKey: "No capturable display"])
         }
 
         let dir = try Self.makeMeetingDirectory(appName: appName)
-        meetingDirectory = dir
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
@@ -61,55 +85,76 @@ final class MeetingRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         try newStream.addStreamOutput(self, type: .audio, sampleHandlerQueue: sampleQueue)
         try newStream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: sampleQueue)
         try await newStream.startCapture()
+
         stream = newStream
+        state.withLock { $0.meetingDirectory = dir }
     }
 
-    func stop() async {
+    nonisolated func stop() async {
         try? await stream?.stopCapture()
         stream = nil
-        systemFile = nil
-        micFile = nil
-        if micPeak < 0.00001 {  // roughly -100dBFS
-            meetingLog.warning("stop() — mic track peak was near-silent (\(self.micPeak)); the calling app may have blocked mic capture")
+
+        let peak = state.withLock { s -> Float in
+            s.systemFile = nil
+            s.micFile = nil
+            return s.micPeak
+        }
+        if peak < 0.00001 {  // roughly -100dBFS
+            meetingLog.warning("stop() — mic track peak was near-silent (\(peak)); the calling app may have blocked mic capture")
         }
     }
 
-    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+    nonisolated func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard let pcmBuffer = Self.pcmBuffer(from: sampleBuffer) else { return }
         switch type {
         case .audio:
-            write(pcmBuffer, to: &systemFile, url: meetingDirectory?.appendingPathComponent("them.caf"))
+            writeSystem(pcmBuffer)
         case .microphone:
-            trackPeak(pcmBuffer)
-            write(pcmBuffer, to: &micFile, url: meetingDirectory?.appendingPathComponent("me.caf"))
+            writeMic(pcmBuffer)
         default:
             break
         }
     }
 
-    func stream(_ stream: SCStream, didStopWithError error: any Error) {
+    nonisolated func stream(_ stream: SCStream, didStopWithError error: any Error) {
         meetingLog.error("stream stopped with error: \(error)")
     }
 
-    private func write(_ buffer: AVAudioPCMBuffer, to file: inout AVAudioFile?, url: URL?) {
-        guard let url else { return }
-        if file == nil {
-            file = try? AVAudioFile(forWriting: url, settings: buffer.format.settings)
+    nonisolated private func writeSystem(_ buffer: AVAudioPCMBuffer) {
+        state.withLock { s in
+            guard let url = s.meetingDirectory?.appendingPathComponent("them.caf") else { return }
+            if s.systemFile == nil {
+                s.systemFile = try? AVAudioFile(forWriting: url, settings: buffer.format.settings)
+            }
+            try? s.systemFile?.write(from: buffer)
         }
-        try? file?.write(from: buffer)
     }
 
-    private func trackPeak(_ buffer: AVAudioPCMBuffer) {
-        guard let channelData = buffer.floatChannelData else { return }
+    nonisolated private func writeMic(_ buffer: AVAudioPCMBuffer) {
+        let peak = Self.peak(of: buffer)
+        state.withLock { s in
+            s.micPeak = max(s.micPeak, peak)
+            guard let url = s.meetingDirectory?.appendingPathComponent("me.caf") else { return }
+            if s.micFile == nil {
+                s.micFile = try? AVAudioFile(forWriting: url, settings: buffer.format.settings)
+            }
+            try? s.micFile?.write(from: buffer)
+        }
+    }
+
+    nonisolated private static func peak(of buffer: AVAudioPCMBuffer) -> Float {
+        guard let channelData = buffer.floatChannelData else { return 0 }
         let frameCount = Int(buffer.frameLength)
+        var result: Float = 0
         for channel in 0..<Int(buffer.format.channelCount) {
             for frame in 0..<frameCount {
-                micPeak = max(micPeak, abs(channelData[channel][frame]))
+                result = max(result, abs(channelData[channel][frame]))
             }
         }
+        return result
     }
 
-    private static func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+    nonisolated private static func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
         guard let formatDesc = CMSampleBufferGetFormatDescription(sampleBuffer) else { return nil }
         let format = AVAudioFormat(cmAudioFormatDescription: formatDesc)
         let frameCount = CMSampleBufferGetNumSamples(sampleBuffer)
@@ -121,7 +166,7 @@ final class MeetingRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchec
         return pcmBuffer
     }
 
-    private static func makeMeetingDirectory(appName: String) throws -> URL {
+    nonisolated private static func makeMeetingDirectory(appName: String) throws -> URL {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmm"
         let stamp = formatter.string(from: Date())
