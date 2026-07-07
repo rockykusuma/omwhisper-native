@@ -250,6 +250,29 @@ final class AppState {
         }
     }
 
+    /// access(keyPath:)/withMutation(keyPath:) for the same reason as
+    /// meetingsEnabled — this Toggle needs to reflect external state changes.
+    var replyAssistEnabled: Bool {
+        get {
+            access(keyPath: \.replyAssistEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.replyAssistEnabled) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.replyAssistEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.replyAssistEnabled)
+            }
+            if newValue {
+                replyAssistMonitor.isSuppressed = { [weak self] in self?.dictation != .idle }
+                replyAssistMonitor.onTriggered = { [weak self] in
+                    Task { await self?.beginReplyAssist() }
+                }
+                replyAssistMonitor.start()
+            } else {
+                replyAssistMonitor.stop()
+            }
+        }
+    }
+
     // MARK: Core loop collaborators
     private let audioCapture = AudioCapture()
     private let engine: TranscriptionEngine = AppleEngine()
@@ -286,6 +309,11 @@ final class AppState {
     @ObservationIgnored private let meetingWatcher = MeetingWatcher()
     @ObservationIgnored private let meetingRecorder = MeetingRecorder()
     @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
+    @ObservationIgnored private let replyAssistMonitor = ReplyAssistMonitor()
+    @ObservationIgnored private let replyAssistPanel = ReplyAssistPanel()
+    @ObservationIgnored private let replyStreamTypist = ReplyStreamTypist()
+    @ObservationIgnored private var voiceIntentTask: Task<Void, Never>?
+    @ObservationIgnored private var voiceIntentTranscript = ""
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
@@ -348,6 +376,7 @@ final class AppState {
             smartDictationHotkey.start()
             polishSelectedTextHotkey.start()
             if meetingsEnabled { meetingsEnabled = true }  // re-runs the setter's wiring/start path
+            if replyAssistEnabled { replyAssistEnabled = true }  // re-runs the setter's wiring/start path
             if !PasteService.hasAccessibilityPermission() {
                 PasteService.requestAccessibilityPrompt()
             }
@@ -638,6 +667,111 @@ final class AppState {
         await finishOverlayExit(exitDuration(for: phase))
     }
 
+    // MARK: Reply assist (S4)
+
+    func beginReplyAssist() async {
+        guard dictation == .idle else { return }  // ReplyAssistMonitor already suppresses this, but stay defensive
+        guard let context = await ReplyContextReader.currentContext() else {
+            errorMessage = "Reply assist: couldn't read the focused field."
+            return
+        }
+        let windowContext = ScreenContextReader.captureFrontmostWindowText()
+        replyAssistPanel.show(
+            mode: context.mode,
+            onSubmitText: { [weak self] intent in
+                Task { await self?.draftAndStream(mode: context.mode, intent: intent, windowContext: windowContext) }
+            },
+            onStartListening: { [weak self] in self?.startVoiceIntentCapture() },
+            onStopListening: { [weak self] in await self?.stopVoiceIntentCapture() },
+            onCancel: {}
+        )
+    }
+
+    /// Scoped mic capture for the "hold to speak" path -- reuses the same
+    /// audioCapture/engine AppState already owns for dictation, but bypasses
+    /// the `dictation` state machine and main OverlayPanel entirely: this is a
+    /// short capture for the reply-assist panel, not a second dictation
+    /// session. Safe to share audioCapture/engine sequentially since
+    /// ReplyAssistMonitor is suppressed whenever dictation != .idle.
+    ///
+    /// Start/stop, not one opaque "await while held" call -- the button's
+    /// onEnded fires exactly when the mouse releases, and stopVoiceIntentCapture
+    /// must be callable at that exact moment to end the mic stream, matching
+    /// this app's existing PushToTalkMonitor start/stop shape.
+    private func startVoiceIntentCapture() {
+        guard let audioStream = try? audioCapture.start(preferredDeviceUID: audioInputDeviceUID) else { return }
+        voiceIntentTranscript = ""
+        // engine.transcribe(...) is called here, synchronously, NOT inside the
+        // Task below -- matching startDictation()'s exact pattern. Only the
+        // resulting Sendable AsyncThrowingStream<TranscriptEvent, Error> may
+        // cross into the Task; the raw AVAudioPCMBuffer stream is not Sendable
+        // and can't be captured there directly.
+        let events = engine.transcribe(audioStream, vocabulary: customVocabulary)
+        voiceIntentTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                for try await event in events {
+                    switch event {
+                    case .partial(let text): self.voiceIntentTranscript = text
+                    case .final(let text): self.voiceIntentTranscript += text
+                    }
+                }
+            } catch {
+                log.error("startVoiceIntentCapture — engine error: \(error)")
+            }
+        }
+    }
+
+    private func stopVoiceIntentCapture() async -> String? {
+        audioCapture.stop()
+        await voiceIntentTask?.value
+        voiceIntentTask = nil
+        return voiceIntentTranscript.isEmpty ? nil : voiceIntentTranscript
+    }
+
+    private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?) async {
+        let tonePrefix = (try? String(contentsOf: ToneProfile.toneFileURL(), encoding: .utf8))
+            .map { ToneProfile.promptPrefix(from: $0) }
+        let style = Self.draftStyle(mode: mode, windowContext: windowContext, tonePrefix: tonePrefix)
+        guard SystemLLM.isAvailable(), polishBackend == .system else {
+            errorMessage = "Reply assist needs the System backend enabled in AI settings."
+            return
+        }
+        let drafted: String
+        do {
+            drafted = try await systemLLM.polish(intent, style: style, targetLanguage: nil)
+        } catch {
+            log.error("draftAndStream — polish failed: \(error)")
+            errorMessage = "Reply assist: draft failed (\(error.localizedDescription))."
+            return
+        }
+        let result = await replyStreamTypist.stream(drafted)
+        if case .declinedSentinel(let sentinel) = result {
+            log.warning("draftAndStream — declined on sentinel: \(sentinel)")
+            errorMessage = "Reply assist: the draft looked like an error, nothing was typed."
+        }
+    }
+
+    private static func draftStyle(mode: ReplyMode, windowContext: String?, tonePrefix: String?) -> PolishStyle {
+        var instructions = "You draft a reply/message for the user, writing AS the user in first person. Respond with ONLY the drafted text -- no preamble, no quotes, no explanation.\n\n"
+        switch mode {
+        case .reply:
+            instructions += "Draft a new reply appropriate to the conversation context below.\n"
+        case .continueDraft(let draft):
+            instructions += "Continue this unfinished draft naturally, in the same voice:\n\(draft)\n"
+        case .rewrite(let selection):
+            instructions += "Rewrite this selected text, keeping its meaning:\n\(selection)\n"
+        }
+        if let windowContext { instructions += "\nOn-screen context:\n\(windowContext)\n" }
+        if let tonePrefix { instructions += "\nWriting tone to match:\n\(tonePrefix)\n" }
+        return PolishStyle(
+            id: UUID(uuidString: "7610B7A2-5DAA-4017-A135-45B67089A0FB")!,
+            name: "Reply Draft",
+            prompt: instructions,
+            isBuiltIn: true
+        )
+    }
+
     /// Runs the active style through the current backend; returns `original`
     /// unconditionally on any failure (backend Disabled, Foundation Models
     /// unavailable, model error, timeout) — dictated/selected text must never
@@ -752,5 +886,6 @@ nonisolated enum SettingsKeys {
     static let contextAwareDictationEnabled = "contextAwareDictationEnabled"
     static let hasImportedLegacyHistory = "hasImportedLegacyHistory"
     static let meetingsEnabled = "meetingsEnabled"
+    static let replyAssistEnabled = "replyAssistEnabled"
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
 }

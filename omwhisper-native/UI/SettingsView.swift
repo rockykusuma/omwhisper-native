@@ -23,6 +23,9 @@ struct SettingsView: View {
             Tab("Meetings", systemImage: "person.2.wave.2") {
                 MeetingsSettingsView()
             }
+            Tab("Reply Assist", systemImage: "text.bubble") {
+                ReplyAssistSettingsView()
+            }
             Tab("About", systemImage: "info.circle") {
                 AboutSettingsView()
             }
