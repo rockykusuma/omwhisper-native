@@ -41,4 +41,14 @@ struct SalientTermExtractorTests {
         let identifiers = SalientTermExtractor.codeIdentifiers(in: text)
         #expect(identifiers.isEmpty)
     }
+
+    @Test func detectsRareWords() async {
+        let words = await SalientTermExtractor.rareWords(in: "Please check the polymorphism in that classe")
+        #expect(!words.isEmpty)
+    }
+
+    @Test func commonWordsNotFlaggedAsRare() async {
+        let words = await SalientTermExtractor.rareWords(in: "the quick brown fox jumps over the lazy dog")
+        #expect(words.isEmpty)
+    }
 }

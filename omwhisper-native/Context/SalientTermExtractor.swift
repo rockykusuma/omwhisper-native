@@ -48,4 +48,26 @@ nonisolated enum SalientTermExtractor {
     /// they don't match either branch.
     private static let codeIdentifierPattern =
         #"\b[A-Za-z]+(?:[_.][A-Za-z0-9]+)+\b|\b(?=[A-Za-z0-9]*(?:[a-z][A-Z]|[A-Z]{2,}[a-z]))[A-Za-z][A-Za-z0-9]*\b"#
+
+    /// @MainActor: NSSpellChecker is an AppKit API with main-thread affinity —
+    /// unlike properNouns/codeIdentifiers (pure Foundation, safe from anywhere),
+    /// this one specifically needs the hop. Anything the system dictionary
+    /// doesn't recognize is a free, already-available proxy for "rare/technical"
+    /// without bundling a word-frequency corpus.
+    @MainActor static func rareWords(in text: String) -> [String] {
+        let checker = NSSpellChecker.shared
+        let ns = text as NSString
+        var results: [String] = []
+        var offset = 0
+        while offset < ns.length {
+            let misspelled = checker.checkSpelling(of: text, startingAt: offset)
+            guard misspelled.location != NSNotFound else { break }
+            let word = ns.substring(with: misspelled)
+            if word.count >= 4 {
+                results.append(word)
+            }
+            offset = misspelled.location + misspelled.length
+        }
+        return results
+    }
 }
