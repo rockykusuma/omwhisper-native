@@ -29,4 +29,23 @@ nonisolated enum SalientTermExtractor {
         }
         return results
     }
+
+    /// Regex: camelCase, PascalCase (including acronym-prefixed like NSFoo/URLSession),
+    /// snake_case, dotted.paths. NLTagger's NER doesn't recognize any of these as
+    /// "names" — this is why proper nouns and code identifiers are separate passes.
+    static func codeIdentifiers(in text: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: codeIdentifierPattern) else { return [] }
+        let ns = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        return matches.map { ns.substring(with: $0.range) }
+    }
+
+    /// Alternative 1: snake_case / dotted.path (has an internal `_`/`.` separator).
+    /// Alternative 2: mixed-case with a real case transition — either a lowercase-
+    /// to-uppercase "hump" (getUserById, iPhone) or an acronym-to-word boundary
+    /// (NSAttributedString, URLSession). Plain capitalized words like "Hello" have
+    /// exactly one uppercase letter with nothing before it to transition from, so
+    /// they don't match either branch.
+    private static let codeIdentifierPattern =
+        #"\b[A-Za-z]+(?:[_.][A-Za-z0-9]+)+\b|\b(?=[A-Za-z0-9]*(?:[a-z][A-Z]|[A-Z]{2,}[a-z]))[A-Za-z][A-Za-z0-9]*\b"#
 }
