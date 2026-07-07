@@ -676,10 +676,17 @@ final class AppState {
             return
         }
         let windowContext = ScreenContextReader.captureFrontmostWindowText()
+        // Captured BEFORE replyAssistPanel.show() -- that call activates
+        // OmWhisper (NSApp.activate) so its own panel can reliably receive
+        // input, which steals focus from the target field's app. Confirmed
+        // live: without reactivating this app before streaming, drafted text
+        // had nowhere to land (target field visibly lost its cursor) until
+        // the user manually clicked back into it.
+        let targetApp = NSWorkspace.shared.frontmostApplication
         replyAssistPanel.show(
             mode: context.mode,
             onSubmitText: { [weak self] intent in
-                Task { await self?.draftAndStream(mode: context.mode, intent: intent, windowContext: windowContext) }
+                Task { await self?.draftAndStream(mode: context.mode, intent: intent, windowContext: windowContext, targetApp: targetApp) }
             },
             onStartListening: { [weak self] in self?.startVoiceIntentCapture() },
             onStopListening: { [weak self] in await self?.stopVoiceIntentCapture() },
@@ -729,7 +736,7 @@ final class AppState {
         return voiceIntentTranscript.isEmpty ? nil : voiceIntentTranscript
     }
 
-    private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?) async {
+    private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?, targetApp: NSRunningApplication?) async {
         let tonePrefix = (try? String(contentsOf: ToneProfile.toneFileURL(), encoding: .utf8))
             .map { ToneProfile.promptPrefix(from: $0) }
         let style = Self.draftStyle(mode: mode, windowContext: windowContext, tonePrefix: tonePrefix)
@@ -745,6 +752,12 @@ final class AppState {
             errorMessage = "Reply assist: draft failed (\(error.localizedDescription))."
             return
         }
+        // Restore focus to the field's original app before typing -- showing
+        // the panel activated OmWhisper, and CGEvent-posted keystrokes land
+        // wherever the system's keyboard focus currently is, not at a
+        // specific target regardless of what's frontmost.
+        targetApp?.activate()
+        try? await Task.sleep(for: .milliseconds(100))
         let result = await replyStreamTypist.stream(drafted)
         if case .declinedSentinel(let sentinel) = result {
             log.warning("draftAndStream — declined on sentinel: \(sentinel)")
@@ -752,17 +765,32 @@ final class AppState {
         }
     }
 
+    /// ScreenContextReader.captureFrontmostWindowText() can return up to
+    /// 50,000 characters -- fine for S2's local vocabulary extraction, but
+    /// including that much raw text in an LLM prompt caused SystemLLM's 5s
+    /// timeout to trip on every draft (confirmed live: "Polish timed out"
+    /// against a text-heavy markdown file in the background window). The
+    /// AX-read draft/selection text is just as uncapped -- if the focused
+    /// "field" is a full document editor, its AX value can be the entire
+    /// document. Both are capped here for the same reason.
+    private static let windowContextCap = 2_000
+    private static let fieldTextCap = 2_000
+
     private static func draftStyle(mode: ReplyMode, windowContext: String?, tonePrefix: String?) -> PolishStyle {
         var instructions = "You draft a reply/message for the user, writing AS the user in first person. Respond with ONLY the drafted text -- no preamble, no quotes, no explanation.\n\n"
         switch mode {
         case .reply:
             instructions += "Draft a new reply appropriate to the conversation context below.\n"
         case .continueDraft(let draft):
-            instructions += "Continue this unfinished draft naturally, in the same voice:\n\(draft)\n"
+            // suffix, not prefix -- continuing a draft cares about its most
+            // recent tail, not however it started.
+            instructions += "Continue this unfinished draft naturally, in the same voice:\n\(draft.suffix(fieldTextCap))\n"
         case .rewrite(let selection):
-            instructions += "Rewrite this selected text, keeping its meaning:\n\(selection)\n"
+            instructions += "Rewrite this selected text, keeping its meaning:\n\(selection.prefix(fieldTextCap))\n"
         }
-        if let windowContext { instructions += "\nOn-screen context:\n\(windowContext)\n" }
+        if let windowContext {
+            instructions += "\nOn-screen context:\n\(windowContext.prefix(windowContextCap))\n"
+        }
         if let tonePrefix { instructions += "\nWriting tone to match:\n\(tonePrefix)\n" }
         return PolishStyle(
             id: UUID(uuidString: "7610B7A2-5DAA-4017-A135-45B67089A0FB")!,
