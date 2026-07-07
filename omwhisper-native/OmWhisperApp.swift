@@ -137,6 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addItem(to: menu, title: "History…", action: #selector(openHistory))
         addItem(to: menu, title: "Check for Updates…", action: #selector(checkForUpdates))
             .isEnabled = updaterController.updater.canCheckForUpdates
+        #if DEBUG
+        menu.addItem(.separator())
+        addItem(to: menu, title: "Meeting Self-Test…", action: #selector(runMeetingSelfTest))
+        #endif
         addItem(to: menu, title: "Quit OmWhisper", action: #selector(quit), key: "q")
     }
 
@@ -166,4 +170,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func checkForUpdates() {
         updaterController.checkForUpdates(nil)
     }
+
+    #if DEBUG
+    @objc private func runMeetingSelfTest() {
+        Task {
+            let report = await MeetingSelfTest.run()
+            let alert = NSAlert()
+            alert.messageText = "Meeting Self-Test"
+            alert.informativeText = report
+            alert.runModal()
+        }
+    }
+    #endif
 }
