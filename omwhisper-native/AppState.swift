@@ -17,11 +17,25 @@ import Speech
 let log = Logger(subsystem: "com.omwhisper.mac", category: "AppState")
 private let latencyLog = Logger(subsystem: "com.omwhisper.mac", category: "Latency")
 
-enum DictationState: Equatable {
+// nonisolated: plain data, no MainActor affinity — without this, the project's
+// MainActor-by-default setting also pins the synthesized Equatable conformance,
+// which then can't be used from a nonisolated context (e.g. exitPhase's tests).
+nonisolated enum DictationState: Equatable {
     case idle
     case starting     // toggle fired, awaiting permissions / capture start (claimed synchronously)
     case recording
     case finalizing   // stop pressed, waiting for final transcript / paste
+}
+
+/// Transient overlay-only flourish, layered on top of `.finalizing` — NOT a
+/// second dictation state machine. `dictation` stays authoritative; this only
+/// decorates how the overlay renders the tail end of a session, and is reset
+/// to `.none` the instant `dictation` returns to `.idle`. See OVERLAY_SPEC.md §4.
+nonisolated enum OverlayPhase: Equatable {
+    case none
+    case pasting
+    case error(label: String)   // "NOTHING HEARD" | "SOMETHING BROKE — TEXT COPIED"
+    case cancelled
 }
 
 @MainActor
@@ -29,6 +43,8 @@ enum DictationState: Equatable {
 final class AppState {
     // MARK: Live session
     var dictation: DictationState = .idle
+    /// Overlay-only exit flourish (pasting/error/cancelled) — see `OverlayPhase`.
+    var overlayPhase: OverlayPhase = .none
     /// Streaming transcript: volatile (dimmed in UI) + finalized portions.
     var volatileTranscript: String = ""
     var finalizedTranscript: String = ""
@@ -91,8 +107,20 @@ final class AppState {
     /// immediately stops, so a quick tap-and-release doesn't get stuck recording.
     private var stopRequestedWhilePTTStarting = false
 
+    /// PTT keydown time — set only by beginPushToTalk(), cleared on toggle-start
+    /// (toggle has no "hold" concept) and after each session ends. Used to compute
+    /// hold duration for the short-hold-cancel check in `exitPhase`.
+    private var pttPressedAt: ContinuousClock.Instant?
+
     var hasAccessibilityPermission: Bool {
         PasteService.hasAccessibilityPermission()
+    }
+
+    /// Mic input level (0–1), for the overlay's voice-reactive orb. Safe to read
+    /// every render-loop tick — AudioCapture isn't @Observable, so this registers
+    /// no Observation dependency and can't trigger invalidation storms.
+    var audioLevel: Float {
+        audioCapture.level
     }
 
     init() {
@@ -110,7 +138,9 @@ final class AppState {
         case .idle:
             // Claim the state synchronously (before any await) so a second fast
             // toggle can't pass startDictation's guard and double-start.
+            pttPressedAt = nil   // toggle has no "hold" concept — never inherit a stale PTT timestamp
             dictation = .starting
+            overlay.show(appState: self)   // instant — warming look, before any permission/capture work
             Task { await startDictation() }
         case .recording:
             Task { await stopDictation() }
@@ -126,7 +156,9 @@ final class AppState {
         // one-attempt-in-flight discipline as toggleDictation's .idle case.
         guard dictation == .idle else { return }
         stopRequestedWhilePTTStarting = false
+        pttPressedAt = .now
         dictation = .starting
+        overlay.show(appState: self)   // instant — warming look, before any permission/capture work
         Task { await startDictation() }
     }
 
@@ -152,12 +184,14 @@ final class AppState {
 
         guard await requestMicrophonePermission() else {
             errorMessage = "OmWhisper needs microphone access. Enable it in System Settings > Privacy & Security > Microphone."
+            overlay.hide()   // early-show already put a warming pill on screen — must tear it down too
             dictation = .idle
             return
         }
 
         guard await requestSpeechPermission() else {
             errorMessage = "OmWhisper needs Speech Recognition access. Enable it in System Settings > Privacy & Security > Speech Recognition."
+            overlay.hide()
             dictation = .idle
             return
         }
@@ -169,7 +203,8 @@ final class AppState {
             let audioStream = try audioCapture.start()
             dictation = .recording
             if soundEnabled { SoundPlayer.play(.start) }
-            overlay.show(appState: self)
+            // overlay already shown in toggleDictation()/beginPushToTalk() (early-show,
+            // before permissions/capture even start) — nothing to do here.
 
             let recordingStartedAt = ContinuousClock.now
             var loggedFirstPartial = false
@@ -223,13 +258,16 @@ final class AppState {
     }
 
     func stopDictation() async {
-        let stopRequestedAt = ContinuousClock.now
         guard dictation == .recording else {
             log.warning("stopDictation — aborted (state=\(String(describing: self.dictation)))")
             return
         }
+        let heldFor: Duration? = pttPressedAt.map { $0.duration(to: .now) }
+        let stopRequestedAt = ContinuousClock.now
+        // Stay .finalizing through the whole exit flourish (see finishOverlayExit) —
+        // the overlay is mount-gated on `dictation != .idle`, so flipping to .idle
+        // instantly would unmount the orb with nothing left to animate.
         dictation = .finalizing
-        if soundEnabled { SoundPlayer.play(.stop) }
 
         audioCapture.stop()
         await transcriptionTask?.value
@@ -237,7 +275,18 @@ final class AppState {
 
         let text = (finalizedTranscript + volatileTranscript)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        if pasteAfterStop, !text.isEmpty {
+        // errorMessage is nil'd at the top of every startDictation() and only the
+        // transcriptionTask's catch block sets it during a session — so non-nil
+        // here means the engine genuinely threw, not just "recording was silent."
+        let hadEngineError = errorMessage != nil
+        let phase = Self.exitPhase(heldFor: heldFor, text: text, hadPartial: hadEngineError)
+        overlayPhase = phase
+
+        if phase != .cancelled, soundEnabled {
+            SoundPlayer.play(.stop)
+        }
+
+        if phase == .pasting, pasteAfterStop {
             if PasteService.hasAccessibilityPermission() {
                 PasteService.paste(text)
                 latencyLog.info("stop-to-paste: \(stopRequestedAt.duration(to: .now))")
@@ -251,8 +300,46 @@ final class AppState {
             }
         }
 
+        pttPressedAt = nil
+        await finishOverlayExit(exitDuration(for: phase))
+    }
+
+    /// Pure decision: what the overlay's exit flourish should be. Evaluated
+    /// *after* the transcript drains (not at key-release), so a quick-but-real
+    /// utterance isn't wrongly cancelled. `heldFor` is nil for a toggle-stop
+    /// (no hold concept — cancel is PTT-only, see OVERLAY_SPEC.md §9).
+    nonisolated static func exitPhase(heldFor: Duration?, text: String, hadPartial: Bool) -> OverlayPhase {
+        if let heldFor, heldFor < .milliseconds(500), text.isEmpty {
+            return .cancelled
+        }
+        if text.isEmpty {
+            return .error(label: hadPartial ? "SOMETHING BROKE — TEXT COPIED" : "NOTHING HEARD")
+        }
+        return .pasting
+    }
+
+    /// ponytail: fixed per-phase durations, not user-configurable — these are
+    /// brand-motion timings from OVERLAY_SPEC.md §4, tune by eye if they ever
+    /// feel off, no need for a settings knob.
+    private func exitDuration(for phase: OverlayPhase) -> Duration {
+        switch phase {
+        case .pasting: .milliseconds(420)   // sized to contain the finalize pulse (§5.5); slide (§4) runs alongside
+        case .error: .milliseconds(800)
+        case .cancelled: .milliseconds(120)
+        case .none: .zero
+        }
+    }
+
+    /// Keeps `dictation == .finalizing` (and the orb mounted) for the exit
+    /// flourish's duration, then tears everything down together. Paste already
+    /// fired above, before this call — animation never delays it.
+    private func finishOverlayExit(_ duration: Duration) async {
+        if duration > .zero {
+            try? await Task.sleep(for: duration)
+        }
         overlay.hide()
         dictation = .idle
+        overlayPhase = .none
     }
 
     // MARK: Permissions
