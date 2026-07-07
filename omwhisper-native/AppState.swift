@@ -209,6 +209,46 @@ final class AppState {
         }
         set { UserDefaults.standard.set(newValue ?? 0, forKey: SettingsKeys.autoDeleteAfterDays) }
     }
+    /// Off by default — every Smriti-derived feature ships off by default.
+    /// MeetingWatcher isn't started at all unless this is on: no poll timer,
+    /// no consent prompts, no recording capability for a user who never opens
+    /// this tab. access(keyPath:)/withMutation(keyPath:) needed for the same
+    /// reason as the M3 polish settings — a plain get/set computed property
+    /// over UserDefaults never fires an Observation change notification on
+    /// its own, and this Toggle needs to reflect external state changes.
+    var meetingsEnabled: Bool {
+        get {
+            access(keyPath: \.meetingsEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.meetingsEnabled) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.meetingsEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.meetingsEnabled)
+            }
+            if newValue {
+                meetingWatcher.isSuppressed = { [weak self] in self?.dictation != .idle }
+                meetingWatcher.onStartRecording = { [weak self] appName in
+                    Task {
+                        do {
+                            try self?.meetingRecorder.start(appName: appName)
+                        } catch {
+                            log.error("meeting recording failed to start: \(error)")
+                            self?.meetingWatcher.failedToStartRecording()
+                        }
+                    }
+                }
+                meetingWatcher.onStopRecording = { [weak self] in
+                    Task { await self?.meetingRecorder.stop() }
+                }
+                meetingWatcher.onShowConsentPanel = { [weak self] appName, respond in
+                    self?.meetingConsentPanel.show(appName: appName, onDecision: respond)
+                }
+                meetingWatcher.start()
+            } else {
+                meetingWatcher.stop()
+            }
+        }
+    }
 
     // MARK: Core loop collaborators
     private let audioCapture = AudioCapture()
@@ -243,6 +283,9 @@ final class AppState {
     ) { [weak self] in
         self?.beginPolishSelectedText()
     }
+    @ObservationIgnored private let meetingWatcher = MeetingWatcher()
+    @ObservationIgnored private let meetingRecorder = MeetingRecorder()
+    @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
@@ -304,6 +347,7 @@ final class AppState {
             pushToTalk.start()
             smartDictationHotkey.start()
             polishSelectedTextHotkey.start()
+            if meetingsEnabled { meetingsEnabled = true }  // re-runs the setter's wiring/start path
             if !PasteService.hasAccessibilityPermission() {
                 PasteService.requestAccessibilityPrompt()
             }
@@ -707,5 +751,6 @@ nonisolated enum SettingsKeys {
     static let fuzzyVocabCorrection = "fuzzyVocabCorrection"
     static let contextAwareDictationEnabled = "contextAwareDictationEnabled"
     static let hasImportedLegacyHistory = "hasImportedLegacyHistory"
+    static let meetingsEnabled = "meetingsEnabled"
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
 }

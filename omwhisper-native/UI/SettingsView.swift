@@ -20,6 +20,9 @@ struct SettingsView: View {
             Tab("AI", systemImage: "sparkles") {
                 AISettingsView()
             }
+            Tab("Meetings", systemImage: "person.2.wave.2") {
+                MeetingsSettingsView()
+            }
             Tab("About", systemImage: "info.circle") {
                 AboutSettingsView()
             }
