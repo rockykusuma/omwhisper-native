@@ -20,6 +20,23 @@ struct OverlayView: View {
         }
     }
 
+    /// Finalized (solid) + volatile (dimmed/italic) as one AttributedString —
+    /// `Text + Text` concatenation is deprecated on macOS 26; this is the
+    /// replacement for combining differently-styled runs (not the same case as
+    /// the deprecation's own "use string interpolation" suggestion, which only
+    /// fits plain uniformly-styled text).
+    private var transcriptText: Text {
+        var text = AttributedString(appState.finalizedTranscript)
+        text.foregroundColor = .primary
+
+        var volatile = AttributedString(appState.volatileTranscript)
+        volatile.foregroundColor = .secondary
+        volatile.inlinePresentationIntent = .emphasized
+
+        text.append(volatile)
+        return Text(text)
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Circle()
@@ -32,11 +49,7 @@ struct OverlayView: View {
                     Text(appState.dictation == .finalizing ? "Finishing up…" : "Listening…")
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(appState.finalizedTranscript)
-                        .foregroundStyle(.primary)
-                    + Text(appState.volatileTranscript)
-                        .foregroundStyle(.secondary)
-                        .italic()
+                    transcriptText
                 }
             }
             .font(.system(size: 14))

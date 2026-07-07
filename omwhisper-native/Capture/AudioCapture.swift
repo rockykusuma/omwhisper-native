@@ -29,7 +29,10 @@ final class AudioCapture {
     }
 
     nonisolated(unsafe) private let engine = AVAudioEngine()
-    nonisolated(unsafe) private let state = OSAllocatedUnfairLock(initialState: State())
+    // OSAllocatedUnfairLock is unconditionally Sendable (the lock itself
+    // guarantees safety regardless of the wrapped State) — plain `nonisolated`
+    // suffices; `AVAudioEngine` above isn't Sendable, so it still needs `(unsafe)`.
+    nonisolated private let state = OSAllocatedUnfairLock(initialState: State())
 
     /// Mic input level (0–1) for the waveform UI. Safe to read from any thread.
     nonisolated var level: Float {
