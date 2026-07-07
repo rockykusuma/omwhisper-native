@@ -56,6 +56,7 @@ nonisolated enum DictationState: Equatable {
 nonisolated enum OverlayPhase: Equatable {
     case none
     case pasting
+    case polishing               // Smart Dictation / Polish Selected Text running the active style
     case error(label: String)   // "NOTHING HEARD" | "SOMETHING BROKE — TEXT COPIED"
     case cancelled
 }
@@ -111,6 +112,38 @@ final class AppState {
         get { UserDefaults.standard.object(forKey: SettingsKeys.fuzzyVocabCorrection) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.fuzzyVocabCorrection) }
     }
+    /// Disabled by default — polish is opt-in.
+    var polishBackend: PolishBackendKind {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.polishBackend) else { return .disabled }
+            return PolishBackendKind(rawValue: raw) ?? .disabled
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.polishBackend) }
+    }
+    /// Defaults to Smart Correct — the least presumptuous built-in (cleanup only,
+    /// preserves the speaker's own wording), a safe universal default.
+    var activePolishStyleID: UUID {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.activePolishStyleID),
+                  let id = UUID(uuidString: raw) else { return PolishStyles.builtIns[6].id }
+            return id
+        }
+        set { UserDefaults.standard.set(newValue.uuidString, forKey: SettingsKeys.activePolishStyleID) }
+    }
+    var activePolishStyle: PolishStyle? {
+        PolishStyles.style(id: activePolishStyleID, customStyles: customPolishStyles)
+    }
+    var translateTargetLanguage: String {
+        get { UserDefaults.standard.string(forKey: SettingsKeys.translateTargetLanguage) ?? "English" }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.translateTargetLanguage) }
+    }
+    var customPolishStyles: [PolishStyle] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: SettingsKeys.customPolishStyles) else { return [] }
+            return (try? JSONDecoder().decode([PolishStyle].self, from: data)) ?? []
+        }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.customPolishStyles) }
+    }
     /// Off by default — every Smriti-derived feature in this project ships off
     /// by default. Reads the frontmost window's visible text at dictation start
     /// to bias engine vocabulary; nothing is stored. See S2 design spec.
@@ -161,6 +194,13 @@ final class AppState {
         onStart: { [weak self] in self?.beginPushToTalk() },
         onEnd: { [weak self] in self?.endPushToTalk() }
     )
+    /// kVK_ANSI_B — Smart Dictation, always polishes with the active style.
+    @ObservationIgnored private lazy var smartDictationHotkey = GlobalHotkey(
+        keyCode: 11,
+        modifiers: [.command, .shift]
+    ) { [weak self] in
+        self?.beginSmartDictation()
+    }
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
@@ -188,6 +228,17 @@ final class AppState {
     /// once, right before engine.transcribe(). nil when the feature is off.
     private var contextCaptureTask: Task<[String], Never>?
 
+    private let systemLLM = SystemLLM()
+
+    /// Set at the start of a session in beginSmartDictation()/toggleDictation(),
+    /// read in stopDictation() to decide whether to run polish before pasting.
+    /// Reset alongside the other per-session flags at the end of stopDictation().
+    private var isSmartDictationSession = false
+
+    /// Per-app-launch, not persisted — the Foundation-Models-unavailable nudge
+    /// (errorMessage) only needs to fire once per run, not every polish attempt.
+    private var didNudgeFoundationModelsUnavailable = false
+
     /// nil if the DB failed to open — history then becomes a silent no-op rather
     /// than crashing the app (matches the project's "engine error -> toast, not
     /// crash" principle). HistoryView reads/writes through this directly rather
@@ -209,6 +260,7 @@ final class AppState {
         if !isRunningUnderTests {
             hotkey.start()
             pushToTalk.start()
+            smartDictationHotkey.start()
             if !PasteService.hasAccessibilityPermission() {
                 PasteService.requestAccessibilityPrompt()
             }
@@ -267,11 +319,23 @@ final class AppState {
     // MARK: Actions
 
     func toggleDictation() {
+        toggleOrStop(smart: false)
+    }
+
+    /// Cmd+Shift+B — identical to toggleDictation() except it flags the session
+    /// as smart, so stopDictation() runs the active polish style before pasting.
+    /// Toggle-style, like Cmd+Shift+V — no separate PTT variant for this one.
+    func beginSmartDictation() {
+        toggleOrStop(smart: true)
+    }
+
+    private func toggleOrStop(smart: Bool) {
         switch dictation {
         case .idle:
             // Claim the state synchronously (before any await) so a second fast
             // toggle can't pass startDictation's guard and double-start.
             pttPressedAt = nil   // toggle has no "hold" concept — never inherit a stale PTT timestamp
+            isSmartDictationSession = smart
             dictation = .starting
             overlay.show(appState: self)   // instant — warming look, before any permission/capture work
             contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
@@ -418,7 +482,7 @@ final class AppState {
         await transcriptionTask?.value
         transcriptionTask = nil
 
-        let text = (finalizedTranscript + volatileTranscript)
+        var text = (finalizedTranscript + volatileTranscript)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         // errorMessage is nil'd at the top of every startDictation() and only the
         // transcriptionTask's catch block sets it during a session — so non-nil
@@ -429,6 +493,12 @@ final class AppState {
 
         if phase != .cancelled, soundEnabled {
             SoundPlayer.play(.stop, volume: Float(soundVolume))
+        }
+
+        if phase == .pasting, isSmartDictationSession, !Self.tooShortForPolish(text) {
+            overlayPhase = .polishing
+            text = await polishedText(for: text)
+            overlayPhase = phase
         }
 
         if phase == .pasting, pasteAfterStop {
@@ -459,7 +529,31 @@ final class AppState {
         pttPressedAt = nil
         recordingStartedAt = nil
         contextCaptureTask = nil
+        isSmartDictationSession = false
         await finishOverlayExit(exitDuration(for: phase))
+    }
+
+    /// Runs the active style through the current backend; returns `original`
+    /// unconditionally on any failure (backend Disabled, Foundation Models
+    /// unavailable, model error, timeout) — dictated/selected text must never
+    /// be silently dropped. Shows the one-time-per-launch Settings nudge
+    /// specifically when the cause is Foundation Models being unavailable.
+    private func polishedText(for original: String) async -> String {
+        guard polishBackend == .system, let style = activePolishStyle else { return original }
+        guard SystemLLM.isAvailable() else {
+            if !didNudgeFoundationModelsUnavailable {
+                didNudgeFoundationModelsUnavailable = true
+                errorMessage = "Apple Intelligence is off — enable it in Settings > AI to use polish, or pasted raw text for now."
+            }
+            return original
+        }
+        do {
+            let target = style.requiresTargetLanguage ? translateTargetLanguage : nil
+            return try await systemLLM.polish(original, style: style, targetLanguage: target)
+        } catch {
+            log.error("polishedText — polish failed: \(error)")
+            return original
+        }
     }
 
     /// Pure decision: what the overlay's exit flourish should be. Evaluated
@@ -476,6 +570,12 @@ final class AppState {
         return .pasting
     }
 
+    /// True means "skip polish, paste raw" — near-silent/hallucinated
+    /// recordings aren't worth an LLM call. Matches the old app's guard.
+    nonisolated static func tooShortForPolish(_ text: String) -> Bool {
+        text.split(whereSeparator: \.isWhitespace).count < 3
+    }
+
     /// ponytail: fixed per-phase durations, not user-configurable — these are
     /// brand-motion timings from OVERLAY_SPEC.md §4, tune by eye if they ever
     /// feel off, no need for a settings knob.
@@ -484,7 +584,7 @@ final class AppState {
         case .pasting: .milliseconds(420)   // sized to contain the finalize pulse (§5.5); slide (§4) runs alongside
         case .error: .milliseconds(800)
         case .cancelled: .milliseconds(120)
-        case .none: .zero
+        case .none, .polishing: .zero   // .polishing is transient mid-flight state, restored to phase before this is called
         }
     }
 
@@ -527,8 +627,17 @@ nonisolated extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }
 
+nonisolated enum PolishBackendKind: String, Codable, CaseIterable {
+    case disabled, system
+    // Sub-project 2 adds: case ollama, cloud
+}
+
 nonisolated enum SettingsKeys {
     static let pasteAfterStop = "pasteAfterStop"
+    static let polishBackend = "polishBackend"
+    static let activePolishStyleID = "activePolishStyleID"
+    static let translateTargetLanguage = "translateTargetLanguage"
+    static let customPolishStyles = "customPolishStyles"
     static let soundEnabled = "soundEnabled"
     static let soundVolume = "soundVolume"
     static let audioInputDeviceUID = "audioInputDeviceUID"
