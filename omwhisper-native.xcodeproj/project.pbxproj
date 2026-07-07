@@ -14,19 +14,11 @@
 			remoteGlobalIDString = 9604F78A2FFBE64C00E63B3E;
 			remoteInfo = "omwhisper-native";
 		};
-		9604F7A32FFBE64F00E63B3E /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 9604F7832FFBE64C00E63B3E /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 9604F78A2FFBE64C00E63B3E;
-			remoteInfo = "omwhisper-native";
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		9604F78B2FFBE64C00E63B3E /* OmWhisper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OmWhisper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9604F7982FFBE64F00E63B3E /* omwhisper-nativeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "omwhisper-nativeTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		9604F7A22FFBE64F00E63B3E /* omwhisper-nativeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "omwhisper-nativeUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -38,11 +30,6 @@
 		9604F79B2FFBE64F00E63B3E /* omwhisper-nativeTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "omwhisper-nativeTests";
-			sourceTree = "<group>";
-		};
-		9604F7A52FFBE64F00E63B3E /* omwhisper-nativeUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "omwhisper-nativeUITests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -62,13 +49,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		9604F79F2FFBE64F00E63B3E /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -77,7 +57,6 @@
 			children = (
 				9604F78D2FFBE64C00E63B3E /* omwhisper-native */,
 				9604F79B2FFBE64F00E63B3E /* omwhisper-nativeTests */,
-				9604F7A52FFBE64F00E63B3E /* omwhisper-nativeUITests */,
 				9604F78C2FFBE64C00E63B3E /* Products */,
 			);
 			sourceTree = "<group>";
@@ -87,7 +66,6 @@
 			children = (
 				9604F78B2FFBE64C00E63B3E /* OmWhisper.app */,
 				9604F7982FFBE64F00E63B3E /* omwhisper-nativeTests.xctest */,
-				9604F7A22FFBE64F00E63B3E /* omwhisper-nativeUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -140,29 +118,6 @@
 			productReference = 9604F7982FFBE64F00E63B3E /* omwhisper-nativeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		9604F7A12FFBE64F00E63B3E /* omwhisper-nativeUITests */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 9604F7B22FFBE64F00E63B3E /* Build configuration list for PBXNativeTarget "omwhisper-nativeUITests" */;
-			buildPhases = (
-				9604F79E2FFBE64F00E63B3E /* Sources */,
-				9604F79F2FFBE64F00E63B3E /* Frameworks */,
-				9604F7A02FFBE64F00E63B3E /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-				9604F7A42FFBE64F00E63B3E /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				9604F7A52FFBE64F00E63B3E /* omwhisper-nativeUITests */,
-			);
-			name = "omwhisper-nativeUITests";
-			packageProductDependencies = (
-			);
-			productName = "omwhisper-nativeUITests";
-			productReference = 9604F7A22FFBE64F00E63B3E /* omwhisper-nativeUITests.xctest */;
-			productType = "com.apple.product-type.bundle.ui-testing";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -177,10 +132,6 @@
 						CreatedOnToolsVersion = 26.6;
 					};
 					9604F7972FFBE64F00E63B3E = {
-						CreatedOnToolsVersion = 26.6;
-						TestTargetID = 9604F78A2FFBE64C00E63B3E;
-					};
-					9604F7A12FFBE64F00E63B3E = {
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 9604F78A2FFBE64C00E63B3E;
 					};
@@ -202,7 +153,6 @@
 			targets = (
 				9604F78A2FFBE64C00E63B3E /* omwhisper-native */,
 				9604F7972FFBE64F00E63B3E /* omwhisper-nativeTests */,
-				9604F7A12FFBE64F00E63B3E /* omwhisper-nativeUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -216,13 +166,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		9604F7962FFBE64F00E63B3E /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		9604F7A02FFBE64F00E63B3E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -246,13 +189,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		9604F79E2FFBE64F00E63B3E /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -260,11 +196,6 @@
 			isa = PBXTargetDependency;
 			target = 9604F78A2FFBE64C00E63B3E /* omwhisper-native */;
 			targetProxy = 9604F7992FFBE64F00E63B3E /* PBXContainerItemProxy */;
-		};
-		9604F7A42FFBE64F00E63B3E /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 9604F78A2FFBE64C00E63B3E /* omwhisper-native */;
-			targetProxy = 9604F7A32FFBE64F00E63B3E /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -513,46 +444,6 @@
 			};
 			name = Release;
 		};
-		9604F7B32FFBE64F00E63B3E /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = Y87BZN47C5;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.omwhisper.mac.uitests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 6.0;
-				TEST_TARGET_NAME = "omwhisper-native";
-			};
-			name = Debug;
-		};
-		9604F7B42FFBE64F00E63B3E /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = Y87BZN47C5;
-				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.omwhisper.mac.uitests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 6.0;
-				TEST_TARGET_NAME = "omwhisper-native";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -579,15 +470,6 @@
 			buildConfigurations = (
 				9604F7B02FFBE64F00E63B3E /* Debug */,
 				9604F7B12FFBE64F00E63B3E /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		9604F7B22FFBE64F00E63B3E /* Build configuration list for PBXNativeTarget "omwhisper-nativeUITests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				9604F7B32FFBE64F00E63B3E /* Debug */,
-				9604F7B42FFBE64F00E63B3E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

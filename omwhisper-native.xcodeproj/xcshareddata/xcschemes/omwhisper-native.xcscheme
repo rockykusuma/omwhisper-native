@@ -39,16 +39,6 @@
                ReferencedContainer = "container:omwhisper-native.xcodeproj">
             </BuildableReference>
          </TestableReference>
-         <TestableReference
-            skipped = "NO">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "9604F7A12FFBE64F00E63B3E"
-               BuildableName = "omwhisper-nativeUITests.xctest"
-               BlueprintName = "omwhisper-nativeUITests"
-               ReferencedContainer = "container:omwhisper-native.xcodeproj">
-            </BuildableReference>
-         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
