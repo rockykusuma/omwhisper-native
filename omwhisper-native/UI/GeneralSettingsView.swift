@@ -13,7 +13,7 @@ struct GeneralSettingsView: View {
         Form {
             Section("General") {
                 Toggle("Paste into the active app when dictation stops", isOn: $state.pasteAfterStop)
-                Toggle("Recording sounds", isOn: $state.soundEnabled)
+                Toggle("Launch at login", isOn: $state.launchAtLogin)
             }
             Section {
                 Text("OmWhisper 2.0 — native rewrite in progress. See NATIVE_MIGRATION_PLAN.md.")

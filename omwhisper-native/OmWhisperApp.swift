@@ -7,6 +7,7 @@
 
 import AppKit
 import Observation
+import Sparkle
 import SwiftUI
 
 // The menu bar is AppKit NSStatusItem + NSMenu, NOT SwiftUI MenuBarExtra:
@@ -18,27 +19,49 @@ import SwiftUI
 struct OmWhisperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         makeScene()
     }
 
-    // Helper function (not @SceneBuilder) so we can store the openSettings action
-    // on the delegate before returning the scene — bridges SwiftUI to AppKit.
+    // @SceneBuilder so we can store the openSettings/openWindow actions on the
+    // delegate (bridges SwiftUI to AppKit) and still return multiple scenes.
+    @SceneBuilder
     private func makeScene() -> some Scene {
-        delegate.openSettingsAction = openSettings
-        return Settings {
+        let _ = {
+            delegate.openSettingsAction = openSettings
+            delegate.openHistoryAction = openWindow
+        }()
+        Settings {
             SettingsView()
                 .environment(delegate.appState)
         }
+        .defaultLaunchBehavior(.suppressed)
+        // .suppressed: without this, macOS's window-state restoration reopens this
+        // window at next launch whenever the app was last killed uncleanly (e.g.
+        // Xcode's Stop button) while it was open — should only appear via the menu.
+        Window("History", id: "history") {
+            HistoryView()
+                .environment(delegate.appState)
+        }
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let appState = AppState()
     private var statusItem: NSStatusItem?
-    // Set by OmWhisperApp.makeScene() so AppKit menu can open the SwiftUI Settings scene.
+    // Reads SUFeedURL from Info.plist — inert until a real appcast.xml + EdDSA
+    // public key exist (SUPublicEDKey not set yet); "Check for Updates…" will
+    // just fail quietly until then. startingUpdater: true begins the normal
+    // scheduled background check cycle (Sparkle's own default: daily).
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
+    )
+    // Set by OmWhisperApp.makeScene() so AppKit menu can open the SwiftUI Settings/History scenes.
     var openSettingsAction: OpenSettingsAction?
+    var openHistoryAction: OpenWindowAction?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -47,6 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
         statusItem = item
         observeDictationState()       // keep the icon in sync while the menu is closed
+    }
+
+    // Menu-bar-only (LSUIElement) app: NSStatusItem is what keeps it alive, not a
+    // window. Without this override, AppKit's default is to quit when the last
+    // window closes — so closing Settings/History would kill the whole app.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 
     // MARK: Icon
@@ -98,6 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         addItem(to: menu, title: "Settings…", action: #selector(openSettings), key: ",")
+        addItem(to: menu, title: "History…", action: #selector(openHistory))
+        addItem(to: menu, title: "Check for Updates…", action: #selector(checkForUpdates))
+            .isEnabled = updaterController.updater.canCheckForUpdates
         addItem(to: menu, title: "Quit OmWhisper", action: #selector(quit), key: "q")
     }
 
@@ -117,5 +150,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openSettings() {
         NSApp.activate(ignoringOtherApps: true)
         openSettingsAction?()
+    }
+
+    @objc private func openHistory() {
+        NSApp.activate(ignoringOtherApps: true)
+        openHistoryAction?(id: "history")
+    }
+
+    @objc private func checkForUpdates() {
+        updaterController.checkForUpdates(nil)
     }
 }

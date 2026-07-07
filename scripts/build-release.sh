@@ -148,7 +148,9 @@ else
 fi
 
 echo ""
-echo "Upload $DMG_NAME to the GitHub release, then update the landing page's version.json"
-echo "(latest → $VERSION) and Sparkle appcast once Sparkle is wired in (M2)."
+echo "Upload $DMG_NAME to the GitHub release, then update omwhisper.in/appcast.xml"
+echo "(Sparkle feed) and version.json with the new $VERSION. Appcast entries need"
+echo "an EdDSA signature — sign_update from Sparkle's SPM checkout, once the"
+echo "signing key exists (not generated yet — see CLAUDE.md)."
 echo ""
 echo "Done."

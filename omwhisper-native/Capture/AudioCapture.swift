@@ -20,7 +20,15 @@
 //
 
 @preconcurrency import AVFoundation
+import AudioToolbox
+import CoreAudio
 import os
+
+nonisolated struct AudioInputDevice: Identifiable, Hashable {
+    let uid: String
+    let name: String
+    var id: String { uid }
+}
 
 final class AudioCapture {
     private struct State {
@@ -39,8 +47,21 @@ final class AudioCapture {
         state.withLock { $0.level }
     }
 
-    nonisolated func start() throws -> AsyncStream<AVAudioPCMBuffer> {
+    /// For the Audio settings picker — persistent UIDs, not just names (the old
+    /// Tauri app matched on name alone, which breaks for two same-model mics).
+    nonisolated static func availableInputDevices() -> [AudioInputDevice] {
+        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified)
+            .devices
+            .map { AudioInputDevice(uid: $0.uniqueID, name: $0.localizedName) }
+    }
+
+    /// nil/not-found preferredDeviceUID falls back to the system default input —
+    /// same semantics as the old app (`audio_input_device: None`).
+    nonisolated func start(preferredDeviceUID: String? = nil) throws -> AsyncStream<AVAudioPCMBuffer> {
         let input = engine.inputNode
+        if let preferredDeviceUID, let deviceID = Self.coreAudioDeviceID(forUID: preferredDeviceUID) {
+            try Self.setInputDevice(deviceID, on: input)
+        }
         let format = input.outputFormat(forBus: 0)
 
         // Bounded so a stalled consumer (converter/ASR falling behind the mic)
@@ -86,6 +107,63 @@ final class AudioCapture {
         var sum: Float = 0
         for i in 0..<n { sum += data[i] * data[i] }
         return min(1, sqrt(sum / Float(n)) * 10)
+    }
+
+    // MARK: Device selection
+    //
+    // AVAudioEngine has no cross-platform "pick an input device" API on macOS
+    // (unlike AVAudioSession on iOS) — the only way is the underlying input
+    // AudioUnit's kAudioOutputUnitProperty_CurrentDevice, set before the engine
+    // starts (the node's format/channel count depend on the selected device).
+
+    nonisolated private static func coreAudioDeviceID(forUID uid: String) -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize) == noErr else {
+            return nil
+        }
+        let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize, &deviceIDs) == noErr else {
+            return nil
+        }
+
+        for deviceID in deviceIDs {
+            var uidAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceUID,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            var deviceUID: Unmanaged<CFString>?
+            var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            let status = withUnsafeMutablePointer(to: &deviceUID) {
+                AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &size, $0)
+            }
+            if status == noErr, let deviceUID, (deviceUID.takeRetainedValue() as String) == uid {
+                return deviceID
+            }
+        }
+        return nil
+    }
+
+    nonisolated private static func setInputDevice(_ deviceID: AudioDeviceID, on node: AVAudioInputNode) throws {
+        guard let audioUnit = node.audioUnit else { return }
+        var mutableDeviceID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &mutableDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        guard status == noErr else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
     }
 }
 

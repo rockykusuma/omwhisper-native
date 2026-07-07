@@ -12,9 +12,12 @@ import AVFoundation
 import Foundation
 import Observation
 import os
+import ServiceManagement
 import Speech
 
-let log = Logger(subsystem: "com.omwhisper.mac", category: "AppState")
+// nonisolated: called from HistoryStore/LegacyHistoryImporter's background
+// work too, not just MainActor code — Logger is Sendable, safe either way.
+nonisolated let log = Logger(subsystem: "com.omwhisper.mac", category: "AppState")
 private let latencyLog = Logger(subsystem: "com.omwhisper.mac", category: "Latency")
 
 // nonisolated: plain data, no MainActor affinity — without this, the project's
@@ -60,6 +63,17 @@ final class AppState {
         get { UserDefaults.standard.object(forKey: SettingsKeys.soundEnabled) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.soundEnabled) }
     }
+    /// Matches the old app's default (`sound_volume: 0.2`).
+    var soundVolume: Double {
+        get { UserDefaults.standard.object(forKey: SettingsKeys.soundVolume) as? Double ?? 0.2 }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.soundVolume) }
+    }
+    /// nil = system default input. AVCaptureDevice.uniqueID, not a display name
+    /// (the old app matched by name, which breaks for two identical mic models).
+    var audioInputDeviceUID: String? {
+        get { UserDefaults.standard.string(forKey: SettingsKeys.audioInputDeviceUID) }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.audioInputDeviceUID) }
+    }
     var customVocabulary: [String] {
         get {
             guard let data = UserDefaults.standard.data(forKey: SettingsKeys.customVocabulary) else { return [] }
@@ -77,6 +91,31 @@ final class AppState {
     var fuzzyVocabCorrection: Bool {
         get { UserDefaults.standard.object(forKey: SettingsKeys.fuzzyVocabCorrection) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.fuzzyVocabCorrection) }
+    }
+    /// SMAppService is itself the source of truth (macOS's login-item registry) —
+    /// unlike the other settings above, nothing is mirrored into UserDefaults.
+    var launchAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            do {
+                if newValue {
+                    try SMAppService.mainApp.register()
+                } else {
+                    try SMAppService.mainApp.unregister()
+                }
+            } catch {
+                log.error("launchAtLogin — \(newValue ? "register" : "unregister") failed: \(error)")
+            }
+        }
+    }
+    /// nil = off. 0 doubles as "unset" since UserDefaults.integer(forKey:) already
+    /// returns 0 for a missing key — no separate "has a value" bookkeeping needed.
+    var autoDeleteAfterDays: Int? {
+        get {
+            let value = UserDefaults.standard.integer(forKey: SettingsKeys.autoDeleteAfterDays)
+            return value == 0 ? nil : value
+        }
+        set { UserDefaults.standard.set(newValue ?? 0, forKey: SettingsKeys.autoDeleteAfterDays) }
     }
 
     // MARK: Core loop collaborators
@@ -112,6 +151,17 @@ final class AppState {
     /// hold duration for the short-hold-cancel check in `exitPhase`.
     private var pttPressedAt: ContinuousClock.Instant?
 
+    /// Set right after audioCapture.start() succeeds; read at stop to compute the
+    /// session duration recorded in history, and to time the start-to-first-partial
+    /// latency log. Cleared at the end of every stopDictation().
+    private var recordingStartedAt: ContinuousClock.Instant?
+
+    /// nil if the DB failed to open — history then becomes a silent no-op rather
+    /// than crashing the app (matches the project's "engine error -> toast, not
+    /// crash" principle). HistoryView reads/writes through this directly rather
+    /// than AppState proxying every HistoryStore method.
+    private(set) var historyStore: HistoryStore?
+
     var hasAccessibilityPermission: Bool {
         PasteService.hasAccessibilityPermission()
     }
@@ -128,6 +178,35 @@ final class AppState {
         pushToTalk.start()
         if !PasteService.hasAccessibilityPermission() {
             PasteService.requestAccessibilityPrompt()
+        }
+
+        do {
+            let dir = try FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+            ).appendingPathComponent("com.omwhisper.mac", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            historyStore = try .open(atPath: dir.appendingPathComponent("history.db").path)
+        } catch {
+            log.error("init — HistoryStore failed to open: \(error)")
+            historyStore = nil
+        }
+        if let historyStore {
+            runHistoryStartupTasks(store: historyStore, autoDeleteAfterDays: autoDeleteAfterDays)
+        }
+    }
+
+    /// nonisolated so the Task it spawns runs on the cooperative thread pool, not
+    /// MainActor — see AppState concurrency note in CLAUDE.md. Runs the legacy
+    /// importer, then auto-delete cleanup; both are fire-and-forget, errors logged.
+    nonisolated private func runHistoryStartupTasks(store: HistoryStore, autoDeleteAfterDays: Int?) {
+        Task {
+            LegacyHistoryImporter.importIfNeeded(into: store)
+            guard let autoDeleteAfterDays else { return }
+            do {
+                try store.deleteOlderThan(days: autoDeleteAfterDays)
+            } catch {
+                log.error("startup cleanup — deleteOlderThan failed: \(error)")
+            }
         }
     }
 
@@ -200,13 +279,13 @@ final class AppState {
         volatileTranscript = ""
 
         do {
-            let audioStream = try audioCapture.start()
+            let audioStream = try audioCapture.start(preferredDeviceUID: audioInputDeviceUID)
             dictation = .recording
-            if soundEnabled { SoundPlayer.play(.start) }
+            if soundEnabled { SoundPlayer.play(.start, volume: Float(soundVolume)) }
             // overlay already shown in toggleDictation()/beginPushToTalk() (early-show,
             // before permissions/capture even start) — nothing to do here.
 
-            let recordingStartedAt = ContinuousClock.now
+            recordingStartedAt = ContinuousClock.now
             var loggedFirstPartial = false
 
             // Snapshot once per session — read fresh at the moment this specific
@@ -229,7 +308,7 @@ final class AppState {
                     for try await event in events {
                         switch event {
                         case .partial(let text):
-                            if !loggedFirstPartial {
+                            if !loggedFirstPartial, let recordingStartedAt = self.recordingStartedAt {
                                 loggedFirstPartial = true
                                 latencyLog.info("start-to-first-partial: \(recordingStartedAt.duration(to: .now))")
                             }
@@ -283,7 +362,7 @@ final class AppState {
         overlayPhase = phase
 
         if phase != .cancelled, soundEnabled {
-            SoundPlayer.play(.stop)
+            SoundPlayer.play(.stop, volume: Float(soundVolume))
         }
 
         if phase == .pasting, pasteAfterStop {
@@ -300,7 +379,19 @@ final class AppState {
             }
         }
 
+        // Recorded independent of pasteAfterStop — history isn't tied to auto-paste,
+        // only to "did this session actually produce real text" (phase == .pasting).
+        if phase == .pasting {
+            let durationSeconds = recordingStartedAt.map { $0.duration(to: .now).seconds } ?? 0
+            do {
+                try historyStore?.record(text: text, duration: durationSeconds, modelUsed: "Apple SpeechTranscriber")
+            } catch {
+                log.error("stopDictation — history record failed: \(error)")
+            }
+        }
+
         pttPressedAt = nil
+        recordingStartedAt = nil
         await finishOverlayExit(exitDuration(for: phase))
     }
 
@@ -365,10 +456,18 @@ final class AppState {
     }
 }
 
-enum SettingsKeys {
+nonisolated extension Duration {
+    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
+}
+
+nonisolated enum SettingsKeys {
     static let pasteAfterStop = "pasteAfterStop"
     static let soundEnabled = "soundEnabled"
+    static let soundVolume = "soundVolume"
+    static let audioInputDeviceUID = "audioInputDeviceUID"
     static let customVocabulary = "customVocabulary"
     static let wordReplacements = "wordReplacements"
     static let fuzzyVocabCorrection = "fuzzyVocabCorrection"
+    static let hasImportedLegacyHistory = "hasImportedLegacyHistory"
+    static let autoDeleteAfterDays = "autoDeleteAfterDays"
 }
