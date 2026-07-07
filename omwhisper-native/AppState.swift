@@ -111,6 +111,13 @@ final class AppState {
         get { UserDefaults.standard.object(forKey: SettingsKeys.fuzzyVocabCorrection) as? Bool ?? false }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.fuzzyVocabCorrection) }
     }
+    /// Off by default — every Smriti-derived feature in this project ships off
+    /// by default. Reads the frontmost window's visible text at dictation start
+    /// to bias engine vocabulary; nothing is stored. See S2 design spec.
+    var contextAwareDictationEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: SettingsKeys.contextAwareDictationEnabled) as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.contextAwareDictationEnabled) }
+    }
     /// SMAppService is itself the source of truth (macOS's login-item registry) —
     /// unlike the other settings above, nothing is mirrored into UserDefaults.
     var launchAtLogin: Bool {
@@ -175,6 +182,12 @@ final class AppState {
     /// latency log. Cleared at the end of every stopDictation().
     private var recordingStartedAt: ContinuousClock.Instant?
 
+    /// Fired the instant dictation=.starting is claimed (S2 context-aware
+    /// dictation), concurrently with permission checks/audioCapture.start() so
+    /// the AX read doesn't add latency on top of work already happening. Awaited
+    /// once, right before engine.transcribe(). nil when the feature is off.
+    private var contextCaptureTask: Task<[String], Never>?
+
     /// nil if the DB failed to open — history then becomes a silent no-op rather
     /// than crashing the app (matches the project's "engine error -> toast, not
     /// crash" principle). HistoryView reads/writes through this directly rather
@@ -236,6 +249,21 @@ final class AppState {
         }
     }
 
+    /// nonisolated so the Task it creates runs on the cooperative thread pool —
+    /// same rationale as runHistoryStartupTasks. `enabled` is a plain Bool
+    /// parameter rather than reading contextAwareDictationEnabled inside the
+    /// nonisolated body, because that property is MainActor-isolated and can't
+    /// be read from here directly (same reason vocabSnapshot/replacementsSnapshot/
+    /// fuzzySnapshot are read on MainActor and passed by value into
+    /// startDictation()'s transcription Task).
+    nonisolated private func startContextCapture(enabled: Bool) -> Task<[String], Never>? {
+        guard enabled else { return nil }
+        return Task {
+            guard let text = ScreenContextReader.captureFrontmostWindowText() else { return [] }
+            return await SalientTermExtractor.extractSalientTerms(from: text)
+        }
+    }
+
     // MARK: Actions
 
     func toggleDictation() {
@@ -246,6 +274,7 @@ final class AppState {
             pttPressedAt = nil   // toggle has no "hold" concept — never inherit a stale PTT timestamp
             dictation = .starting
             overlay.show(appState: self)   // instant — warming look, before any permission/capture work
+            contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
             Task { await startDictation() }
         case .recording:
             Task { await stopDictation() }
@@ -264,6 +293,7 @@ final class AppState {
         pttPressedAt = .now
         dictation = .starting
         overlay.show(appState: self)   // instant — warming look, before any permission/capture work
+        contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
         Task { await startDictation() }
     }
 
@@ -320,7 +350,17 @@ final class AppState {
             let replacementsSnapshot = wordReplacements
             let fuzzySnapshot = fuzzyVocabCorrection
 
-            let events = engine.transcribe(audioStream, vocabulary: vocabSnapshot)
+            // Screen-extracted terms (S2) feed engine biasing only — never
+            // vocabSnapshot itself, which also doubles as fuzzyCorrect's
+            // post-hoc snap-to-nearest-term dictionary below. Mixing noisy
+            // auto-extracted terms into that harder rewrite is a different
+            // risk profile than soft engine biasing.
+            let screenTerms = await contextCaptureTask?.value ?? []
+            let engineVocabulary = vocabSnapshot + screenTerms.filter { term in
+                !vocabSnapshot.contains { $0.caseInsensitiveCompare(term) == .orderedSame }
+            }
+
+            let events = engine.transcribe(audioStream, vocabulary: engineVocabulary)
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
                 func postProcess(_ text: String) -> String {
@@ -418,6 +458,7 @@ final class AppState {
 
         pttPressedAt = nil
         recordingStartedAt = nil
+        contextCaptureTask = nil
         await finishOverlayExit(exitDuration(for: phase))
     }
 
@@ -494,6 +535,7 @@ nonisolated enum SettingsKeys {
     static let customVocabulary = "customVocabulary"
     static let wordReplacements = "wordReplacements"
     static let fuzzyVocabCorrection = "fuzzyVocabCorrection"
+    static let contextAwareDictationEnabled = "contextAwareDictationEnabled"
     static let hasImportedLegacyHistory = "hasImportedLegacyHistory"
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
 }
