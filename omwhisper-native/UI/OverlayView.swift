@@ -138,15 +138,13 @@ struct OverlayView: View {
 
     private var transcriptZone: some View {
         let lineHeight: CGFloat = 15 * 1.55
-        return Group {
-            if appState.finalizedTranscript.isEmpty && appState.volatileTranscript.isEmpty {
-                Text(appState.dictation == .finalizing ? "Finishing up…" : "Listening…")
-                    .foregroundStyle(Color.omVolatile.opacity(0.5))
-            } else {
-                transcriptText
-            }
-        }
-        .font(.system(size: 15))
+        // No "Listening…"/"Finishing up…" placeholder here — the status label
+        // above already says LISTENING/FINALIZING; repeating it in the
+        // transcript zone too just says the same thing twice. Blank until real
+        // words arrive reads fine given the label + reactive orb are already
+        // communicating the state.
+        return transcriptText
+            .font(.system(size: 15))
         // No .lineLimit here on purpose: it would truncate to the FIRST N lines
         // (tail-cut with an ellipsis), which is the opposite of what we want —
         // freezing the view once text exceeds 2 lines instead of scrolling.
