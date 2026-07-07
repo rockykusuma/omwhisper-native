@@ -54,16 +54,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     // Reads SUFeedURL from Info.plist — inert until a real appcast.xml + EdDSA
     // public key exist (SUPublicEDKey not set yet); "Check for Updates…" will
-    // just fail quietly until then. startingUpdater: true begins the normal
-    // scheduled background check cycle (Sparkle's own default: daily).
+    // just fail quietly until then. startingUpdater: begins the normal
+    // scheduled background check cycle (Sparkle's own default: daily) — never
+    // under tests, see isRunningUnderTests in AppState.swift.
     private let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil
+        startingUpdater: !isRunningUnderTests, updaterDelegate: nil, userDriverDelegate: nil
     )
     // Set by OmWhisperApp.makeScene() so AppKit menu can open the SwiftUI Settings/History scenes.
     var openSettingsAction: OpenSettingsAction?
     var openHistoryAction: OpenWindowAction?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Skip entirely under XCTest — see isRunningUnderTests in AppState.swift.
+        // Without this, every `xcodebuild test` run launches a real, interactive
+        // menu-bar instance that outlives the test run.
+        guard !isRunningUnderTests else { return }
+
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let menu = NSMenu()
         menu.delegate = self          // rebuilt on each open — reflects live state

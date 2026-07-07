@@ -20,6 +20,25 @@ import Speech
 nonisolated let log = Logger(subsystem: "com.omwhisper.mac", category: "AppState")
 private let latencyLog = Logger(subsystem: "com.omwhisper.mac", category: "Latency")
 
+/// True when the process is an XCTest host. Guards side effects that must
+/// never fire during test runs — global hotkeys, the menu-bar status item,
+/// permission prompts, Sparkle's update checker, real HistoryStore/legacy-
+/// import I/O — which otherwise launch a real, fully-interactive instance of
+/// the app for every test run and don't self-terminate when the run finishes,
+/// leaving orphaned menu-bar icons and live global event taps behind
+/// indefinitely.
+///
+/// Checks whether the XCTest framework is loaded into this process — true
+/// regardless of how the test host was launched (dyld injects XCTest before
+/// user code runs, so this is available from the very start). Neither the
+/// XCTestConfigurationFilePath env var nor the -ApplePersistenceIgnoreState
+/// launch argument xcodebuild's CLI passes turned out to be reliable:
+/// launching tests via Xcode's own Test navigator/Cmd+U — as opposed to the
+/// `xcodebuild test` CLI every automated run in this project had used so
+/// far — sets neither, so a real hotkey/PTT/status-item/Sparkle instance
+/// still launched under that path with only the argument-based check.
+nonisolated let isRunningUnderTests = NSClassFromString("XCTestCase") != nil
+
 // nonisolated: plain data, no MainActor affinity — without this, the project's
 // MainActor-by-default setting also pins the synthesized Equatable conformance,
 // which then can't be used from a nonisolated context (e.g. exitPhase's tests).
@@ -174,10 +193,17 @@ final class AppState {
     }
 
     init() {
-        hotkey.start()
-        pushToTalk.start()
-        if !PasteService.hasAccessibilityPermission() {
-            PasteService.requestAccessibilityPrompt()
+        if !isRunningUnderTests {
+            hotkey.start()
+            pushToTalk.start()
+            if !PasteService.hasAccessibilityPermission() {
+                PasteService.requestAccessibilityPrompt()
+            }
+        }
+
+        guard !isRunningUnderTests else {
+            historyStore = nil
+            return
         }
 
         do {
