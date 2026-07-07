@@ -28,8 +28,10 @@ final class OverlayPanel {
 
     private func makePanel(appState: AppState) -> NSPanel {
         let hosting = NSHostingView(rootView: OverlayView().environment(appState))
+        // Pill is 90pt tall (see OverlayView) + up to 14pt of exit-slide headroom
+        // below it — 500x115 keeps both comfortably clear of the panel edge.
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 115),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false

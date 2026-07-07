@@ -107,12 +107,17 @@ struct OverlayView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .frame(width: 480, height: 82, alignment: .leading)
+        // Height must fit its own content: the 64pt orb zone + 12pt padding on
+        // each side needs 88pt minimum — the spec's own "~82pt" anatomy figure
+        // was 6pt short of that, which was starving the transcript column of
+        // its requested space and corrupting the 2-line clip/mask below.
+        .frame(width: 480, height: 90, alignment: .leading)
         .background(Color.omBackground.opacity(0.92), in: RoundedRectangle(cornerRadius: 28))
         .overlay(
             RoundedRectangle(cornerRadius: 28)
                 .strokeBorder(borderColor.opacity(0.35), lineWidth: 1)
         )
+        .clipped()   // defensive: nothing (orb, text) can bleed past the pill's own bounds
         .offset(y: exitOffsetY)
         .opacity(isVisible ? 1 : 0)
         .animation(pillAnimation, value: isVisible)
