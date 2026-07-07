@@ -28,12 +28,16 @@ struct OverlayView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var isVisible: Bool { appState.dictation != .idle }
+    private var isVisible: Bool {
+        appState.dictation != .idle || appState.overlayPhase == .polishing
+    }
 
     private var statusLabel: String {
         switch appState.overlayPhase {
         case .pasting, .cancelled:
             return ""
+        case .polishing:
+            return "POLISHING"
         case .error(let label):
             return label
         case .none:
@@ -48,6 +52,7 @@ struct OverlayView: View {
 
     private var labelColor: Color {
         if case .error = appState.overlayPhase { return .omError }
+        if case .polishing = appState.overlayPhase { return .omTeal }
         switch appState.dictation {
         case .recording: return .omTeal
         case .finalizing: return .omMint
