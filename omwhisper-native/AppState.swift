@@ -12,6 +12,7 @@ import AVFoundation
 import Foundation
 import Observation
 import os
+import ScreenCaptureKit
 import ServiceManagement
 import Speech
 
@@ -231,6 +232,10 @@ final class AppState {
                     Task {
                         do {
                             try await self?.meetingRecorder.start(appName: appName)
+                        } catch let error as SCStreamError where error.code == .userDeclined {
+                            log.error("meeting recording failed to start: Screen Recording not granted")
+                            self?.errorMessage = "Grant Screen Recording for OmWhisper in System Settings, then relaunch to record meetings."
+                            self?.meetingWatcher.failedToStartRecording()
                         } catch {
                             log.error("meeting recording failed to start: \(error)")
                             self?.meetingWatcher.failedToStartRecording()
