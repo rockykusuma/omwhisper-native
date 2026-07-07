@@ -17,11 +17,17 @@ import SwiftUI
 @main
 struct OmWhisperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @Environment(\.openSettings) private var openSettings
 
     var body: some Scene {
-        // Kept as a real SwiftUI scene so `showSettingsWindow:` (fired from the
-        // AppKit menu below) has a window to present.
-        Settings {
+        makeScene()
+    }
+
+    // Helper function (not @SceneBuilder) so we can store the openSettings action
+    // on the delegate before returning the scene — bridges SwiftUI to AppKit.
+    private func makeScene() -> some Scene {
+        delegate.openSettingsAction = openSettings
+        return Settings {
             SettingsView()
                 .environment(delegate.appState)
         }
@@ -31,6 +37,8 @@ struct OmWhisperApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let appState = AppState()
     private var statusItem: NSStatusItem?
+    // Set by OmWhisperApp.makeScene() so AppKit menu can open the SwiftUI Settings scene.
+    var openSettingsAction: OpenSettingsAction?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -56,7 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateIcon() {
         // TODO(M2): swap for the ॐ template icon. Deliberately NOT a mic glyph —
         // indistinguishable from the system mic indicator in the menu bar.
-        let name = appState.dictation == .idle ? "waveform" : "waveform.circle.fill"
+        let name: String = switch appState.dictation {
+        case .idle: "waveform"
+        case .starting, .recording: "waveform.circle.fill"
+        case .finalizing: "waveform.circle"
+        }
         let image = NSImage(systemSymbolName: name, accessibilityDescription: "OmWhisper")
         image?.isTemplate = true
         statusItem?.button?.image = image
@@ -104,9 +116,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openSettings() {
         NSApp.activate(ignoringOtherApps: true)
-        // macOS 14+/26 selector, with the pre-Ventura name as fallback.
-        if !NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
-        }
+        openSettingsAction?()
     }
 }
