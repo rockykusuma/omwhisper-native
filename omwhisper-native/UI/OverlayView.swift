@@ -148,10 +148,15 @@ struct OverlayView: View {
         // No .lineLimit here on purpose: it would truncate to the FIRST N lines
         // (tail-cut with an ellipsis), which is the opposite of what we want —
         // freezing the view once text exceeds 2 lines instead of scrolling.
-        // Letting Text grow to its full natural height, then bottom-aligning it
-        // inside a fixed-height clipped frame, is what actually keeps the
-        // *newest* 2 lines visible as older ones scroll off above.
         .multilineTextAlignment(.leading)
+        // Without this, Text can use the frame's PROPOSED height (not just
+        // width) to decide how many lines to even lay out — silently limiting
+        // it to what fits, rather than growing past it for .clipped() below to
+        // trim. fixedSize forces Text to report its full natural height
+        // (still wrapping to the proposed WIDTH) regardless of what height the
+        // frame constrains it to — this is what actually makes "grow, then
+        // clip the overflow" work instead of "truncate invisibly."
+        .fixedSize(horizontal: false, vertical: true)
         .frame(height: lineHeight * 2, alignment: .bottom)
         .clipped()
         .mask(
