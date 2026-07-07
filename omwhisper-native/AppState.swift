@@ -15,6 +15,7 @@ import os
 import Speech
 
 let log = Logger(subsystem: "com.omwhisper.mac", category: "AppState")
+private let latencyLog = Logger(subsystem: "com.omwhisper.mac", category: "Latency")
 
 enum DictationState: Equatable {
     case idle
@@ -57,11 +58,20 @@ final class AppState {
     ) { [weak self] in
         self?.toggleDictation()
     }
+    @ObservationIgnored private lazy var pushToTalk = PushToTalkMonitor(
+        onStart: { [weak self] in self?.beginPushToTalk() },
+        onEnd: { [weak self] in self?.endPushToTalk() }
+    )
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
     /// final result, not before.
     private var transcriptionTask: Task<Void, Never>?
+
+    /// Set when Fn is released while still in .starting (permissions/capture setup in
+    /// flight) — startDictation() checks this the instant it reaches .recording and
+    /// immediately stops, so a quick tap-and-release doesn't get stuck recording.
+    private var stopRequestedWhilePTTStarting = false
 
     var hasAccessibilityPermission: Bool {
         PasteService.hasAccessibilityPermission()
@@ -69,6 +79,10 @@ final class AppState {
 
     init() {
         hotkey.start()
+        pushToTalk.start()
+        if !PasteService.hasAccessibilityPermission() {
+            PasteService.requestAccessibilityPrompt()
+        }
     }
 
     // MARK: Actions
@@ -84,6 +98,28 @@ final class AppState {
             Task { await stopDictation() }
         case .starting, .finalizing:
             break   // ignore toggles while a transition is in flight
+        }
+    }
+
+    // MARK: Push-to-talk
+
+    func beginPushToTalk() {
+        // Ignore if already toggled-on via Cmd+Shift+V, or mid-transition — same
+        // one-attempt-in-flight discipline as toggleDictation's .idle case.
+        guard dictation == .idle else { return }
+        stopRequestedWhilePTTStarting = false
+        dictation = .starting
+        Task { await startDictation() }
+    }
+
+    func endPushToTalk() {
+        switch dictation {
+        case .starting:
+            stopRequestedWhilePTTStarting = true
+        case .recording:
+            Task { await stopDictation() }
+        case .idle, .finalizing:
+            break   // stray release with no matching press (e.g. focus changed mid-hold) — no-op
         }
     }
 
@@ -114,7 +150,11 @@ final class AppState {
         do {
             let audioStream = try audioCapture.start()
             dictation = .recording
+            if soundEnabled { SoundPlayer.play(.start) }
             overlay.show(appState: self)
+
+            let recordingStartedAt = ContinuousClock.now
+            var loggedFirstPartial = false
 
             let events = engine.transcribe(audioStream)
             transcriptionTask = Task { [weak self] in
@@ -123,6 +163,10 @@ final class AppState {
                     for try await event in events {
                         switch event {
                         case .partial(let text):
+                            if !loggedFirstPartial {
+                                loggedFirstPartial = true
+                                latencyLog.info("start-to-first-partial: \(recordingStartedAt.duration(to: .now))")
+                            }
                             self.volatileTranscript = text
                         case .final(let text):
                             self.finalizedTranscript += text
@@ -134,6 +178,11 @@ final class AppState {
                     self.errorMessage = error.localizedDescription
                 }
             }
+
+            if stopRequestedWhilePTTStarting {
+                stopRequestedWhilePTTStarting = false
+                Task { await stopDictation() }
+            }
         } catch {
             log.error("startDictation — audio capture failed: \(error)")
             errorMessage = "Couldn't start the microphone: \(error.localizedDescription)"
@@ -143,11 +192,13 @@ final class AppState {
     }
 
     func stopDictation() async {
+        let stopRequestedAt = ContinuousClock.now
         guard dictation == .recording else {
             log.warning("stopDictation — aborted (state=\(String(describing: self.dictation)))")
             return
         }
         dictation = .finalizing
+        if soundEnabled { SoundPlayer.play(.stop) }
 
         audioCapture.stop()
         await transcriptionTask?.value
@@ -156,7 +207,17 @@ final class AppState {
         let text = (finalizedTranscript + volatileTranscript)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if pasteAfterStop, !text.isEmpty {
-            PasteService.paste(text)
+            if PasteService.hasAccessibilityPermission() {
+                PasteService.paste(text)
+                latencyLog.info("stop-to-paste: \(stopRequestedAt.duration(to: .now))")
+            } else {
+                // paste() is what normally puts text on the pasteboard; since we're
+                // skipping it here (no Accessibility to post Cmd+V), copy directly
+                // so "Text copied" in the message below is actually true.
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                errorMessage = "Text copied — grant Accessibility to auto-paste."
+            }
         }
 
         overlay.hide()
