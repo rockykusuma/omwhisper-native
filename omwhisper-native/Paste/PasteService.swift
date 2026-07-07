@@ -72,11 +72,14 @@ struct PasteService {
     /// Simulates Cmd+C rather than reading kAXSelectedTextAttribute — AX text
     /// selection is inconsistently supported across third-party/cross-toolkit
     /// apps, whereas Cmd+C works everywhere copy already works. Returns nil if
-    /// nothing was selected (pasteboard content unchanged after the copy) or if
-    /// the pasteboard had no prior string content to compare against a fresh one.
+    /// nothing was selected — detected via `changeCount` being untouched, since
+    /// no app writes to the pasteboard without an actual copy action firing.
+    /// NOT content-equality against the prior pasteboard value: if the current
+    /// selection happens to match whatever was already on the clipboard (e.g.
+    /// re-selecting text you just copied a moment ago), that's still a real,
+    /// successful copy and must not be treated as "nothing selected".
     static func copySelection() async -> String? {
         let pasteboard = NSPasteboard.general
-        let before = pasteboard.string(forType: .string)
         let beforeChangeCount = pasteboard.changeCount
 
         sendCmdC()
@@ -85,9 +88,7 @@ struct PasteService {
         try? await Task.sleep(for: .milliseconds(150))
 
         guard pasteboard.changeCount != beforeChangeCount else { return nil }
-        let after = pasteboard.string(forType: .string)
-        guard let after, after != before else { return nil }
-        return after
+        return pasteboard.string(forType: .string)
     }
 
     private static func sendCmdC() {
