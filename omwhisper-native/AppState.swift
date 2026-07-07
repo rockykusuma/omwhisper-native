@@ -165,7 +165,11 @@ final class AppState {
 
     // MARK: Permissions
 
-    private func requestMicrophonePermission() async -> Bool {
+    // nonisolated: these completion handlers can fire on an arbitrary background
+    // queue (SFSpeechRecognizer's does, via a TCC XPC callback thread) rather than
+    // MainActor — assuming MainActor here trips Swift 6's runtime isolation check
+    // and crashes (see AppState.swift concurrency note in CLAUDE.md).
+    nonisolated private func requestMicrophonePermission() async -> Bool {
         await withCheckedContinuation { continuation in
             AVCaptureDevice.requestAccess(for: .audio) { granted in
                 continuation.resume(returning: granted)
@@ -173,7 +177,7 @@ final class AppState {
         }
     }
 
-    private func requestSpeechPermission() async -> Bool {
+    nonisolated private func requestSpeechPermission() async -> Bool {
         await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status == .authorized)
