@@ -2,22 +2,29 @@
 //  PasteService.swift
 //  OmWhisper
 //
-//  Frontmost-app capture + clipboard paste + clipboard restore.
+//  Clipboard paste + clipboard restore + Accessibility permission handling.
 //  Port of the Tauri app's paste.rs (macOS path). Requires Accessibility permission
 //  (app is NOT sandboxed — Developer ID distribution only).
 //
 
 import AppKit
-import ApplicationServices
+@preconcurrency import ApplicationServices
 
 struct PasteService {
-    /// Capture the frontmost app *before* recording starts, so we can return focus to it.
-    static func frontmostApp() -> NSRunningApplication? {
-        NSWorkspace.shared.frontmostApplication
-    }
-
     static func hasAccessibilityPermission() -> Bool {
         AXIsProcessTrusted()
+    }
+
+    /// Actively asks the OS to show the Accessibility trust prompt, unlike
+    /// `hasAccessibilityPermission()` which only checks silently. Pass `true` for
+    /// the prompt option so macOS shows the system "OmWhisper.app would like to
+    /// control this computer" dialog if not already trusted. No-op if already
+    /// trusted, or if the user was already prompted once this grant/deny cycle —
+    /// macOS only shows the dialog once per cycle, that's expected system
+    /// behavior, not a bug to work around.
+    static func requestAccessibilityPrompt() {
+        let options: NSDictionary = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        _ = AXIsProcessTrustedWithOptions(options)
     }
 
     static func openAccessibilitySettings() {
