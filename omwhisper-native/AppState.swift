@@ -113,36 +113,69 @@ final class AppState {
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.fuzzyVocabCorrection) }
     }
     /// Disabled by default — polish is opt-in.
+    ///
+    /// access(keyPath:)/withMutation(keyPath:) manually register this with
+    /// Observation: @Observable only auto-instruments *stored* properties, so
+    /// a plain get/set computed property over UserDefaults — like every other
+    /// setting in this file — never fires a change notification on its own.
+    /// That's invisible for a Toggle (its own click animation looks right
+    /// regardless of whether the view body actually re-renders), but a
+    /// `.pickerStyle(.radioGroup)` Picker needs a real Observation signal to
+    /// re-highlight the selected option, so without this it stays showing the
+    /// stale selection until some unrelated event forces the view to rebuild
+    /// (e.g. switching Settings tabs and back) — found via live verification.
     var polishBackend: PolishBackendKind {
         get {
+            access(keyPath: \.polishBackend)
             guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.polishBackend) else { return .disabled }
             return PolishBackendKind(rawValue: raw) ?? .disabled
         }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.polishBackend) }
+        set {
+            withMutation(keyPath: \.polishBackend) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.polishBackend)
+            }
+        }
     }
     /// Defaults to Smart Correct — the least presumptuous built-in (cleanup only,
     /// preserves the speaker's own wording), a safe universal default.
     var activePolishStyleID: UUID {
         get {
+            access(keyPath: \.activePolishStyleID)
             guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.activePolishStyleID),
                   let id = UUID(uuidString: raw) else { return PolishStyles.builtIns[6].id }
             return id
         }
-        set { UserDefaults.standard.set(newValue.uuidString, forKey: SettingsKeys.activePolishStyleID) }
+        set {
+            withMutation(keyPath: \.activePolishStyleID) {
+                UserDefaults.standard.set(newValue.uuidString, forKey: SettingsKeys.activePolishStyleID)
+            }
+        }
     }
     var activePolishStyle: PolishStyle? {
         PolishStyles.style(id: activePolishStyleID, customStyles: customPolishStyles)
     }
     var translateTargetLanguage: String {
-        get { UserDefaults.standard.string(forKey: SettingsKeys.translateTargetLanguage) ?? "English" }
-        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.translateTargetLanguage) }
+        get {
+            access(keyPath: \.translateTargetLanguage)
+            return UserDefaults.standard.string(forKey: SettingsKeys.translateTargetLanguage) ?? "English"
+        }
+        set {
+            withMutation(keyPath: \.translateTargetLanguage) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.translateTargetLanguage)
+            }
+        }
     }
     var customPolishStyles: [PolishStyle] {
         get {
+            access(keyPath: \.customPolishStyles)
             guard let data = UserDefaults.standard.data(forKey: SettingsKeys.customPolishStyles) else { return [] }
             return (try? JSONDecoder().decode([PolishStyle].self, from: data)) ?? []
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.customPolishStyles) }
+        set {
+            withMutation(keyPath: \.customPolishStyles) {
+                UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.customPolishStyles)
+            }
+        }
     }
     /// Off by default — every Smriti-derived feature in this project ships off
     /// by default. Reads the frontmost window's visible text at dictation start
