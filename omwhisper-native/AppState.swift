@@ -44,6 +44,24 @@ final class AppState {
         get { UserDefaults.standard.object(forKey: SettingsKeys.soundEnabled) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.soundEnabled) }
     }
+    var customVocabulary: [String] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: SettingsKeys.customVocabulary) else { return [] }
+            return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+        }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.customVocabulary) }
+    }
+    var wordReplacements: [ReplacementRule] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: SettingsKeys.wordReplacements) else { return [] }
+            return (try? JSONDecoder().decode([ReplacementRule].self, from: data)) ?? []
+        }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.wordReplacements) }
+    }
+    var fuzzyVocabCorrection: Bool {
+        get { UserDefaults.standard.object(forKey: SettingsKeys.fuzzyVocabCorrection) as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.fuzzyVocabCorrection) }
+    }
 
     // MARK: Core loop collaborators
     private let audioCapture = AudioCapture()
@@ -156,9 +174,22 @@ final class AppState {
             let recordingStartedAt = ContinuousClock.now
             var loggedFirstPartial = false
 
-            let events = engine.transcribe(audioStream)
+            // Snapshot once per session — read fresh at the moment this specific
+            // dictation starts, not re-read per streamed partial.
+            let vocabSnapshot = customVocabulary
+            let replacementsSnapshot = wordReplacements
+            let fuzzySnapshot = fuzzyVocabCorrection
+
+            let events = engine.transcribe(audioStream, vocabulary: vocabSnapshot)
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
+                func postProcess(_ text: String) -> String {
+                    var result = applyReplacements(text, rules: replacementsSnapshot)
+                    if fuzzySnapshot {
+                        result = fuzzyCorrect(result, dictionary: vocabSnapshot)
+                    }
+                    return result
+                }
                 do {
                     for try await event in events {
                         switch event {
@@ -167,9 +198,9 @@ final class AppState {
                                 loggedFirstPartial = true
                                 latencyLog.info("start-to-first-partial: \(recordingStartedAt.duration(to: .now))")
                             }
-                            self.volatileTranscript = text
+                            self.volatileTranscript = postProcess(text)
                         case .final(let text):
-                            self.finalizedTranscript += text
+                            self.finalizedTranscript += postProcess(text)
                             self.volatileTranscript = ""
                         }
                     }
@@ -250,4 +281,7 @@ final class AppState {
 enum SettingsKeys {
     static let pasteAfterStop = "pasteAfterStop"
     static let soundEnabled = "soundEnabled"
+    static let customVocabulary = "customVocabulary"
+    static let wordReplacements = "wordReplacements"
+    static let fuzzyVocabCorrection = "fuzzyVocabCorrection"
 }

@@ -43,7 +43,8 @@ struct AppleEngine: TranscriptionEngine {
     // async model calls) and must not run pinned to MainActor, which is this
     // project's default actor isolation for unannotated declarations.
     nonisolated func transcribe(
-        _ audio: sending AsyncStream<AVAudioPCMBuffer>
+        _ audio: sending AsyncStream<AVAudioPCMBuffer>,
+        vocabulary: [String]
     ) -> AsyncThrowingStream<TranscriptEvent, Error> {
         // makeStream (rather than the AsyncThrowingStream { continuation } builder)
         // so the producing Task is created directly in this function's region and
@@ -72,6 +73,16 @@ struct AppleEngine: TranscriptionEngine {
                 }
 
                 let analyzer = SpeechAnalyzer(modules: [transcriber])
+                if !vocabulary.isEmpty {
+                    // AnalysisContext.contextualStrings biases recognition toward the
+                    // user's custom vocabulary — SpeechTranscriber itself has no such
+                    // parameter; this is the actual mechanism (confirmed against the
+                    // Speech.swiftinterface shipped in the macOS 26 SDK). Set before
+                    // start() so the very first analyzed audio already has the bias.
+                    let context = AnalysisContext()
+                    context.contextualStrings[.general] = vocabulary
+                    try await analyzer.setContext(context)
+                }
                 let (inputSequence, inputBuilder) = AsyncStream<AnalyzerInput>.makeStream()
 
                 // Drain transcriber.results concurrently with feeding audio in below —

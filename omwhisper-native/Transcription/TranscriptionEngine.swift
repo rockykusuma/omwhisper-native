@@ -38,7 +38,12 @@ protocol TranscriptionEngine: Sendable {
     /// `audio` is `sending`: the engine takes exclusive ownership so it can feed
     /// the stream to a background Task. Callers must not use the stream after the
     /// call (Swift 6 region isolation enforces this).
+    ///
+    /// `vocabulary` biases recognition toward custom words/phrases (product names,
+    /// jargon) — read fresh at the start of each call, not cached, since engines
+    /// are rebuilt per dictation session anyway.
     func transcribe(
-        _ audio: sending AsyncStream<AVAudioPCMBuffer>
+        _ audio: sending AsyncStream<AVAudioPCMBuffer>,
+        vocabulary: [String]
     ) -> AsyncThrowingStream<TranscriptEvent, Error>
 }
