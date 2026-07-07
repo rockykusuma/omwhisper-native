@@ -157,7 +157,11 @@ struct OverlayView: View {
         // frame constrains it to — this is what actually makes "grow, then
         // clip the overflow" work instead of "truncate invisibly."
         .fixedSize(horizontal: false, vertical: true)
-        .frame(height: lineHeight * 2, alignment: .bottom)
+        // maxHeight (not a fixed height) so a single line hugs the label
+        // directly instead of always reserving a phantom second line's worth
+        // of empty space above it — the cap still kicks in once content grows
+        // past 2 lines, clipping/scrolling exactly as before.
+        .frame(maxHeight: lineHeight * 2, alignment: .bottom)
         .clipped()
         .mask(
             VStack(spacing: 0) {
