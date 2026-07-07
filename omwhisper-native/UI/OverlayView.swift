@@ -2,65 +2,161 @@
 //  OverlayView.swift
 //  OmWhisper
 //
-//  Content of the floating recording overlay: a status dot + the live
-//  transcript, with finalized text solid and the trailing volatile hypothesis
-//  dimmed/italic (replaced in place as SpeechTranscriber refines it).
+//  The Om Orb overlay content — see docs/OVERLAY_SPEC.md. This phase ships the
+//  static pill: correct palette/layout/label states, driven entirely by
+//  `AppState.dictation`/`overlayPhase`. The view is mounted ONCE for the
+//  panel's whole lifetime (see OverlayPanel — it caches one NSHostingView),
+//  so entrance/exit is animated via value-keyed `.animation`, never
+//  `.transition` (which only fires on insert/remove, and this view never
+//  unmounts).
+//
+//  ponytail: entrance spring-overshoot (§4) is a plain fade here, and the exit
+//  slide (§8) is a modest 14pt settle rather than the full +90pt — sliding that
+//  far inside a ~100pt panel clips at the edge unless the panel gets extra
+//  headroom, which is exactly the kind of thing to size by eye against the
+//  running app, not guess at here. True per-word entrance + common-prefix
+//  diffing (§7) would need a custom flowing-text layout (SwiftUI has no
+//  built-in per-run-animated wrapping text); the whole-block crossfade below
+//  gets most of the visual benefit (no hard-cut recolor) at a fraction of the
+//  engineering cost — upgrade to per-word only if the block-level crossfade
+//  reads as jittery once seen live.
 //
 
 import SwiftUI
 
 struct OverlayView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var statusColor: Color {
-        switch appState.dictation {
-        case .recording: return .red
-        case .finalizing: return .yellow
-        case .idle, .starting: return .gray   // overlay isn't shown until .recording; .starting is cosmetic
+    private var isVisible: Bool { appState.dictation != .idle }
+
+    private var statusLabel: String {
+        switch appState.overlayPhase {
+        case .pasting, .cancelled:
+            return ""
+        case .error(let label):
+            return label
+        case .none:
+            switch appState.dictation {
+            case .idle: return ""
+            case .starting: return "…"
+            case .recording: return "LISTENING"
+            case .finalizing: return "FINALIZING"
+            }
         }
     }
 
-    /// Finalized (solid) + volatile (dimmed/italic) as one AttributedString —
-    /// `Text + Text` concatenation is deprecated on macOS 26; this is the
-    /// replacement for combining differently-styled runs (not the same case as
-    /// the deprecation's own "use string interpolation" suggestion, which only
-    /// fits plain uniformly-styled text).
+    private var labelColor: Color {
+        if case .error = appState.overlayPhase { return .omError }
+        switch appState.dictation {
+        case .recording: return .omTeal
+        case .finalizing: return .omMint
+        default: return .omVolatile
+        }
+    }
+
+    /// Border flashes omError during the error exit flourish (§4: "border +
+    /// label flash omError"); the resting brand border otherwise.
+    private var borderColor: Color {
+        if case .error = appState.overlayPhase { return .omError }
+        return .omBorder
+    }
+
+    /// Small downward settle on a successful finalize — see the ponytail note
+    /// above on why this isn't the spec's full +90pt slide.
+    private var exitOffsetY: CGFloat {
+        guard case .pasting = appState.overlayPhase else { return 0 }
+        return 14
+    }
+
+    private var pillAnimation: Animation {
+        if reduceMotion { return .easeInOut(duration: 0.15) }
+        switch appState.overlayPhase {
+        case .cancelled: return .easeInOut(duration: 0.12)   // §4: 120ms fade, no translate
+        default: return .easeInOut(duration: 0.3)
+        }
+    }
+
+    /// Finalized (solid core) + volatile (dimmed mint) as one AttributedString.
+    /// No italic (dropped `.emphasized` per §7 — color alone carries the meaning,
+    /// and italic + color double-encodes and jitters as words re-render).
     private var transcriptText: Text {
         var text = AttributedString(appState.finalizedTranscript)
-        text.foregroundColor = .primary
+        text.foregroundColor = .omGlyphCore
 
         var volatile = AttributedString(appState.volatileTranscript)
-        volatile.foregroundColor = .secondary
-        volatile.inlinePresentationIntent = .emphasized
+        volatile.foregroundColor = Color.omVolatile.opacity(0.5)
 
         text.append(volatile)
         return Text(text)
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 10, height: 10)
-                .padding(.top, 5)
-
-            Group {
-                if appState.finalizedTranscript.isEmpty && appState.volatileTranscript.isEmpty {
-                    Text(appState.dictation == .finalizing ? "Finishing up…" : "Listening…")
-                        .foregroundStyle(.secondary)
-                } else {
-                    transcriptText
+        HStack(alignment: .top, spacing: 8) {
+            orbZone
+            VStack(alignment: .leading, spacing: 4) {
+                if !statusLabel.isEmpty {
+                    Text(statusLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.9)
+                        .foregroundStyle(labelColor)
                 }
+                transcriptZone
             }
-            .font(.system(size: 14))
-            .lineLimit(3)
-            .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(14)
-        .frame(width: 420, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .shadow(radius: 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(width: 480, height: 82, alignment: .leading)
+        .background(Color.omBackground.opacity(0.92), in: RoundedRectangle(cornerRadius: 28))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28)
+                .strokeBorder(borderColor.opacity(0.35), lineWidth: 1)
+        )
+        .offset(y: exitOffsetY)
+        .opacity(isVisible ? 1 : 0)
+        .animation(pillAnimation, value: isVisible)
+        .animation(pillAnimation, value: appState.overlayPhase)
+    }
+
+    private var orbZone: some View {
+        ZStack {
+            // Mount-gated on dictation != .idle (not merely hidden) so the
+            // TimelineView driving OmOrbView's Canvas doesn't tick at all while
+            // the panel is ordered out — see OVERLAY_SPEC.md §10.
+            if isVisible {
+                OmOrbView(appState: appState)
+            }
+        }
+        .frame(width: 64, height: 64)
+    }
+
+    private var transcriptZone: some View {
+        let lineHeight: CGFloat = 15 * 1.55
+        return Group {
+            if appState.finalizedTranscript.isEmpty && appState.volatileTranscript.isEmpty {
+                Text(appState.dictation == .finalizing ? "Finishing up…" : "Listening…")
+                    .foregroundStyle(Color.omVolatile.opacity(0.5))
+            } else {
+                transcriptText
+            }
+        }
+        .font(.system(size: 15))
+        .lineLimit(2)
+        .multilineTextAlignment(.leading)
+        .frame(height: lineHeight * 2, alignment: .bottom)
+        .clipped()
+        .mask(
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 8)
+                Color.black
+            }
+        )
+        // Whole-block crossfade on every transcript change — see the type's
+        // header comment on why this is block-level, not per-word.
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: appState.finalizedTranscript)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: appState.volatileTranscript)
     }
 }
 

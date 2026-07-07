@@ -29,7 +29,7 @@ final class OverlayPanel {
     private func makePanel(appState: AppState) -> NSPanel {
         let hosting = NSHostingView(rootView: OverlayView().environment(appState))
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 90),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 100),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
