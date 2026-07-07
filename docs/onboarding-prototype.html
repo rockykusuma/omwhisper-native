@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>OmWhisper — Onboarding Prototype (Om Orb edition)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* ===== palette straight from OVERLAY_SPEC.md §2 ===== */
+  :root{
+    --bg:#0a0f0d; --panel:#0e1512; --ink:#EAFFF5; --dim:#5d7a6e; --faint:#22302a;
+    --em:#34D399; --mint:#6EE7B7; --teal:#2DD4BF; --volatile:rgba(110,231,183,.5);
+    --peak:#ffffff; --err:#F87171;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:radial-gradient(1200px 800px at 50% 30%, #0d1411 0%, #050806 100%);
+    display:flex;align-items:center;justify-content:center;min-height:100vh;
+    font-family:"DM Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);
+  }
+  .window{
+    width:840px;height:620px;background:var(--bg);border-radius:14px;position:relative;overflow:hidden;
+    border:1px solid #1c2822;box-shadow:0 40px 90px rgba(0,0,0,.65), 0 0 0 1px rgba(52,211,153,.04);
+  }
+  .traffic{position:absolute;top:14px;left:14px;display:flex;gap:8px;z-index:50}
+  .traffic i{width:12px;height:12px;border-radius:50%;background:#233029;display:block}
+  .menubar{
+    position:absolute;top:0;left:0;right:0;height:32px;background:#101815e6;backdrop-filter:blur(6px);
+    border-bottom:1px solid #1b2620;display:flex;align-items:center;justify-content:flex-end;
+    padding:0 16px;gap:14px;font-size:12px;color:var(--dim);opacity:0;transform:translateY(-32px);
+    transition:all .8s cubic-bezier(.2,.8,.2,1);z-index:40;
+  }
+  .menubar.show{opacity:1;transform:none}
+  .menubar .om-slot{color:var(--em);font-size:15px}
+  .menubar .om-slot.glow{text-shadow:0 0 12px var(--em)}
+
+  .step{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:48px;text-align:center;opacity:0;pointer-events:none;transition:opacity .6s ease;}
+  .step.active{opacity:1;pointer-events:auto}
+  h1{font-size:40px;font-weight:600;letter-spacing:-.02em}
+  h2{font-size:25px;font-weight:600;letter-spacing:-.01em}
+  .tagline{color:var(--dim);font-size:16px;margin-top:10px}
+  .kicker{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--em);margin-bottom:14px;opacity:.9}
+
+  /* ===== the listening pill — anatomy per OVERLAY_SPEC.md §3 ===== */
+  .pill{
+    width:500px;height:100px;background:rgba(10,15,13,.92);
+    border:1px solid rgba(52,211,153,.35);border-radius:28px;
+    display:flex;align-items:center;gap:14px;padding:8px 22px 8px 8px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55), 0 0 40px rgba(52,211,153,.06);
+    position:relative;text-align:left;
+  }
+  .pill canvas{width:84px;height:84px;flex:none}
+  .pill .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+  .pill .status{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);height:14px;transition:color .15s}
+  .pill .status.finalizing{color:var(--mint)}
+  .pill .status.err{color:var(--err)}
+  .pill .transcript{
+    font-size:15px;line-height:1.55;height:46px;overflow:hidden;position:relative;
+    display:flex;flex-direction:column;justify-content:flex-end;
+    -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 10px);
+            mask-image:linear-gradient(to bottom, transparent 0, #000 10px);
+  }
+  .transcript .fin{color:var(--ink);transition:color .4s ease}
+  .transcript .vol{color:var(--volatile);transition:color .4s ease}
+  .transcript .white .fin,.transcript .white .vol{color:var(--peak)}
+  .transcript .placeholder{color:var(--volatile)}
+  .word{display:inline-block;animation:wordin .18s ease-out both}
+  @keyframes wordin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* pill entrance/exit — spec §4 timings */
+  .hudwrap{position:absolute;left:0;right:0;bottom:34px;display:flex;justify-content:center;z-index:20;pointer-events:none}
+  .hud-hidden{opacity:0;transform:translateY(90px)}
+  .hud-enter{transition:all .35s cubic-bezier(.2,.9,.3,1.2);opacity:1;transform:none}
+  .hud-exit{transition:all .3s ease-in;opacity:0;transform:translateY(90px)}
+
+  /* ===== buttons / misc ===== */
+  .btn{
+    margin-top:32px;background:linear-gradient(135deg,var(--em),var(--teal));color:#04120c;border:none;
+    padding:13px 34px;font-size:15px;font-weight:600;border-radius:999px;cursor:pointer;
+    font-family:inherit;box-shadow:0 6px 26px rgba(52,211,153,.28);transition:transform .15s, box-shadow .15s;
+  }
+  .btn:hover{transform:translateY(-1px);box-shadow:0 10px 32px rgba(52,211,153,.4)}
+  .ghost{margin-top:14px;background:none;border:none;color:var(--dim);font-size:13px;cursor:pointer;font-family:inherit;text-decoration:underline dotted}
+  .ghost:hover{color:var(--mint)}
+  .privacy{display:flex;align-items:center;gap:12px;margin-top:24px;color:var(--dim);font-size:14px}
+  .wave{display:flex;gap:3px;align-items:center;height:18px}
+  .wave i{width:3px;border-radius:2px;background:var(--em);animation:dissolve 2.6s ease-in-out infinite}
+  .wave i:nth-child(1){height:6px}.wave i:nth-child(2){height:12px;animation-delay:.15s}
+  .wave i:nth-child(3){height:17px;animation-delay:.3s}.wave i:nth-child(4){height:10px;animation-delay:.45s}
+  .wave i:nth-child(5){height:14px;animation-delay:.6s}.wave i:nth-child(6){height:7px;animation-delay:.75s}
+  @keyframes dissolve{0%,55%{opacity:.9;transform:none}85%,100%{opacity:0;transform:translateX(16px) scale(.5)}}
+
+  .macdialog{
+    width:290px;background:#1b1f1de8;backdrop-filter:blur(20px);border:1px solid #333d38;border-radius:14px;
+    padding:22px 20px 16px;box-shadow:0 24px 60px rgba(0,0,0,.6);margin-top:6px;
+    animation:pop .35s cubic-bezier(.2,1.4,.4,1) both;
+  }
+  @keyframes pop{from{opacity:0;transform:scale(.9) translateY(8px)}to{opacity:1;transform:none}}
+  .macdialog .dic{font-size:34px;margin-bottom:10px}
+  .macdialog p{font-size:13px;line-height:1.45;color:#cfe0d8}
+  .macdialog small{display:block;margin-top:6px;color:#7d938a;font-size:11px}
+  .macdialog .row{display:flex;gap:8px;margin-top:16px}
+  .macdialog button{flex:1;padding:7px 0;border-radius:7px;border:none;font-family:inherit;font-size:13px;cursor:pointer}
+  .macdialog .deny{background:#2c3531;color:#aebfb7}
+  .macdialog .allow{background:linear-gradient(135deg,var(--em),var(--teal));color:#04120c;font-weight:600}
+
+  /* mock target app (playground) */
+  .targetapp{
+    width:560px;background:#101816;border:1px solid #1d2b24;border-radius:12px;overflow:hidden;text-align:left;
+  }
+  .targetapp .bar{height:30px;background:#141d19;border-bottom:1px solid #1b2620;display:flex;align-items:center;padding:0 12px;gap:7px}
+  .targetapp .bar i{width:9px;height:9px;border-radius:50%;background:#26352d}
+  .targetapp .bar span{margin-left:8px;font-size:11.5px;color:var(--dim)}
+  .targetapp .doc{min-height:96px;padding:18px 20px;font-size:16.5px;line-height:1.6;color:var(--ink)}
+  .targetapp .doc .pasted{animation:pastein .5s ease-out both}
+  @keyframes pastein{from{opacity:0;background:rgba(52,211,153,.18)}to{opacity:1;background:transparent}}
+  .caret{display:inline-block;width:2px;height:1.1em;background:var(--em);vertical-align:text-bottom;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  .stats{display:flex;gap:14px;margin-top:22px;opacity:0;transform:translateY(12px);transition:all .6s cubic-bezier(.2,.9,.3,1)}
+  .stats.show{opacity:1;transform:none}
+  .stat{background:var(--panel);border:1px solid #1d2b24;border-radius:14px;padding:14px 22px;min-width:124px}
+  .stat b{display:block;font-size:28px;font-weight:700;background:linear-gradient(135deg,var(--mint),var(--teal));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat span{font-size:11.5px;color:var(--dim);letter-spacing:.04em}
+
+  .hint{margin-top:16px;color:var(--dim);font-size:14px}
+  .hint kbd,kbd{background:#16211c;border:1px solid #26352d;border-bottom-width:2px;border-radius:6px;padding:2px 9px;font-family:ui-monospace,monospace;font-size:12.5px;color:var(--mint)}
+  .dots{position:absolute;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:9px;z-index:30}
+  .dots i{width:7px;height:7px;border-radius:50%;background:#24332b;transition:all .4s}
+  .dots i.on{background:var(--em);box-shadow:0 0 10px rgba(52,211,153,.6)}
+  .skip{position:absolute;top:18px;right:22px;color:#40544a;font-size:13px;background:none;border:none;cursor:pointer;font-family:inherit;z-index:30}
+  .skip:hover{color:var(--dim)}
+  .pastecard{margin-top:24px;background:var(--panel);border:1px solid #1d2b24;border-radius:14px;padding:16px 20px;width:470px;text-align:left}
+  .pastecard h4{font-size:12.5px;color:var(--mint);letter-spacing:.06em;text-transform:uppercase;margin-bottom:7px}
+  .pastecard p{font-size:13.5px;color:var(--dim);line-height:1.55}
+  .proto-note{position:fixed;bottom:12px;left:0;right:0;text-align:center;color:#3a4d43;font-size:12px;font-family:ui-monospace,monospace}
+  .micnote{font-size:12px;color:#43584d;margin-top:10px}
+</style>
+</head>
+<body>
+
+<div class="window" id="win">
+  <div class="traffic"><i></i><i></i><i></i></div>
+  <button class="skip" id="skipBtn" onclick="finale()">Skip setup</button>
+  <div class="menubar" id="menubar">
+    <div class="om-slot" id="omSlot" style="opacity:0">ॐ</div>
+    <div>🔋</div><div>📶</div><div>Tue 9:41 AM</div>
+  </div>
+
+  <!-- STEP 0 — Awakening -->
+  <section class="step active" id="s0">
+    <canvas id="orb0" width="380" height="380" style="width:190px;height:190px;margin-bottom:22px"></canvas>
+    <h1>OmWhisper</h1>
+    <p class="tagline">Speak. It types.</p>
+    <div class="privacy">
+      <span class="wave"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      <span style="font-size:18px">💻</span>
+      <span>Your voice never leaves this Mac.</span>
+    </div>
+    <button class="btn" onclick="go(1)">Begin</button>
+  </section>
+
+  <!-- STEP 1 — Hearing -->
+  <section class="step" id="s1">
+    <div class="kicker">Sense 1 of 2 · Hearing</div>
+    <h2>Let it hear you</h2>
+    <p class="tagline" style="max-width:430px">One permission now. Audio is transcribed on this Mac and discarded — nothing stored, nothing sent.</p>
+    <div class="macdialog" id="micDialog">
+      <div class="dic">🎙️</div>
+      <p><b>“OmWhisper”</b> would like to access the microphone.</p>
+      <small>Speech is transcribed on-device by Apple's speech engine.</small>
+      <div class="row">
+        <button class="deny" onclick="denyMic()">Don't Allow</button>
+        <button class="allow" onclick="allowMic()">Allow</button>
+      </div>
+    </div>
+    <p class="hint" id="denyHint" style="opacity:0;transition:opacity .4s">That's okay — you can enable it later in System Settings. But the magic needs ears. 🌱</p>
+    <p class="micnote">Prototype: “Allow” also asks your browser for the real mic — if granted, the orb reacts to your actual voice.</p>
+  </section>
+
+  <!-- STEP 2 — Say continue -->
+  <section class="step" id="s2">
+    <div class="kicker">This is the overlay you'll see every day</div>
+    <h2>Say <span style="color:var(--mint);font-weight:600">“continue”</span></h2>
+    <div style="height:26px"></div>
+    <div class="pill" id="pill2">
+      <canvas id="orb2" width="168" height="168"></canvas>
+      <div class="body">
+        <div class="status" id="status2">LISTENING</div>
+        <div class="transcript" id="tr2"><div><span class="placeholder">Listening…</span></div></div>
+      </div>
+    </div>
+    <p class="hint" id="hint2">🎙 <button class="ghost" style="margin:0;display:inline" onclick="simulateContinue()">Click to simulate saying it</button></p>
+    <button class="ghost" onclick="go(3)">Use a button instead</button>
+  </section>
+
+  <!-- STEP 3 — Playground -->
+  <section class="step" id="s3" style="justify-content:flex-start;padding-top:64px">
+    <div class="kicker">The whole product, in one hold</div>
+    <h2>Hold <kbd style="font-size:14px">space</kbd> and speak. Release when done.</h2>
+    <div style="height:22px"></div>
+    <div class="targetapp">
+      <div class="bar"><i></i><i></i><i></i><span>Notes — any app, really</span></div>
+      <div class="doc" id="doc3"><span class="caret"></span></div>
+    </div>
+    <div class="stats" id="stats">
+      <div class="stat"><b id="wpm">0</b><span>WORDS / MIN</span></div>
+      <div class="stat"><b>~45</b><span>AVG TYPING WPM</span></div>
+      <div class="stat"><b id="mult">–</b><span>FASTER THAN TYPING</span></div>
+    </div>
+    <p class="hint" id="hint3">Prototype: holding <b>space</b> simulates dictating.</p>
+    <button class="btn" id="next3" style="opacity:0;transition:opacity .5s;margin-top:14px" onclick="finale()">Feels fast →</button>
+    <!-- the HUD pill, exactly where it lives in the real app: bottom-center -->
+    <div class="hudwrap"><div class="pill hud-hidden" id="hud3">
+      <canvas id="orb3" width="168" height="168"></canvas>
+      <div class="body">
+        <div class="status" id="status3">…</div>
+        <div class="transcript" id="tr3"><div></div></div>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- STEP 4 — Finale -->
+  <section class="step" id="s4">
+    <canvas id="orb4" width="380" height="380" style="width:190px;height:190px;margin-bottom:10px;transition:all 1s cubic-bezier(.4,0,.2,1)"></canvas>
+    <h2 id="finaleTitle" style="opacity:0;transition:opacity .6s">It lives in your menu bar now</h2>
+    <p class="tagline" id="finaleSub" style="opacity:0;transition:opacity .6s .1s">Press <kbd>⌘⇧V</kbd> in any app, any time.</p>
+    <div class="pastecard" id="pcard" style="opacity:0;transition:opacity .6s .25s">
+      <h4>One more sense, later</h4>
+      <p>The first time you want words <b>pasted straight into another app</b>, macOS will ask for Accessibility — we'll show you why at that moment, not now. Until then, everything lands on your clipboard.</p>
+    </div>
+    <button class="btn" id="doneBtn" style="opacity:0;transition:opacity .6s .4s" onclick="alert('Onboarding complete — 4 screens, one permission, ~75 seconds.')">Start dictating</button>
+  </section>
+
+  <div class="dots" id="dots"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+</div>
+
+<p class="proto-note">interactive prototype · om-orb edition, per docs/OVERLAY_SPEC.md · voice input optional, words simulated</p>
+
+<script>
+/* =====================================================================
+   THE OM ORB — canvas port of OVERLAY_SPEC.md §5
+   3 additive energy blobs + pulse ring + steady breathing ॐ glyph.
+   All voice reactivity lives in the field; the glyph never dances.
+===================================================================== */
+const BLOB_COLORS=[[52,211,153],[45,212,191],[110,231,183]]; // emerald, teal, mint
+
+class OmOrb{
+  constructor(canvasId){
+    this.cv=document.getElementById(canvasId);
+    this.ctx=this.cv.getContext('2d');
+    this.S=this.cv.width;            // square canvas, 2x for retina
+    this.k=this.S/256;               // spec formulas are on a 128px canvas → we render 2x
+    this.glow=0.6; this.glowTarget=0.6;
+    this.pulses=[];                  // finalize waves
+  }
+  pulse(){ this.pulses.push({r:34*2*this.k,a:.55}); this.glowTarget=1; setTimeout(()=>this.glowTarget=.6,140); }
+  draw(t,amp){
+    const {ctx,S,k}=this; const c=S/2;
+    ctx.clearRect(0,0,S,S);
+    this.glow+= (this.glowTarget-this.glow)*0.08;
+    /* --- energy field: 3 blobs, additive (spec §5.1) --- */
+    ctx.globalCompositeOperation='lighter';
+    for(let i=0;i<3;i++){
+      const phi=i*2.1, col=BLOB_COLORS[i];
+      const R=(27 + amp*16)*2*k;
+      const w1=(3+amp*8)*2*k, w2=(2+amp*4)*2*k;
+      ctx.beginPath();
+      for(let a=0;a<=64;a++){
+        const th=a/64*2*Math.PI;
+        const r=R + Math.sin(3*th + t/300 + phi)*w1 + Math.sin(5*th - t/200 + phi)*w2;
+        const x=c+Math.cos(th)*r, y=c+Math.sin(th)*r;
+        a?ctx.lineTo(x,y):ctx.moveTo(x,y);
+      }
+      ctx.closePath();
+      ctx.fillStyle=`rgba(${col[0]},${col[1]},${col[2]},${0.16+amp*0.20})`;
+      ctx.fill();
+    }
+    /* --- pulse ring (spec §5.2) --- */
+    ctx.beginPath();
+    const rr=(34 + amp*20 + Math.sin(t/600)*2)*2*k;
+    ctx.arc(c,c,rr,0,2*Math.PI);
+    ctx.strokeStyle=`rgba(110,231,183,${0.10+amp*0.30})`;
+    ctx.lineWidth=1.5*2*k; ctx.stroke();
+    /* --- finalize waves (spec §5.5) --- */
+    this.pulses=this.pulses.filter(p=>{
+      p.r+=3.2*k*2; p.a-=.02;
+      if(p.a<=0) return false;
+      ctx.beginPath(); ctx.arc(c,c,p.r,0,2*Math.PI);
+      ctx.strokeStyle=`rgba(110,231,183,${p.a})`; ctx.lineWidth=2*k*2; ctx.stroke();
+      return true;
+    });
+    ctx.globalCompositeOperation='source-over';
+    /* --- the ॐ glyph (spec §5.3): breathes slowly, glows with lum, never dances --- */
+    const breath=1+0.02*Math.sin(t/900);
+    const lum=Math.min(1, this.glow*0.55 + amp*0.5);
+    const fs=36*2*k*breath;
+    ctx.font=`${fs}px "Devanagari Sangam MN","Noto Sans Devanagari",serif`;
+    ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+    /* true optical centering: measure the glyph's ink box and center it exactly */
+    const m=ctx.measureText('ॐ');
+    const gy=c + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent)/2 - 3*2*k;
+    /* dark under-copy for legibility over a bright field */
+    ctx.fillStyle='rgba(4,52,44,.9)';
+    ctx.fillText('ॐ',c+1.5*2*k,gy+1.5*2*k);
+    /* main glyph: core → peak by luminance */
+    const g=Math.round(234+(255-234)*lum), b2=Math.round(245+(255-245)*lum);
+    ctx.shadowColor=`rgba(52,211,153,${.35+lum*.45})`;
+    ctx.shadowBlur=(14+lum*22)*k;
+    ctx.fillStyle=`rgb(${Math.round(234+(255-234)*lum)},${g<255?255:255},${b2})`;
+    ctx.fillStyle=`rgba(${234+Math.round(21*lum)},255,${245+Math.round(10*lum)},1)`;
+    ctx.fillText('ॐ',c,gy);
+    ctx.shadowBlur=0;
+  }
+}
+
+/* =====================================================================
+   Amplitude signal (spec §6): real mic if granted, else simulated.
+   Asymmetric smoothing: fast attack .30, slow decay .08.
+===================================================================== */
+let amp=0.12, ampTarget=0.12, speaking=false;
+let analyser=null, micData=null, micLive=false;
+
+async function tryRealMic(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const ac=new (window.AudioContext||window.webkitAudioContext)();
+    const src=ac.createMediaStreamSource(stream);
+    analyser=ac.createAnalyser(); analyser.fftSize=512;
+    micData=new Uint8Array(analyser.fftSize);
+    src.connect(analyser); micLive=true;
+  }catch(e){ micLive=false; }
+}
+function readMic(){
+  analyser.getByteTimeDomainData(micData);
+  let sum=0; for(let i=0;i<micData.length;i++){const v=(micData[i]-128)/128; sum+=v*v;}
+  const rms=Math.sqrt(sum/micData.length);
+  return Math.min(1, Math.pow(rms*6, 0.7));           // gain + soft-knee (spec §6)
+}
+
+/* ===== render loop: one rAF drives whichever orbs are visible ===== */
+const orbs={};
+['orb0','orb2','orb3','orb4'].forEach(id=>orbs[id]=new OmOrb(id));
+const stepOrbs={0:['orb0'],1:[],2:['orb2'],3:['orb3'],4:['orb4']};
+let cur=0;
+function loop(t){
+  if(micLive){ ampTarget=Math.max(readMic(), speaking?0.45:0.12); }
+  else { ampTarget=speaking ? 0.35+Math.random()*0.45 : 0.12; }
+  const kk = ampTarget>amp ? 0.30 : 0.08;
+  amp += (ampTarget-amp)*kk;
+  (stepOrbs[cur]||[]).forEach(id=>orbs[id].draw(t,amp));
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ===== step machinery ===== */
+const steps=[...document.querySelectorAll('.step')];
+const dots=[...document.querySelectorAll('.dots i')];
+function go(n){
+  steps[cur].classList.remove('active');
+  steps[n].classList.add('active');
+  dots.forEach((d,i)=>d.classList.toggle('on',i<=n));
+  cur=n;
+}
+
+/* ===== step 1: permission ===== */
+function allowMic(){
+  const d=document.getElementById('micDialog');
+  d.style.transition='all .3s'; d.style.opacity='0'; d.style.transform='scale(.92)';
+  tryRealMic().finally(()=>setTimeout(()=>go(2),380));
+}
+function denyMic(){ document.getElementById('denyHint').style.opacity='1'; }
+
+/* ===== transcript rendering: volatile mint 50% → finalized recolor (spec §7) ===== */
+function renderTranscript(el, finText, volText){
+  const line=document.createElement('div');
+  if(finText) { const s=document.createElement('span'); s.className='fin'; s.textContent=finText+(volText?' ':''); line.appendChild(s); }
+  if(volText){ const s=document.createElement('span'); s.className='vol'; s.textContent=volText; line.appendChild(s); }
+  el.replaceChildren(line);
+}
+function appendVolatileWord(el, finText, volWords){
+  const line=document.createElement('div');
+  if(finText){ const s=document.createElement('span'); s.className='fin'; s.textContent=finText+' '; line.appendChild(s); }
+  volWords.forEach((w,i)=>{
+    const s=document.createElement('span'); s.className='vol'+(i===volWords.length-1?' word':''); s.textContent=w+' ';
+    line.appendChild(s);
+  });
+  el.replaceChildren(line);
+}
+
+/* ===== step 2: say "continue" ===== */
+let simDone=false;
+function simulateContinue(){
+  if(simDone) return; simDone=true; speaking=true;
+  const tr=document.getElementById('tr2'), st=document.getElementById('status2');
+  const word='continue'; let i=0;
+  const t=setInterval(()=>{
+    i++;
+    renderTranscript(tr,'',word.slice(0,i));
+    if(i>=word.length){
+      clearInterval(t); speaking=false;
+      setTimeout(()=>{
+        st.textContent='FINALIZING'; st.className='status finalizing';
+        renderTranscript(tr,'continue','');            // volatile → finalized recolor
+        orbs.orb2.pulse();                              // the visual "om" that seals it
+        setTimeout(()=>go(3),820);
+      },350);
+    }
+  },95);
+}
+
+/* ===== step 3: hold space — full overlay lifecycle (spec §4) ===== */
+const sentence="I just set up OmWhisper and honestly this feels like typing with my voice";
+let holding=false,wIdx=0,dictated=false,startT=0,dictTimer=null;
+const hud=document.getElementById('hud3'), st3=document.getElementById('status3'), tr3=document.getElementById('tr3');
+
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&cur===3&&!dictated){e.preventDefault(); if(!holding){holding=true; hudEnter();}}
+});
+document.addEventListener('keyup',e=>{
+  if(e.code==='Space'&&cur===3&&holding){e.preventDefault(); holding=false; hudStop();}
+});
+
+function hudEnter(){
+  /* warming: HUD appears on keydown, BEFORE any words — brand time, not dead time */
+  hud.classList.remove('hud-hidden','hud-exit'); hud.classList.add('hud-enter');
+  st3.textContent='…'; st3.className='status';
+  tr3.replaceChildren(); speaking=true;
+  if(wIdx===0) startT=Date.now();
+  setTimeout(()=>{ if(!holding) return;
+    st3.textContent='LISTENING';
+    streamWords();
+  },420); /* ~engine warmup */
+}
+function streamWords(){
+  const words=sentence.split(' ');
+  dictTimer=setInterval(()=>{
+    if(!holding||wIdx>=words.length){clearInterval(dictTimer); if(wIdx>=words.length){holding=false; hudStop();} return;}
+    wIdx++;
+    /* trailing 3 words volatile, the rest finalized — mimics rolling finalization */
+    const finCount=Math.max(0,wIdx-3);
+    appendVolatileWord(tr3, words.slice(0,finCount).join(' '), words.slice(finCount,wIdx));
+  },240);
+}
+function hudStop(){
+  clearInterval(dictTimer); speaking=false;
+  if(wIdx===0){ hud.classList.remove('hud-enter'); hud.classList.add('hud-exit'); return; } /* short-hold cancel */
+  dictated=true;
+  const text=sentence.split(' ').slice(0,wIdx).join(' ')+'.';
+  st3.textContent='FINALIZING'; st3.className='status finalizing';
+  renderTranscript(tr3, text, '');
+  orbs.orb3.pulse();
+  tr3.firstChild.classList.add('white');               // whiten hold (spec §8)
+  setTimeout(()=>{
+    hud.classList.remove('hud-enter'); hud.classList.add('hud-exit');  // exit ↓, reverse of entrance
+    paste(text);
+  },520);
+}
+function paste(text){
+  const doc=document.getElementById('doc3');
+  doc.innerHTML='<span class="pasted">'+text+'</span><span class="caret"></span>';
+  const secs=Math.max((Date.now()-startT)/1000,1.5);
+  const wpm=Math.min(Math.round(wIdx/(secs/60)),140);
+  const stats=document.getElementById('stats'); stats.classList.add('show');
+  countUp('wpm',wpm,900);
+  setTimeout(()=>{
+    document.getElementById('mult').textContent=(wpm/45).toFixed(1)+'×';
+    document.getElementById('next3').style.opacity='1';
+    document.getElementById('hint3').innerHTML='Dim words finalizing into solid ones, the pulse on stop, the exit toward your text — this is exactly the real overlay.';
+  },950);
+}
+function countUp(id,to,dur){
+  const el=document.getElementById(id); const t0=performance.now();
+  (function tick(t){const p=Math.min((t-t0)/dur,1);
+    el.textContent=Math.round(to*(1-Math.pow(1-p,3)));
+    if(p<1)requestAnimationFrame(tick);})(t0);
+}
+
+/* ===== finale ===== */
+function finale(){
+  go(4);
+  document.getElementById('skipBtn').style.display='none';
+  const orb=document.getElementById('orb4');
+  setTimeout(()=>document.getElementById('menubar').classList.add('show'),500);
+  setTimeout(()=>{orb.style.transform='translate(248px,-238px) scale(.1)';orb.style.opacity='0';},1300);
+  setTimeout(()=>{
+    const slot=document.getElementById('omSlot'); slot.style.opacity='1'; slot.classList.add('glow');
+    ['finaleTitle','finaleSub','pcard','doneBtn'].forEach(id=>document.getElementById(id).style.opacity='1');
+  },2200);
+}
+</script>
+</body>
+</html>

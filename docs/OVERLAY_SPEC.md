@@ -8,6 +8,11 @@
 > Status: **approved direction** (mockup reviewed 2026-07-07). Supersedes the
 > current status-dot `OverlayView`. An earlier avatar concept was explicitly
 > rejected — do not reintroduce character/face imagery.
+>
+> Living reference: `docs/onboarding-prototype.html` contains a canvas
+> implementation of the §5 layer stack (blob formulas, ring, glyph) with the
+> glyph size/centering values below already applied — open it in a browser to
+> see the approved motion.
 
 ---
 
@@ -151,7 +156,15 @@ A single 1.5pt circle: radius `34 + amp·20 + sin(t/0.6s)·2`, alpha
   Tauri icons were rendered from the *Devanagari Sangam MN* font
   (`scripts/generate_icons.py`), so converting that glyph to outlines once
   (any vector tool) and committing the path yields the same mark.
-- **Size**: ~44pt within the 64pt zone, optically centered (nudge +2pt down).
+- **Size**: ~28pt within the 64pt zone (tuned down from the original ~44pt —
+  reviewed in the onboarding prototype 2026-07-07; the smaller glyph gives the
+  energy field room and reads calmer). Reference: font-size 36 on the spec's
+  128px reference canvas.
+- **Centering**: center the glyph's **ink bounding box** on the orb center —
+  measure the actual rendered bounds (`Path.boundingRect` for the vector
+  asset; the prototype uses `measureText` ink metrics) rather than baseline
+  math or a hand-tuned constant, then nudge **1.5pt up**. Fixed-offset
+  centering drifts across fonts/machines; ink-box centering does not.
 - **Breath**: `scale = 1 + 0.02·sin(t/0.9s)` — slow, voice-independent. This
   is what makes the glyph read as *calm*.
 - **Luminance**: interpolate omGlyphCore → omGlyphPeak by
