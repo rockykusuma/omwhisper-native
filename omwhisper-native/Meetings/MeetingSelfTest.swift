@@ -13,23 +13,14 @@
 #if DEBUG
 import AVFoundation
 import Foundation
-import ScreenCaptureKit
 
-// @MainActor (the project default): MeetingRecorder is itself MainActor-isolated
-// (matching how it's called from AppState), and this is an occasional manual
-// debug action, not a hot path — no reason to fight that.
+// @MainActor (the project default): this is an occasional manual debug
+// action, not a hot path — no reason to fight that.
 enum MeetingSelfTest {
     static func run() async -> String {
         let recorder = MeetingRecorder()
         do {
-            try await recorder.start(appName: "SelfTest")
-        } catch let error as SCStreamError where error.code == .userDeclined {
-            return """
-                FAILED to start: Screen Recording permission not granted (or just granted for \
-                the first time). Grant Screen Recording for OmWhisper in System Settings > \
-                Privacy & Security > Screen Recording, then relaunch OmWhisper and try again — \
-                a fresh grant commonly doesn't take effect until the app restarts.
-                """
+            try recorder.start(appName: "SelfTest")
         } catch {
             return "FAILED to start: \(error)"
         }
