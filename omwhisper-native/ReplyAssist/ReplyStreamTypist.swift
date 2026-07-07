@@ -19,6 +19,14 @@
 //  cancel() drops only pending (not-yet-typed) text -- whatever's already
 //  been typed stays, matching smriti's StreamTypistTests-verified contract.
 //
+//  chunkSize deviates from smriti's 20-UTF16-unit chunks: confirmed live,
+//  posting 20 characters as one synthetic keyDown event via
+//  keyboardSetUnicodeString produced real, scattered character corruption
+//  ("been" -> "bn", "Thank" -> "Tha") typing into Claude's web chat input --
+//  its input handling couldn't reliably absorb a 20-character burst as a
+//  single event. Single-character chunks are slower but match how every text
+//  field's input handling is built to expect keystrokes -- one at a time.
+//
 
 import AppKit
 
@@ -34,6 +42,7 @@ final class ReplyStreamTypist {
         "NO_REPLY_CONTEXT", "Not logged in", "Please run /login", "Invalid API key",
     ]
     nonisolated static let bufferThreshold = 24
+    nonisolated static let chunkSize = 1
 
     private var cancelled = false
 
@@ -57,7 +66,7 @@ final class ReplyStreamTypist {
         let source = CGEventSource(stateID: .combinedSessionState)
         while index < utf16.count {
             if cancelled { return .cancelled }
-            let chunk = Array(utf16[index..<min(index + 20, utf16.count)])
+            let chunk = Array(utf16[index..<min(index + Self.chunkSize, utf16.count)])
             if let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) {
                 down.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
                 down.post(tap: .cghidEventTap)
@@ -65,7 +74,7 @@ final class ReplyStreamTypist {
             if let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) {
                 up.post(tap: .cghidEventTap)
             }
-            index += 20
+            index += Self.chunkSize
             try? await Task.sleep(for: .milliseconds(8))
         }
         return .typed
