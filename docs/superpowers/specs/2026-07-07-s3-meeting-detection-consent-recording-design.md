@@ -21,17 +21,47 @@ this project's standing privacy contract for every Smriti-derived feature.
 Investigated directly from `/Users/rakeshkusuma/Documents/PersonalProjects/smriti`
 (same author, MIT, read-only reference per this project's conventions):
 
-- **`MeetingRecorder.swift`** — the single most important technical finding: system
-  audio capture uses **ScreenCaptureKit (SCK)**, not a second `AVAudioEngine` tap,
-  and — less obviously — **the mic track is also captured via SCK**
-  (`SCStreamConfiguration.captureMicrophone`), not `AVAudioEngine`. Reason: VoIP
-  apps (Zoom, Teams, WhatsApp, etc.) hold the input device exclusively during a
-  call, so a naive `AVAudioEngine` mic tap silently records nothing while the
-  calling app is active. SCK's microphone capture is a separate path that
-  coexists with the calling app rather than fighting it for exclusive access —
-  this is *why* the feature needs SCK at all, not an optimization. Two
-  independent `.caf` files (`them.caf`, `me.caf`), not one interleaved/stereo
-  file, written incrementally via `AVAudioFile` as `CMSampleBuffer`s arrive.
+- **`MeetingRecorder.swift`** — smriti uses **ScreenCaptureKit (SCK)** for both
+  system audio and the mic track (`SCStreamConfiguration.captureMicrophone`),
+  reasoning that VoIP apps (Zoom, Teams, WhatsApp, etc.) hold the input device
+  exclusively during a call, so a naive `AVAudioEngine` mic tap silently
+  records nothing while the calling app is active — SCK's microphone capture
+  coexists with the calling app rather than fighting it for exclusive access.
+  **Not ported as-is**: SCK requires Screen Recording permission and produces
+  a system "Currently Sharing" indicator even for pure audio capture (a real,
+  user-visible cost confirmed live — see Amendment below) — this project uses
+  a genuinely audio-only replacement instead. Two independent `.caf` files
+  (`them.caf`, `me.caf`), not one interleaved/stereo file, still apply.
+
+  **Amendment (2026-07-08, after live verification):** SCK's audio-only use
+  still triggers macOS's full "Screen & System Audio Recording" permission
+  and system-wide "Currently Sharing" indicator, and a real crash during live
+  testing (MeetingRecorder's SCStreamOutput callback running on the wrong
+  actor — see the M3/S2-established `nonisolated` pattern) left that indicator
+  orphaned, requiring a logout to clear. The user correctly pushed back:
+  recording the *screen* for an *audio-only* feature is disproportionate and
+  privacy-hostile, especially when a real app (confirmed via System Settings —
+  "Littlebird" appears under a distinct "System Audio Recording Only" section,
+  not "Screen & System Audio Recording") already ships audio-only capture on
+  macOS. Verified directly against the macOS 26 SDK's CoreAudio headers:
+  `AudioHardwareTapping.h`/`CATapDescription.h` — `AudioHardwareCreateProcessTap`
+  (macOS 14.2+) taps system-wide audio output via
+  `CATapDescription.initStereoGlobalTapButExcludeProcesses:` (excluding
+  OmWhisper's own process), no screen involvement at all. `AudioHardware.h`'s
+  `AudioHardwareCreateAggregateDevice` combines a real sub-device (the physical
+  mic, via `kAudioAggregateDeviceSubDeviceListKey`) and that tap (via
+  `kAudioAggregateDeviceTapListKey`) into one virtual input device — reading
+  from the aggregate rather than the raw mic device sidesteps the VoIP-app-
+  exclusive-access problem the same way SCK did, without ScreenCaptureKit.
+  `AVAudioEngine`'s input node is pointed at this aggregate device via the
+  exact same `kAudioOutputUnitProperty_CurrentDevice` mechanism
+  `AudioCapture.swift` already uses for mic device selection — reused, not
+  new machinery. The aggregate delivers one multi-channel buffer (mic channels
+  followed by tap channels, per a fixed sub-device/tap ordering this code
+  controls) rather than SCK's two separate callback types, so `MeetingRecorder`
+  slices it by channel range into the same two `.caf` files. Net effect: no
+  Screen Recording permission, no video frame, no system sharing indicator —
+  only the microphone access this app already has for dictation.
 - **`MeetingWatcher.swift`** — `microphoneInUse()` polls CoreAudio's
   `kAudioDevicePropertyDeviceIsRunningSomewhere` on the default input device
   every 2s (cheap property reads, no audio tap while idle). A full state machine
@@ -128,16 +158,34 @@ device) drives the state machine. Suppressed entirely whenever
 
 ### `Meetings/MeetingRecorder.swift`
 
-`SCStreamOutput`/`SCStreamDelegate` — dual-track ScreenCaptureKit capture, per the
-Reference section above. `start(appName:)` creates the meeting directory,
-configures `SCStreamConfiguration` (`capturesAudio = true`,
-`captureMicrophone = true`, `excludesCurrentProcessAudio = true` so this app's
-own sounds don't get captured, negligible video frame since SCK requires *a*
-video stream even for audio-only capture), registers two `SCStreamOutput`s
-(`.audio` for system audio, `.microphone` for the user's own mic) on one
-`SCStream`, and writes each to its own `AVAudioFile` (`them.caf`, `me.caf`).
-Tracks peak mic level across the recording; logs a warning on `stop()` if it
-never exceeds ~-100dBFS (the "calling app blocked mic capture" self-check).
+CoreAudio process tap + aggregate device, **not ScreenCaptureKit** (see the
+Amendment above). `start(appName:)`:
+
+1. Creates a system-audio tap via `AudioHardwareCreateProcessTap` with a
+   `CATapDescription.initStereoGlobalTapButExcludeProcesses([ourPID])` —
+   everything except OmWhisper's own audio.
+2. Creates an aggregate device via `AudioHardwareCreateAggregateDevice`,
+   combining the real default input device (`kAudioAggregateDeviceSubDeviceListKey`,
+   also the `kAudioAggregateDeviceMainSubDeviceKey` clock source) and the tap
+   (`kAudioAggregateDeviceTapListKey`), `kAudioAggregateDeviceIsPrivateKey`
+   true (scoped to this process, not published system-wide).
+3. Points an `AVAudioEngine`'s input node at the aggregate device via
+   `kAudioOutputUnitProperty_CurrentDevice` — the identical mechanism
+   `AudioCapture.setInputDevice(_:on:)` already uses for the mic-picker
+   Settings feature, reused verbatim rather than reimplemented.
+4. Installs a tap on that input node; each buffer's channels split at a fixed
+   boundary (mic channel count, known from the sub-device's own channel
+   count) into two `AVAudioPCMBuffer`s, written to `me.caf`/`them.caf` via
+   `AVAudioFile`.
+
+`stop()` removes the engine tap, stops the engine, and destroys both the
+aggregate device (`AudioHardwareDestroyAggregateDevice`) and the process tap
+(`AudioHardwareDestroyProcessTap`) — unlike SCK's stream lifecycle, these are
+explicit HAL objects that must be torn down, not just an async stop call;
+skipping this leaks a system-visible (if no longer screen-recording-flagged)
+audio device. Tracks peak mic level across the recording; logs a warning on
+`stop()` if it never exceeds ~-100dBFS (the "calling app blocked mic capture"
+self-check, unchanged from the SCK-based design).
 
 ### `Meetings/MeetingConsentPanel.swift`
 
@@ -212,16 +260,17 @@ New **Meetings** tab in `SettingsView`'s `TabView`:
 
 ## Error Handling & Permissions
 
-- **Screen Recording**: TCC-gated, no async request API — first SCK call
-  triggers the system dialog. No `Info.plist` usage-string needed (unlike
-  Microphone/Speech). Granting it **commonly requires relaunching the app** to
-  take effect — if `MeetingRecorder.start()` fails immediately after a fresh
-  grant, surface that specifically ("Grant Screen Recording in System Settings,
-  then relaunch OmWhisper"), not a generic failure.
-- **Recording failure** (SCK stream error, permission denied, disk write
+- **Permissions**: only Microphone — already granted for dictation, via the
+  existing `com.apple.security.device.audio-input` entitlement. No Screen
+  Recording prompt, no new entitlement, no app-relaunch gotcha (that whole
+  class of friction was specific to ScreenCaptureKit and no longer applies).
+- **Recording failure** (`OSStatus` non-`noErr` from any HAL call, disk write
   failure): never crash, never leave the consent panel stuck in `.prompting`.
   Falls back to `.declined`-equivalent, logs the error, no partial/corrupt
-  meeting directory left behind.
+  meeting directory left behind. If the tap or aggregate device was partially
+  created before a later step failed, `start()`'s error path must still
+  destroy whatever was created — a half-built aggregate device is exactly the
+  kind of orphaned system object the SCK crash taught us to avoid.
 - **Unsigned dev-build TCC crash risk**: smriti found CoreAudio/Speech TCC
   queries can abort unsigned `swift build` binaries outright and built a guard
   around it. Xcode's automatic-signing debug builds are typically unaffected, so
@@ -240,9 +289,12 @@ hardware/TCC-dependent code live-verified):
 - **`MeetingWatcher`'s state-machine transitions** — extracted as static,
   testable functions (elapsed time + mic state + call-detection result → next
   state), matching `AppState.exitPhase`'s existing pattern.
-- **`MeetingRecorder`'s actual SCK capture** — not unit-tested (hardware/
-  permission-dependent, matches `AudioCapture`/`ScreenContextReader` precedent).
-  Verified via the debug self-test diagnostic plus a real live call during this
-  sub-project's live-verification pass.
+- **`MeetingRecorder`'s actual CoreAudio tap/aggregate-device capture** — not
+  unit-tested (hardware/permission-dependent, matches `AudioCapture`/
+  `ScreenContextReader` precedent). Verified via the debug self-test
+  diagnostic plus a real live call during this sub-project's live-verification
+  pass. The channel-splitting boundary (mic channel count) is the one piece
+  worth a pure unit test if it can be isolated from the live HAL calls —
+  otherwise it's covered implicitly by the self-test's per-track peak check.
 - **`MeetingConsentPanel`** — SwiftUI/AppKit view, not unit-tested, matching this
   project's convention. Live-verified.
