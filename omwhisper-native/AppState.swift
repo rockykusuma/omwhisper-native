@@ -201,6 +201,15 @@ final class AppState {
     ) { [weak self] in
         self?.beginSmartDictation()
     }
+    /// kVK_ANSI_P — Polish Selected Text: copy the frontmost app's selection,
+    /// polish it, paste it back in place. Not a dictation session — dictation
+    /// stays .idle throughout; overlayPhase alone drives the brief pill.
+    @ObservationIgnored private lazy var polishSelectedTextHotkey = GlobalHotkey(
+        keyCode: 35,
+        modifiers: [.command, .shift]
+    ) { [weak self] in
+        self?.beginPolishSelectedText()
+    }
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
@@ -261,6 +270,7 @@ final class AppState {
             hotkey.start()
             pushToTalk.start()
             smartDictationHotkey.start()
+            polishSelectedTextHotkey.start()
             if !PasteService.hasAccessibilityPermission() {
                 PasteService.requestAccessibilityPrompt()
             }
@@ -370,6 +380,24 @@ final class AppState {
         case .idle, .finalizing:
             break   // stray release with no matching press (e.g. focus changed mid-hold) — no-op
         }
+    }
+
+    /// Cmd+Shift+P. Guarded on dictation == .idle so this can't fire mid-session
+    /// and race the dictation state machine — press it while dictating and it's
+    /// simply ignored. Nothing is selected -> silent no-op (no overlay, no paste).
+    func beginPolishSelectedText() {
+        guard dictation == .idle else { return }
+        Task { await runPolishSelectedText() }
+    }
+
+    private func runPolishSelectedText() async {
+        guard let original = await PasteService.copySelection() else { return }
+        overlayPhase = .polishing
+        overlay.show(appState: self)
+        let result = await polishedText(for: original)
+        overlay.hide()
+        overlayPhase = .none
+        PasteService.paste(result)
     }
 
     func startDictation() async {

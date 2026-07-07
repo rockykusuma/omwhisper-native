@@ -67,4 +67,37 @@ struct PasteService {
         down?.post(tap: .cghidEventTap)
         up?.post(tap: .cghidEventTap)
     }
+
+    /// Reads whatever's selected in the frontmost app, for Polish Selected Text.
+    /// Simulates Cmd+C rather than reading kAXSelectedTextAttribute — AX text
+    /// selection is inconsistently supported across third-party/cross-toolkit
+    /// apps, whereas Cmd+C works everywhere copy already works. Returns nil if
+    /// nothing was selected (pasteboard content unchanged after the copy) or if
+    /// the pasteboard had no prior string content to compare against a fresh one.
+    static func copySelection() async -> String? {
+        let pasteboard = NSPasteboard.general
+        let before = pasteboard.string(forType: .string)
+        let beforeChangeCount = pasteboard.changeCount
+
+        sendCmdC()
+        // Cmd+C is asynchronous (goes through the target app's own event
+        // handling) — give it a moment to land before reading the pasteboard.
+        try? await Task.sleep(for: .milliseconds(150))
+
+        guard pasteboard.changeCount != beforeChangeCount else { return nil }
+        let after = pasteboard.string(forType: .string)
+        guard let after, after != before else { return nil }
+        return after
+    }
+
+    private static func sendCmdC() {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let cKey: CGKeyCode = 8
+        let down = CGEvent(keyboardEventSource: source, virtualKey: cKey, keyDown: true)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: cKey, keyDown: false)
+        down?.flags = .maskCommand
+        up?.flags = .maskCommand
+        down?.post(tap: .cghidEventTap)
+        up?.post(tap: .cghidEventTap)
+    }
 }
