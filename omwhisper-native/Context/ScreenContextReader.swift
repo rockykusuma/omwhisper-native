@@ -40,6 +40,10 @@ nonisolated enum ScreenContextReader {
 
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         guard let window = copyAttribute(appElement, kAXFocusedWindowAttribute) else { return nil }
+        // Not `as?`: the compiler rejects that as dead code ("conditional downcast
+        // to CoreFoundation type 'AXUIElement' will always succeed") — CFTypeRef
+        // bridging isn't a dynamic class-hierarchy check the way `as!` normally
+        // implies, so this can't trap the way a force-cast on a class type could.
         let windowElement = window as! AXUIElement
 
         let title = (copyAttribute(windowElement, kAXTitleAttribute) as? String) ?? ""
