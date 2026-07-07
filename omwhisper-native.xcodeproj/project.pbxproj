@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		96BBDF972FFD0F5200EE67CF /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBDF962FFD0F5200EE67CF /* GRDB */; };
+		96BBDF982FFD0F5200EE67CF /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBDF962FFD0F5200EE67CF /* GRDB */; };
+		96BBE06D2FFD24AC00EE67CF /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBE06C2FFD24AC00EE67CF /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		9604F7992FFBE64F00E63B3E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -39,6 +45,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				96BBDF972FFD0F5200EE67CF /* GRDB in Frameworks */,
+				96BBE06D2FFD24AC00EE67CF /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -46,6 +54,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				96BBDF982FFD0F5200EE67CF /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -80,6 +89,7 @@
 				9604F7872FFBE64C00E63B3E /* Sources */,
 				9604F7882FFBE64C00E63B3E /* Frameworks */,
 				9604F7892FFBE64C00E63B3E /* Resources */,
+				96BBE0702FFD24AC00EE67CF /* Patch Info.plist (custom third-party keys) */,
 			);
 			buildRules = (
 			);
@@ -90,6 +100,8 @@
 			);
 			name = "omwhisper-native";
 			packageProductDependencies = (
+				96BBDF962FFD0F5200EE67CF /* GRDB */,
+				96BBE06C2FFD24AC00EE67CF /* Sparkle */,
 			);
 			productName = "omwhisper-native";
 			productReference = 9604F78B2FFBE64C00E63B3E /* OmWhisper.app */;
@@ -113,6 +125,7 @@
 			);
 			name = "omwhisper-nativeTests";
 			packageProductDependencies = (
+				96BBDF962FFD0F5200EE67CF /* GRDB */,
 			);
 			productName = "omwhisper-nativeTests";
 			productReference = 9604F7982FFBE64F00E63B3E /* omwhisper-nativeTests.xctest */;
@@ -146,6 +159,10 @@
 			);
 			mainGroup = 9604F7822FFBE64C00E63B3E;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				96BBDF952FFD0F5200EE67CF /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				96BBE06B2FFD24AC00EE67CF /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9604F78C2FFBE64C00E63B3E /* Products */;
 			projectDirPath = "";
@@ -173,6 +190,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		96BBE0702FFD24AC00EE67CF /* Patch Info.plist (custom third-party keys) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Patch Info.plist (custom third-party keys)";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# GENERATE_INFOPLIST_FILE's INFOPLIST_KEY_* synthesis only recognizes\n# Apple's own known keys (LSUIElement, NS*UsageDescription, etc.) -- a\n# third-party key like SUFeedURL is silently dropped even though the\n# build setting itself resolves fine. Patch it in directly instead.\nPLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n/usr/libexec/PlistBuddy -c \"Delete :SUFeedURL\" \"$PLIST\" 2>/dev/null\n/usr/libexec/PlistBuddy -c \"Add :SUFeedURL string ${INFOPLIST_KEY_SUFeedURL}\" \"$PLIST\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		9604F7872FFBE64C00E63B3E /* Sources */ = {
@@ -338,6 +373,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OmWhisper;
@@ -345,6 +381,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OmWhisper uses Apple's on-device speech recognition to turn your voice into text.";
+				INFOPLIST_KEY_SUFeedURL = "https://omwhisper.in/appcast.xml";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -376,6 +413,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OmWhisper;
@@ -383,6 +421,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OmWhisper uses Apple's on-device speech recognition to turn your voice into text.";
+				INFOPLIST_KEY_SUFeedURL = "https://omwhisper.in/appcast.xml";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -475,6 +514,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		96BBDF952FFD0F5200EE67CF /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 7.11.1;
+			};
+		};
+		96BBE06B2FFD24AC00EE67CF /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 2.9.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		96BBDF962FFD0F5200EE67CF /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 96BBDF952FFD0F5200EE67CF /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		96BBE06C2FFD24AC00EE67CF /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 96BBE06B2FFD24AC00EE67CF /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 9604F7832FFBE64C00E63B3E /* Project object */;
 }
