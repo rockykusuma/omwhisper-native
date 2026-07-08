@@ -60,12 +60,12 @@ nonisolated enum ScreenContextReader {
 
     // MARK: - Tree walking (ported near-verbatim from AXReader.collectText)
 
-    private static let textBearingRoles: Set<String> = [
+    static let textBearingRoles: Set<String> = [
         kAXStaticTextRole, kAXTextAreaRole, kAXTextFieldRole,
         "AXLink", "AXHeading", "AXCell", "AXMenuItem", "AXButton",
     ]
 
-    private static func collectText(
+    static func collectText(
         _ element: AXUIElement,
         depth: Int,
         into lines: inout [String],
@@ -100,7 +100,7 @@ nonisolated enum ScreenContextReader {
         budget -= clipped.count
     }
 
-    private static func copyAttribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
+    static func copyAttribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
         guard result == .success else { return nil }
