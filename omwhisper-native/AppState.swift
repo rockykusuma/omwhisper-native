@@ -310,10 +310,7 @@ final class AppState {
     @ObservationIgnored private let meetingRecorder = MeetingRecorder()
     @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
     @ObservationIgnored private let replyAssistMonitor = ReplyAssistMonitor()
-    @ObservationIgnored private let replyAssistPanel = ReplyAssistPanel()
     @ObservationIgnored private let replyStreamTypist = ReplyStreamTypist()
-    @ObservationIgnored private var voiceIntentTask: Task<Void, Never>?
-    @ObservationIgnored private var voiceIntentTranscript = ""
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
@@ -669,6 +666,12 @@ final class AppState {
 
     // MARK: Reply assist (S4)
 
+    /// Changed after live verification, per explicit user direction: no panel,
+    /// no type/blank/speak choice -- double-tap right ⌥ silently auto-drafts
+    /// from context and streams straight into the field. Since nothing shows
+    /// any OmWhisper UI here, nothing calls NSApp.activate() and the target
+    /// app never loses focus -- unlike the original panel-based flow, no
+    /// focus-restore workaround is needed.
     func beginReplyAssist() async {
         guard dictation == .idle else { return }  // ReplyAssistMonitor already suppresses this, but stay defensive
         guard let context = await ReplyContextReader.currentContext() else {
@@ -676,67 +679,10 @@ final class AppState {
             return
         }
         let windowContext = ScreenContextReader.captureFrontmostWindowText()
-        // Captured BEFORE replyAssistPanel.show() -- that call activates
-        // OmWhisper (NSApp.activate) so its own panel can reliably receive
-        // input, which steals focus from the target field's app. Confirmed
-        // live: without reactivating this app before streaming, drafted text
-        // had nowhere to land (target field visibly lost its cursor) until
-        // the user manually clicked back into it.
-        let targetApp = NSWorkspace.shared.frontmostApplication
-        replyAssistPanel.show(
-            mode: context.mode,
-            onSubmitText: { [weak self] intent in
-                Task { await self?.draftAndStream(mode: context.mode, intent: intent, windowContext: windowContext, targetApp: targetApp) }
-            },
-            onStartListening: { [weak self] in self?.startVoiceIntentCapture() },
-            onStopListening: { [weak self] in await self?.stopVoiceIntentCapture() },
-            onCancel: {}
-        )
+        await draftAndStream(mode: context.mode, intent: "", windowContext: windowContext)
     }
 
-    /// Scoped mic capture for the "hold to speak" path -- reuses the same
-    /// audioCapture/engine AppState already owns for dictation, but bypasses
-    /// the `dictation` state machine and main OverlayPanel entirely: this is a
-    /// short capture for the reply-assist panel, not a second dictation
-    /// session. Safe to share audioCapture/engine sequentially since
-    /// ReplyAssistMonitor is suppressed whenever dictation != .idle.
-    ///
-    /// Start/stop, not one opaque "await while held" call -- the button's
-    /// onEnded fires exactly when the mouse releases, and stopVoiceIntentCapture
-    /// must be callable at that exact moment to end the mic stream, matching
-    /// this app's existing PushToTalkMonitor start/stop shape.
-    private func startVoiceIntentCapture() {
-        guard let audioStream = try? audioCapture.start(preferredDeviceUID: audioInputDeviceUID) else { return }
-        voiceIntentTranscript = ""
-        // engine.transcribe(...) is called here, synchronously, NOT inside the
-        // Task below -- matching startDictation()'s exact pattern. Only the
-        // resulting Sendable AsyncThrowingStream<TranscriptEvent, Error> may
-        // cross into the Task; the raw AVAudioPCMBuffer stream is not Sendable
-        // and can't be captured there directly.
-        let events = engine.transcribe(audioStream, vocabulary: customVocabulary)
-        voiceIntentTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                for try await event in events {
-                    switch event {
-                    case .partial(let text): self.voiceIntentTranscript = text
-                    case .final(let text): self.voiceIntentTranscript += text
-                    }
-                }
-            } catch {
-                log.error("startVoiceIntentCapture — engine error: \(error)")
-            }
-        }
-    }
-
-    private func stopVoiceIntentCapture() async -> String? {
-        audioCapture.stop()
-        await voiceIntentTask?.value
-        voiceIntentTask = nil
-        return voiceIntentTranscript.isEmpty ? nil : voiceIntentTranscript
-    }
-
-    private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?, targetApp: NSRunningApplication?) async {
+    private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?) async {
         let tonePrefix = (try? String(contentsOf: ToneProfile.toneFileURL(), encoding: .utf8))
             .map { ToneProfile.promptPrefix(from: $0) }
         let style = Self.draftStyle(mode: mode, windowContext: windowContext, tonePrefix: tonePrefix)
@@ -752,12 +698,6 @@ final class AppState {
             errorMessage = "Reply assist: draft failed (\(error.localizedDescription))."
             return
         }
-        // Restore focus to the field's original app before typing -- showing
-        // the panel activated OmWhisper, and CGEvent-posted keystrokes land
-        // wherever the system's keyboard focus currently is, not at a
-        // specific target regardless of what's frontmost.
-        targetApp?.activate()
-        try? await Task.sleep(for: .milliseconds(100))
         let result = await replyStreamTypist.stream(drafted)
         if case .declinedSentinel(let sentinel) = result {
             log.warning("draftAndStream — declined on sentinel: \(sentinel)")
