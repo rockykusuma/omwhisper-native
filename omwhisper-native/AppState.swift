@@ -311,6 +311,7 @@ final class AppState {
     @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
     @ObservationIgnored private let replyAssistMonitor = ReplyAssistMonitor()
     @ObservationIgnored private let replyStreamTypist = ReplyStreamTypist()
+    @ObservationIgnored private var isReplyAssistDrafting = false
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
@@ -674,12 +675,24 @@ final class AppState {
     /// focus-restore workaround is needed.
     func beginReplyAssist() async {
         guard dictation == .idle else { return }  // ReplyAssistMonitor already suppresses this, but stay defensive
+        // A double-tap while a draft is already in flight cancels it instead
+        // of starting a second one -- same gesture starts and stops, no
+        // separate cancel UI needed now that there's no panel. Covers both
+        // the LLM-generation phase and mid-stream: replyStreamTypist.cancel()
+        // just sets a flag stream() checks every loop iteration, so canceling
+        // before typing has even started still lands as a clean no-op typing.
+        guard !isReplyAssistDrafting else {
+            replyStreamTypist.cancel()
+            return
+        }
         guard let context = await ReplyContextReader.currentContext() else {
             errorMessage = "Reply assist: couldn't read the focused field."
             return
         }
         let windowContext = ScreenContextReader.captureFrontmostWindowText()
+        isReplyAssistDrafting = true
         await draftAndStream(mode: context.mode, intent: "", windowContext: windowContext)
+        isReplyAssistDrafting = false
     }
 
     private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?) async {
