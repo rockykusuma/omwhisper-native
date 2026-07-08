@@ -7,6 +7,29 @@
 > capture) per that ordering, which shapes two decisions below (tone source,
 > no redaction yet).
 
+> **Amendment (2026-07-08, after live verification):** `ReplyAssistPanel` and
+> the type-intent/leave-blank/hold-to-speak choice described below were built
+> and worked live, but the user changed direction after seeing it in
+> practice: double-tap right ⌥ now silently auto-drafts from context and
+> streams straight into the field, with no panel and no voice-intent path at
+> all — the panel, its UI, and the scoped voice-capture method were removed.
+> Canceling a mid-stream draft (still required — see Global Constraints) now
+> reuses the same gesture: double-tapping again while a draft is in flight
+> cancels it via `ReplyStreamTypist.cancel()`, rather than an Escape key
+> handler on a panel that no longer exists. The voice/"hold to speak" path
+> from the original goal is dropped for this ship, not deferred to a later
+> task — revisit if it turns out to matter. Two more real fixes surfaced only
+> via live testing, both still applicable to the current implementation: (1)
+> `ScreenContextReader.captureFrontmostWindowText()`'s up-to-50,000-character
+> output (fine for S2's local vocabulary extraction) blew SystemLLM's 5s
+> polish timeout when embedded raw in a draft prompt — both window context
+> and the AX-read draft/selection text are now capped at 2,000 characters
+> (the draft case keeps the *tail*, not the head, since continuation cares
+> about the most recent text). (2) `ReplyStreamTypist`'s original 20-
+> UTF16-unit-per-chunk keystroke bursts (ported from smriti) caused real,
+> scattered character corruption typing into Claude's web chat input; chunk
+> size dropped to 1 character.
+
 ## Goal
 
 Double-tap right ⌥ in any text field to draft a reply, continue an unfinished

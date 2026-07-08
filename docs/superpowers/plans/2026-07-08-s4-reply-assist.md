@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Amendment (2026-07-08, after live verification):** Task 6's `ReplyAssistPanel` and the type-intent/leave-blank/hold-to-speak flow were built and worked, but were removed after live testing per user direction — double-tap right ⌥ now silently auto-drafts with no panel and no voice path; a second double-tap mid-draft cancels instead of Escape. See the design spec's matching amendment for the full rationale and the two other live-testing fixes (prompt-size cap, single-character keystroke chunking).
+
 **Goal:** Double-tap right ⌥ in any text field to draft a reply, continue a draft, or rewrite a selection — silently from window context, or by holding to speak intent. Drafted text streams into the field via synthesized keystrokes. Off by default.
 
 **Architecture:** New `ReplyAssist/` group: `DoubleTapDetector` (pure state machine) → `ReplyAssistMonitor` (NSEvent flagsChanged, right-⌥-only) → `ReplyContextReader` (AX focused-element read + reply/continue/rewrite classification) → `ReplyStreamTypist` (synthesized-keystroke streaming, sentinel-checked) → `ToneProfile` (tone.md distilled from `HistoryStore`, not screen capture). `ReplyAssistPanel` (new `NSPanel`) is the UI; `AppState` wires it all together and owns a scoped voice-capture method reusing the existing `audioCapture`/`engine`.
