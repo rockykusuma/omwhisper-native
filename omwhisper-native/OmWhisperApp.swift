@@ -140,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         #if DEBUG
         menu.addItem(.separator())
         addItem(to: menu, title: "Meeting Self-Test…", action: #selector(runMeetingSelfTest))
+        addItem(to: menu, title: "Memory Self-Test…", action: #selector(runMemorySelfTest))
         #endif
         addItem(to: menu, title: "Quit OmWhisper", action: #selector(quit), key: "q")
     }
@@ -180,6 +181,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.informativeText = report
             alert.runModal()
         }
+    }
+
+    @objc private func runMemorySelfTest() {
+        let report = MemorySelfTest.run()
+        let alert = NSAlert()
+        alert.messageText = "Memory Self-Test"
+        alert.informativeText = report
+        alert.runModal()
     }
     #endif
 }
