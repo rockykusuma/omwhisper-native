@@ -28,7 +28,13 @@ enum MemorySelfTest {
         } catch {
             return "FAILED: upsert threw \(error)"
         }
-        let probe = snapshot.content.split(separator: " ").first(where: { $0.count > 3 }).map(String.init) ?? snapshot.content
+        // split(separator: " ") alone missed newlines -- confirmed live: a
+        // captured file-tree listing (newline-separated, no spaces) produced
+        // a giant multi-line "first word" instead of a real single token.
+        // whereSeparator: { $0.isWhitespace } splits on any whitespace,
+        // including newlines/tabs.
+        let probe = snapshot.content.split(whereSeparator: { $0.isWhitespace })
+            .first(where: { $0.count > 3 }).map(String.init) ?? snapshot.content
         guard let results = try? store.search(probe, limit: 5), !results.isEmpty else {
             return "FAILED: search(\"\(probe)\") found nothing after a successful upsert"
         }
