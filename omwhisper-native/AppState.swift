@@ -273,6 +273,53 @@ final class AppState {
         }
     }
 
+    var memoryEnabled: Bool {
+        get {
+            access(keyPath: \.memoryEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.memoryEnabled) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.memoryEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.memoryEnabled)
+            }
+            if newValue {
+                memoryCapture.store = memoryStore
+                memoryCapture.isSuppressed = { [weak self] in self?.memoryPaused ?? false }
+                memoryCapture.captureIntervalSeconds = 5
+                memoryCapture.retentionDays = memoryRetentionDays
+                memoryCapture.start()
+            } else {
+                memoryCapture.stop()
+            }
+        }
+    }
+
+    var memoryPaused: Bool {
+        get {
+            access(keyPath: \.memoryPaused)
+            return UserDefaults.standard.object(forKey: SettingsKeys.memoryPaused) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.memoryPaused) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.memoryPaused)
+            }
+        }
+    }
+
+    var memoryRetentionDays: Int {
+        get {
+            access(keyPath: \.memoryRetentionDays)
+            let value = UserDefaults.standard.object(forKey: SettingsKeys.memoryRetentionDays) as? Int
+            return value ?? 90
+        }
+        set {
+            withMutation(keyPath: \.memoryRetentionDays) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.memoryRetentionDays)
+            }
+            memoryCapture.retentionDays = newValue
+        }
+    }
+
     // MARK: Core loop collaborators
     private let audioCapture = AudioCapture()
     private let engine: TranscriptionEngine = AppleEngine()
@@ -312,6 +359,7 @@ final class AppState {
     @ObservationIgnored private let replyAssistMonitor = ReplyAssistMonitor()
     @ObservationIgnored private let replyStreamTypist = ReplyStreamTypist()
     @ObservationIgnored private var isReplyAssistDrafting = false
+    @ObservationIgnored private let memoryCapture = MemoryCapture()
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
@@ -356,6 +404,10 @@ final class AppState {
     /// than AppState proxying every HistoryStore method.
     private(set) var historyStore: HistoryStore?
 
+    /// nil if the DB failed to open — memory capture then becomes a silent
+    /// no-op, matching historyStore's own principle.
+    private(set) var memoryStore: MemoryStore?
+
     var hasAccessibilityPermission: Bool {
         PasteService.hasAccessibilityPermission()
     }
@@ -375,6 +427,7 @@ final class AppState {
             polishSelectedTextHotkey.start()
             if meetingsEnabled { meetingsEnabled = true }  // re-runs the setter's wiring/start path
             if replyAssistEnabled { replyAssistEnabled = true }  // re-runs the setter's wiring/start path
+            if memoryEnabled { memoryEnabled = true }  // re-runs the setter's wiring/start path
             if !PasteService.hasAccessibilityPermission() {
                 PasteService.requestAccessibilityPrompt()
             }
@@ -382,21 +435,40 @@ final class AppState {
 
         guard !isRunningUnderTests else {
             historyStore = nil
+            memoryStore = nil
             return
         }
 
+        let appSupportDir = try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
+        ).appendingPathComponent("com.omwhisper.mac", isDirectory: true)
+        if let appSupportDir {
+            try? FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true)
+        }
+
         do {
-            let dir = try FileManager.default.url(
-                for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-            ).appendingPathComponent("com.omwhisper.mac", isDirectory: true)
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            historyStore = try .open(atPath: dir.appendingPathComponent("history.db").path)
+            guard let appSupportDir else { throw CocoaError(.fileNoSuchFile) }
+            historyStore = try .open(atPath: appSupportDir.appendingPathComponent("history.db").path)
         } catch {
             log.error("init — HistoryStore failed to open: \(error)")
             historyStore = nil
         }
         if let historyStore {
             runHistoryStartupTasks(store: historyStore, autoDeleteAfterDays: autoDeleteAfterDays)
+        }
+
+        // Separate database from HistoryStore (own file, own DatabaseQueue) --
+        // memory (background screen capture) and dictation history are
+        // differently-sensitive data with different default-on/off states; a
+        // user must be able to wipe one without touching the other. Opened
+        // independently of historyStore -- one failing to open must not
+        // affect the other.
+        do {
+            guard let appSupportDir else { throw CocoaError(.fileNoSuchFile) }
+            memoryStore = try .open(atPath: appSupportDir.appendingPathComponent("memory.db").path)
+        } catch {
+            log.error("init — MemoryStore failed to open: \(error)")
+            memoryStore = nil
         }
     }
 
@@ -868,5 +940,8 @@ nonisolated enum SettingsKeys {
     static let hasImportedLegacyHistory = "hasImportedLegacyHistory"
     static let meetingsEnabled = "meetingsEnabled"
     static let replyAssistEnabled = "replyAssistEnabled"
+    static let memoryEnabled = "memoryEnabled"
+    static let memoryPaused = "memoryPaused"
+    static let memoryRetentionDays = "memoryRetentionDays"
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
 }

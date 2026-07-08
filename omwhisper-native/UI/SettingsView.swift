@@ -26,6 +26,9 @@ struct SettingsView: View {
             Tab("Reply Assist", systemImage: "text.bubble") {
                 ReplyAssistSettingsView()
             }
+            Tab("Memory", systemImage: "brain") {
+                MemorySettingsView()
+            }
             Tab("About", systemImage: "info.circle") {
                 AboutSettingsView()
             }
