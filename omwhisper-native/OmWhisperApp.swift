@@ -15,7 +15,6 @@ import SwiftUI
 // (synthetic AX clicks still work, which masks the bug). Verified 2026-07-07 by
 // an NSStatusItem spike that registered 36/36 real trackpad clicks where
 // MenuBarExtra registered none. NSStatusItem is the reliable path.
-@main
 struct OmWhisperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @Environment(\.openSettings) private var openSettings

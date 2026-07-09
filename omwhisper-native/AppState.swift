@@ -952,4 +952,5 @@ nonisolated enum SettingsKeys {
     static let memoryPaused = "memoryPaused"
     static let memoryRetentionDays = "memoryRetentionDays"
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
+    static let mcpAccessEnabled = "mcpAccessEnabled"
 }
