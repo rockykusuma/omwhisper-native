@@ -452,12 +452,7 @@ final class AppState {
             return
         }
 
-        let appSupportDir = try? FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        ).appendingPathComponent("com.omwhisper.mac", isDirectory: true)
-        if let appSupportDir {
-            try? FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true)
-        }
+        let appSupportDir = AppSupportDirectory.resolve()
 
         do {
             guard let appSupportDir else { throw CocoaError(.fileNoSuchFile) }
