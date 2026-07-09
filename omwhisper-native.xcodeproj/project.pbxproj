@@ -10,6 +10,7 @@
 		96BBDF972FFD0F5200EE67CF /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBDF962FFD0F5200EE67CF /* GRDB */; };
 		96BBDF982FFD0F5200EE67CF /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBDF962FFD0F5200EE67CF /* GRDB */; };
 		96BBE06D2FFD24AC00EE67CF /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBE06C2FFD24AC00EE67CF /* Sparkle */; };
+		9E89153962F1918FFB3B1B9D /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 4D2FD12C3C08929E1CE9D102 /* FluidAudio */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +48,7 @@
 			files = (
 				96BBDF972FFD0F5200EE67CF /* GRDB in Frameworks */,
 				96BBE06D2FFD24AC00EE67CF /* Sparkle in Frameworks */,
+				9E89153962F1918FFB3B1B9D /* FluidAudio in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -102,6 +104,7 @@
 			packageProductDependencies = (
 				96BBDF962FFD0F5200EE67CF /* GRDB */,
 				96BBE06C2FFD24AC00EE67CF /* Sparkle */,
+				4D2FD12C3C08929E1CE9D102 /* FluidAudio */,
 			);
 			productName = "omwhisper-native";
 			productReference = 9604F78B2FFBE64C00E63B3E /* OmWhisper.app */;
@@ -162,6 +165,7 @@
 			packageReferences = (
 				96BBDF952FFD0F5200EE67CF /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				96BBE06B2FFD24AC00EE67CF /* XCRemoteSwiftPackageReference "Sparkle" */,
+				5D67DD796084099608A7073B /* XCRemoteSwiftPackageReference "FluidAudio" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9604F78C2FFBE64C00E63B3E /* Products */;
@@ -534,6 +538,14 @@
 				minimumVersion = 2.9.4;
 			};
 		};
+		5D67DD796084099608A7073B /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.4.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -546,6 +558,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 96BBE06B2FFD24AC00EE67CF /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		4D2FD12C3C08929E1CE9D102 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5D67DD796084099608A7073B /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
