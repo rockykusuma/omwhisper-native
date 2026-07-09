@@ -20,6 +20,9 @@ struct SettingsView: View {
             Tab("AI", systemImage: "sparkles") {
                 AISettingsView()
             }
+            Tab("Transcription", systemImage: "waveform.badge.mic") {
+                TranscriptionSettingsView()
+            }
             Tab("Meetings", systemImage: "person.2.wave.2") {
                 MeetingsSettingsView()
             }
@@ -36,11 +39,10 @@ struct SettingsView: View {
                 AboutSettingsView()
             }
         }
-        // 9 tabs (General/Audio/Vocabulary/AI/Meetings/Reply Assist/Memory/
-        // MCP/About) no longer fit an icon-and-label tab bar at 520pt --
-        // macOS collapses the overflow into a ">>" menu, which live testing
-        // caught hiding the MCP tab. Widened to fit all 9 without overflow.
-        .frame(width: 660, height: 440)
+        // 10 tabs now (added Transcription) -- S5.2 already had to widen
+        // this once for a 9th tab overflowing into a ">>" menu; bump ahead
+        // of that recurring per-tab pattern instead of waiting to hit it again.
+        .frame(width: 720, height: 440)
     }
 }
 
