@@ -288,8 +288,15 @@ final class AppState {
                 memoryCapture.captureIntervalSeconds = 5
                 memoryCapture.retentionDays = memoryRetentionDays
                 memoryCapture.start()
+                chronicleScheduler.store = memoryStore
+                chronicleScheduler.polish = systemLLM
+                chronicleScheduler.isSuppressed = { [weak self] in
+                    self?.polishBackend != .system || !SystemLLM.isAvailable()
+                }
+                chronicleScheduler.start()
             } else {
                 memoryCapture.stop()
+                chronicleScheduler.stop()
             }
         }
     }
@@ -360,6 +367,7 @@ final class AppState {
     @ObservationIgnored private let replyStreamTypist = ReplyStreamTypist()
     @ObservationIgnored private var isReplyAssistDrafting = false
     @ObservationIgnored private let memoryCapture = MemoryCapture()
+    @ObservationIgnored private let chronicleScheduler = ChronicleScheduler()
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
