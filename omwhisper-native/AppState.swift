@@ -332,6 +332,18 @@ final class AppState {
         return try await Chronicler.generate(day: day, store: memoryStore, polish: systemLLM)
     }
 
+    var mcpAccessEnabled: Bool {
+        get {
+            access(keyPath: \.mcpAccessEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.mcpAccessEnabled) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.mcpAccessEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.mcpAccessEnabled)
+            }
+        }
+    }
+
     // MARK: Core loop collaborators
     private let audioCapture = AudioCapture()
     private let engine: TranscriptionEngine = AppleEngine()

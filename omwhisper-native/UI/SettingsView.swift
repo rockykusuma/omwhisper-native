@@ -29,6 +29,9 @@ struct SettingsView: View {
             Tab("Memory", systemImage: "brain") {
                 MemorySettingsView()
             }
+            Tab("MCP", systemImage: "point.3.connected.trianglepath.dotted") {
+                MCPSettingsView()
+            }
             Tab("About", systemImage: "info.circle") {
                 AboutSettingsView()
             }
