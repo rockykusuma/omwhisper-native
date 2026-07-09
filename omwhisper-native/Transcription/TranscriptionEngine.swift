@@ -15,12 +15,15 @@
 /// Streaming transcription event.
 /// `.partial` — volatile hypothesis, render dimmed, may be replaced.
 /// `.final`   — committed text, append and never rewrite.
-enum TranscriptEvent: Equatable, Sendable {
+// nonisolated: without this, the project's MainActor-by-default setting also
+// pins the synthesized Equatable conformance, which then can't be used from
+// a nonisolated context (e.g. ParakeetEngine's mapUpdate and its tests).
+nonisolated enum TranscriptEvent: Equatable, Sendable {
     case partial(String)
     case final(String)
 }
 
-enum EngineKind: String, CaseIterable, Codable, Sendable {
+nonisolated enum EngineKind: String, CaseIterable, Codable, Sendable {
     case apple      // SpeechTranscriber — on-device, zero-config (default)
     case parakeet   // FluidAudio CoreML — optional download (M4)
     case cloud      // WebSocket streaming provider (M4)
