@@ -36,7 +36,11 @@ struct SettingsView: View {
                 AboutSettingsView()
             }
         }
-        .frame(width: 520, height: 440)
+        // 9 tabs (General/Audio/Vocabulary/AI/Meetings/Reply Assist/Memory/
+        // MCP/About) no longer fit an icon-and-label tab bar at 520pt --
+        // macOS collapses the overflow into a ">>" menu, which live testing
+        // caught hiding the MCP tab. Widened to fit all 9 without overflow.
+        .frame(width: 660, height: 440)
     }
 }
 
