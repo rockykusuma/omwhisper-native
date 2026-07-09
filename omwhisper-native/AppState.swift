@@ -327,6 +327,11 @@ final class AppState {
         }
     }
 
+    func regenerateChronicle(day: String) async throws -> Chronicler.ChronicleResult {
+        guard let memoryStore else { throw Chronicler.ChroniclerError.noSnapshots }
+        return try await Chronicler.generate(day: day, store: memoryStore, polish: systemLLM)
+    }
+
     // MARK: Core loop collaborators
     private let audioCapture = AudioCapture()
     private let engine: TranscriptionEngine = AppleEngine()

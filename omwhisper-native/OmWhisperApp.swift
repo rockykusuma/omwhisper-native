@@ -32,6 +32,7 @@ struct OmWhisperApp: App {
         let _ = {
             delegate.openSettingsAction = openSettings
             delegate.openHistoryAction = openWindow
+            delegate.openMemoryAction = openWindow
         }()
         Settings {
             SettingsView()
@@ -43,6 +44,11 @@ struct OmWhisperApp: App {
         // Xcode's Stop button) while it was open — should only appear via the menu.
         Window("History", id: "history") {
             HistoryView()
+                .environment(delegate.appState)
+        }
+        .defaultLaunchBehavior(.suppressed)
+        Window("Memory", id: "memory") {
+            MemoryView()
                 .environment(delegate.appState)
         }
         .defaultLaunchBehavior(.suppressed)
@@ -63,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Set by OmWhisperApp.makeScene() so AppKit menu can open the SwiftUI Settings/History scenes.
     var openSettingsAction: OpenSettingsAction?
     var openHistoryAction: OpenWindowAction?
+    var openMemoryAction: OpenWindowAction?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Skip entirely under XCTest — see isRunningUnderTests in AppState.swift.
@@ -135,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         addItem(to: menu, title: "Settings…", action: #selector(openSettings), key: ",")
         addItem(to: menu, title: "History…", action: #selector(openHistory))
+        addItem(to: menu, title: "Memory…", action: #selector(openMemory))
         addItem(to: menu, title: "Check for Updates…", action: #selector(checkForUpdates))
             .isEnabled = updaterController.updater.canCheckForUpdates
         #if DEBUG
@@ -166,6 +174,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openHistory() {
         NSApp.activate(ignoringOtherApps: true)
         openHistoryAction?(id: "history")
+    }
+
+    @objc private func openMemory() {
+        NSApp.activate(ignoringOtherApps: true)
+        openMemoryAction?(id: "memory")
     }
 
     @objc private func checkForUpdates() {

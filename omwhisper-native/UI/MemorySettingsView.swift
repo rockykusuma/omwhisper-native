@@ -2,8 +2,8 @@
 //  MemorySettingsView.swift
 //  OmWhisper
 //
-//  No search/browse UI here -- that's S5's job entirely. Just the toggle,
-//  pause, and retention controls this sub-project's scope covers.
+//  Just the toggle, pause, and retention controls -- search/browse UI lives
+//  in MemoryView.swift (Window("Memory"), opened from the menu bar).
 //
 
 import SwiftUI
