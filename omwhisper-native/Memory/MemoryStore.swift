@@ -146,6 +146,21 @@ nonisolated final class MemoryStore: Sendable {
         }
     }
 
+    func recent(minutes: Int, limit: Int = 20) throws -> [MemorySnapshot] {
+        let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(minutes) * 60))
+        return try dbQueue.read { db in
+            try MemorySnapshot
+                .filter(Column("lastSeenAt") > cutoff)
+                .order(Column("lastSeenAt").desc, Column("id").desc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
+    func getSnapshot(id: Int64) throws -> MemorySnapshot? {
+        try dbQueue.read { db in try MemorySnapshot.fetchOne(db, key: id) }
+    }
+
     func delete(id: Int64) throws {
         try dbQueue.write { db in _ = try MemorySnapshot.deleteOne(db, key: id) }
     }

@@ -188,4 +188,45 @@ struct MemoryStoreTests {
         let results = try store.snapshotsForDay(todayDay)
         #expect(results.map(\.windowTitle) == ["TodayReal"])
     }
+
+    @Test("recent returns snapshots seen within the window, newest first")
+    func recentReturnsWithinWindow() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "Fresh", content: "fresh content", url: "")
+        let stale = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3600))
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "Stale", content: "stale content", url: "")
+        try store.dbQueue.write { db in
+            try MemorySnapshot.filter(Column("windowTitle") == "Stale").updateAll(db, Column("lastSeenAt").set(to: stale))
+        }
+        let results = try store.recent(minutes: 30, limit: 10)
+        #expect(results.map(\.windowTitle) == ["Fresh"])
+    }
+
+    @Test("recent respects limit")
+    func recentRespectsLimit() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "A", content: "a", url: "")
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "B", content: "b", url: "")
+        let results = try store.recent(minutes: 30, limit: 1)
+        #expect(results.count == 1)
+    }
+
+    @Test("getSnapshot returns the matching row by id")
+    func getSnapshotReturnsMatch() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "Untitled", content: "hello", url: "")
+        let rows = try store.fetchPage(offset: 0, limit: 1)
+        guard let id = rows.first?.id else {
+            Issue.record("expected row to have an id")
+            return
+        }
+        let result = try store.getSnapshot(id: id)
+        #expect(result?.content == "hello")
+    }
+
+    @Test("getSnapshot returns nil for an unknown id")
+    func getSnapshotReturnsNilForUnknown() throws {
+        let store = try makeStore()
+        #expect(try store.getSnapshot(id: 999) == nil)
+    }
 }
