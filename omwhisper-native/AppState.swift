@@ -344,9 +344,31 @@ final class AppState {
         }
     }
 
+    var engineKind: EngineKind {
+        get {
+            access(keyPath: \.engineKind)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.engineKind),
+                  let kind = EngineKind(rawValue: raw) else { return .apple }
+            return kind
+        }
+        set {
+            withMutation(keyPath: \.engineKind) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.engineKind)
+            }
+        }
+    }
+
     // MARK: Core loop collaborators
     private let audioCapture = AudioCapture()
-    private let engine: TranscriptionEngine = AppleEngine()
+    private let appleEngine: TranscriptionEngine = AppleEngine()
+    let parakeetEngine = ParakeetEngine()
+    private var activeEngine: TranscriptionEngine {
+        switch engineKind {
+        case .apple: appleEngine
+        case .parakeet: parakeetEngine
+        case .cloud: appleEngine  // M4.2 not shipped yet; falls back silently
+        }
+    }
     private let overlay = OverlayPanel()
     // @ObservationIgnored: hotkey is a collaborator, not observable UI state, and
     // @Observable can't instrument a `lazy` stored property (it rewrites stored
@@ -648,7 +670,7 @@ final class AppState {
                 !vocabSnapshot.contains { $0.caseInsensitiveCompare(term) == .orderedSame }
             }
 
-            let events = engine.transcribe(audioStream, vocabulary: engineVocabulary)
+            let events = activeEngine.transcribe(audioStream, vocabulary: engineVocabulary)
             transcriptionTask = Task { [weak self] in
                 guard let self else { return }
                 func postProcess(_ text: String) -> String {
@@ -965,4 +987,5 @@ nonisolated enum SettingsKeys {
     static let memoryRetentionDays = "memoryRetentionDays"
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
     static let mcpAccessEnabled = "mcpAccessEnabled"
+    static let engineKind = "engineKind"
 }
