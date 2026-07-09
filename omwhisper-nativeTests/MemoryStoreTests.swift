@@ -98,4 +98,94 @@ struct MemoryStoreTests {
         #expect(try store.search("stale", limit: 10).isEmpty)
         #expect(try store.search("fresh", limit: 10).count == 1)
     }
+
+    @Test("fetchPage returns most-recently-seen snapshots first, respecting offset/limit")
+    func fetchPagePaginatesByRecency() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "A", content: "first", url: "")
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "B", content: "second", url: "")
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "C", content: "third", url: "")
+        let page1 = try store.fetchPage(offset: 0, limit: 2)
+        #expect(page1.map(\.windowTitle) == ["C", "B"])
+        let page2 = try store.fetchPage(offset: 2, limit: 2)
+        #expect(page2.map(\.windowTitle) == ["A"])
+    }
+
+    @Test("delete removes a single row, deleteAll removes everything")
+    func deleteAndDeleteAll() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "A", content: "first", url: "")
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "B", content: "second", url: "")
+        let rows = try store.fetchPage(offset: 0, limit: 10)
+        guard let idToDelete = rows.first(where: { $0.windowTitle == "A" })?.id else {
+            Issue.record("expected row A to have an id")
+            return
+        }
+        try store.delete(id: idToDelete)
+        #expect(try store.fetchPage(offset: 0, limit: 10).map(\.windowTitle) == ["B"])
+        try store.deleteAll()
+        #expect(try store.fetchPage(offset: 0, limit: 10).isEmpty)
+    }
+
+    @Test("storageInfo reports a non-zero count after inserts")
+    func storageInfoReportsCount() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "A", content: "first", url: "")
+        let info = try store.storageInfo()
+        #expect(info.count == 1)
+        #expect(info.bytes >= 0)
+    }
+
+    @Test("upsertChronicle then getChronicle round-trips")
+    func chronicleRoundTrips() throws {
+        let store = try makeStore()
+        try store.upsertChronicle(day: "2026-07-08", summary: "Worked on the memory feature.", snapshotCount: 12)
+        let chronicle = try store.getChronicle(day: "2026-07-08")
+        #expect(chronicle?.day == "2026-07-08")
+        #expect(chronicle?.summary == "Worked on the memory feature.")
+        #expect(chronicle?.snapshotCount == 12)
+    }
+
+    @Test("upsertChronicle for an existing day overwrites, not duplicates")
+    func chronicleUpsertOverwrites() throws {
+        let store = try makeStore()
+        try store.upsertChronicle(day: "2026-07-08", summary: "First draft.", snapshotCount: 5)
+        try store.upsertChronicle(day: "2026-07-08", summary: "Regenerated.", snapshotCount: 9)
+        let chronicle = try store.getChronicle(day: "2026-07-08")
+        #expect(chronicle?.summary == "Regenerated.")
+        #expect(chronicle?.snapshotCount == 9)
+        #expect(try store.listChronicles(limit: 10).count == 1)
+    }
+
+    @Test("getChronicle returns nil for a day with no chronicle")
+    func chronicleMissingReturnsNil() throws {
+        let store = try makeStore()
+        #expect(try store.getChronicle(day: "2026-01-01") == nil)
+    }
+
+    @Test("listChronicles orders newest day first")
+    func listChroniclesOrdersByDayDescending() throws {
+        let store = try makeStore()
+        try store.upsertChronicle(day: "2026-07-06", summary: "Day 1.", snapshotCount: 1)
+        try store.upsertChronicle(day: "2026-07-08", summary: "Day 3.", snapshotCount: 1)
+        try store.upsertChronicle(day: "2026-07-07", summary: "Day 2.", snapshotCount: 1)
+        let days = try store.listChronicles(limit: 10).map(\.day)
+        #expect(days == ["2026-07-08", "2026-07-07", "2026-07-06"])
+    }
+
+    @Test("snapshotsForDay returns only that day's snapshots, oldest first")
+    func snapshotsForDayFiltersByDate() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "Today", content: "today content", url: "")
+        let today = ISO8601DateFormatter().string(from: Date())
+        let yesterday = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86_400))
+        try store.dbQueue.write { db in
+            try MemorySnapshot.filter(Column("windowTitle") == "Today")
+                .updateAll(db, Column("capturedAt").set(to: yesterday), Column("lastSeenAt").set(to: yesterday))
+        }
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "TodayReal", content: "real today", url: "")
+        let todayDay = String(today.prefix(10))
+        let results = try store.snapshotsForDay(todayDay)
+        #expect(results.map(\.windowTitle) == ["TodayReal"])
+    }
 }

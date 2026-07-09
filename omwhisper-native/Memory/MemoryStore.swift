@@ -23,6 +23,15 @@ import CryptoKit
 import Foundation
 import GRDB
 
+nonisolated struct MemoryChronicle: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable {
+    static let databaseTableName = "chronicles"
+    var id: String { day }
+    var day: String
+    var summary: String
+    var snapshotCount: Int
+    var createdAt: String
+}
+
 nonisolated final class MemoryStore: Sendable {
     /// internal, not private -- MemoryStoreTests reaches in to backdate a
     /// row directly, the only way to exercise prune()'s real deletion path
@@ -55,6 +64,14 @@ nonisolated final class MemoryStore: Sendable {
                 t.column("content")
                 t.column("windowTitle")
                 t.column("appName")
+            }
+        }
+        migrator.registerMigration("createChronicles") { db in
+            try db.create(table: MemoryChronicle.databaseTableName) { t in
+                t.column("day", .text).notNull().primaryKey()
+                t.column("summary", .text).notNull()
+                t.column("snapshotCount", .integer).notNull()
+                t.column("createdAt", .text).notNull()
             }
         }
         try migrator.migrate(dbQueue)
@@ -117,11 +134,69 @@ nonisolated final class MemoryStore: Sendable {
         }
     }
 
+    func fetchPage(offset: Int, limit: Int) throws -> [MemorySnapshot] {
+        // Secondary sort on id breaks ties deterministically -- lastSeenAt is
+        // whole-second precision (ISO8601DateFormatter's default), so bursts
+        // of captures within the same second would otherwise sort arbitrarily.
+        try dbQueue.read { db in
+            try MemorySnapshot
+                .order(Column("lastSeenAt").desc, Column("id").desc)
+                .limit(limit, offset: offset)
+                .fetchAll(db)
+        }
+    }
+
+    func delete(id: Int64) throws {
+        try dbQueue.write { db in _ = try MemorySnapshot.deleteOne(db, key: id) }
+    }
+
+    func deleteAll() throws {
+        try dbQueue.write { db in _ = try MemorySnapshot.deleteAll(db) }
+    }
+
+    func storageInfo() throws -> (count: Int, bytes: Int64) {
+        try dbQueue.read { db in
+            let count = try MemorySnapshot.fetchCount(db)
+            let pageCount = try Int64.fetchOne(db, sql: "PRAGMA page_count") ?? 0
+            let pageSize = try Int64.fetchOne(db, sql: "PRAGMA page_size") ?? 0
+            return (count, pageCount * pageSize)
+        }
+    }
+
     func prune(olderThanDays days: Int) throws {
         guard days > 0 else { return }
         let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(days) * 86_400))
         try dbQueue.write { db in
             try MemorySnapshot.filter(Column("lastSeenAt") < cutoff).deleteAll(db)
+        }
+    }
+
+    func upsertChronicle(day: String, summary: String, snapshotCount: Int) throws {
+        let now = ISO8601DateFormatter().string(from: Date())
+        let row = MemoryChronicle(day: day, summary: summary, snapshotCount: snapshotCount, createdAt: now)
+        try dbQueue.write { db in try row.save(db) }
+    }
+
+    func getChronicle(day: String) throws -> MemoryChronicle? {
+        try dbQueue.read { db in try MemoryChronicle.fetchOne(db, key: day) }
+    }
+
+    func listChronicles(limit: Int = 60) throws -> [MemoryChronicle] {
+        try dbQueue.read { db in
+            try MemoryChronicle
+                .order(Column("day").desc)
+                .limit(limit)
+                .fetchAll(db)
+        }
+    }
+
+    func snapshotsForDay(_ day: String) throws -> [MemorySnapshot] {
+        try dbQueue.read { db in
+            try MemorySnapshot.fetchAll(db, sql: """
+                SELECT * FROM snapshots
+                WHERE date(lastSeenAt) = ? OR date(capturedAt) = ?
+                ORDER BY lastSeenAt ASC
+                """, arguments: [day, day])
         }
     }
 }
