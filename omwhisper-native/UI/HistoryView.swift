@@ -54,31 +54,36 @@ struct HistoryView: View {
     }
 
     private var list: some View {
-        List {
-            ForEach(entries) { entry in
-                HistoryRow(
-                    entry: entry,
-                    isSelecting: isSelecting,
-                    isSelected: entry.id.map { selectedIDs.contains($0) } ?? false,
-                    isExpanded: expandedID == entry.id,
-                    onToggleSelect: { toggleSelect(entry) },
-                    onToggleExpand: { toggleExpand(entry) },
-                    onCopy: { copy(entry) },
-                    onDelete: { delete(entry) }
-                )
-                .onAppear { loadNextPageIfNeeded(current: entry) }
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(entries) { entry in
+                    HistoryRow(
+                        entry: entry,
+                        isSelecting: isSelecting,
+                        isSelected: entry.id.map { selectedIDs.contains($0) } ?? false,
+                        isExpanded: expandedID == entry.id,
+                        onToggleSelect: { toggleSelect(entry) },
+                        onToggleExpand: { toggleExpand(entry) },
+                        onCopy: { copy(entry) },
+                        onDelete: { delete(entry) }
+                    )
+                    .onAppear { loadNextPageIfNeeded(current: entry) }
+                }
             }
+            .padding(16)
         }
+        .background(Color.Porcelain.bg)
     }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
             Spacer()
             Text("🕐").font(.system(size: 40))
-            Text("No transcriptions yet").foregroundStyle(.secondary)
+            Text("No transcriptions yet").foregroundStyle(Color.Porcelain.dim)
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        .background(Color.Porcelain.bg)
     }
 
     @ToolbarContentBuilder
@@ -106,7 +111,7 @@ struct HistoryView: View {
             if let storageInfo {
                 Text("\(storageInfo.count) transcription\(storageInfo.count == 1 ? "" : "s") · \(formatBytes(storageInfo.bytes))")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.Porcelain.dim)
             }
             Spacer()
             Picker("Auto-Delete After", selection: autoDeleteBinding) {
@@ -118,6 +123,7 @@ struct HistoryView: View {
             .frame(width: 220)
         }
         .padding(8)
+        .background(Color.Porcelain.bg)
     }
 
     private var autoDeleteBinding: Binding<Int> {
@@ -252,31 +258,36 @@ private struct HistoryRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(alignment: .top) {
-            if isSelecting {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? .blue : .secondary)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entry.text)
-                    .lineLimit(isExpanded ? nil : 2)
-                Text("\(entry.createdAt) · \(entry.wordCount) words")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                if isExpanded, !isSelecting {
-                    HStack {
-                        Button("Copy", action: onCopy)
-                        Button("Delete", role: .destructive, action: onDelete)
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
+        Button {
+            isSelecting ? onToggleSelect() : onToggleExpand()
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                if isSelecting {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSelected ? Color.Porcelain.emerald : Color.Porcelain.dim)
                 }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.text)
+                        .lineLimit(isExpanded ? nil : 2)
+                        .foregroundStyle(Color.Porcelain.ink)
+                    Text("\(entry.createdAt) · \(entry.wordCount) words")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+                    if isExpanded, !isSelecting {
+                        HStack {
+                            Button("Copy", action: onCopy)
+                            Button("Delete", role: .destructive, action: onDelete)
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                }
+                Spacer()
             }
-            Spacer()
         }
-        .contentShape(Rectangle())
-        .onTapGesture { isSelecting ? onToggleSelect() : onToggleExpand() }
-        .padding(.vertical, 2)
+        .buttonStyle(.plain)
+        .omRowCard()
+        .accessibilityLabel("\(entry.text), \(entry.createdAt), \(entry.wordCount) words")
     }
 }
 
