@@ -32,6 +32,9 @@ struct OmWhisperApp: App {
             delegate.openSettingsAction = openSettings
             delegate.openHistoryAction = openWindow
             delegate.openMemoryAction = openWindow
+            #if DEBUG
+            delegate.openDesignGalleryAction = openWindow
+            #endif
         }()
         Settings {
             SettingsView()
@@ -51,6 +54,12 @@ struct OmWhisperApp: App {
                 .environment(delegate.appState)
         }
         .defaultLaunchBehavior(.suppressed)
+        #if DEBUG
+        Window("Design Gallery", id: "design-gallery") {
+            DesignGalleryView()
+        }
+        .defaultLaunchBehavior(.suppressed)
+        #endif
     }
 }
 
@@ -69,6 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var openSettingsAction: OpenSettingsAction?
     var openHistoryAction: OpenWindowAction?
     var openMemoryAction: OpenWindowAction?
+    #if DEBUG
+    var openDesignGalleryAction: OpenWindowAction?
+    #endif
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Skip entirely under XCTest — see isRunningUnderTests in AppState.swift.
@@ -148,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         addItem(to: menu, title: "Meeting Self-Test…", action: #selector(runMeetingSelfTest))
         addItem(to: menu, title: "Memory Self-Test…", action: #selector(runMemorySelfTest))
+        addItem(to: menu, title: "Design Gallery…", action: #selector(openDesignGallery))
         #endif
         addItem(to: menu, title: "Quit OmWhisper", action: #selector(quit), key: "q")
     }
@@ -179,6 +192,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         openMemoryAction?(id: "memory")
     }
+
+    #if DEBUG
+    @objc private func openDesignGallery() {
+        NSApp.activate(ignoringOtherApps: true)
+        openDesignGalleryAction?(id: "design-gallery")
+    }
+    #endif
 
     @objc private func checkForUpdates() {
         updaterController.checkForUpdates(nil)
