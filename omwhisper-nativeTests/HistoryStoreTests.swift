@@ -186,3 +186,113 @@ struct HistoryStoreTests {
         #expect(all.allSatisfy { $0.id != 999 && $0.id != 1000 })
     }
 }
+
+@Suite("HistoryStore.homeStats")
+struct HistoryStoreHomeStatsTests {
+    private func makeStore() throws -> (HistoryStore, DatabaseQueue) {
+        let dbQueue = try DatabaseQueue()
+        let store = try HistoryStore(dbQueue)
+        return (store, dbQueue)
+    }
+
+    private func seed(_ dbQueue: DatabaseQueue, words: Int, duration: Double, daysAgo: Int) throws {
+        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())!
+        let text = Array(repeating: "word", count: words).joined(separator: " ")
+        var entry = TranscriptionEntry(
+            id: nil, text: text, durationSeconds: duration, modelUsed: "test",
+            createdAt: ISO8601DateFormatter().string(from: date), wordCount: words,
+            source: "raw", rawText: nil, polishStyle: nil
+        )
+        try dbQueue.write { db in try entry.insert(db) }
+    }
+
+    @Test("wordsToday sums only today's entries")
+    func wordsTodaySumsOnlyToday() throws {
+        let (store, dbQueue) = try makeStore()
+        try seed(dbQueue, words: 10, duration: 30, daysAgo: 0)
+        try seed(dbQueue, words: 5, duration: 15, daysAgo: 0)
+        try seed(dbQueue, words: 100, duration: 300, daysAgo: 1)
+        let stats = try store.homeStats()
+        #expect(stats.wordsToday == 15)
+        #expect(stats.durationTodaySeconds == 45)
+    }
+
+    @Test("streakDays counts consecutive days including today")
+    func streakCountsConsecutiveDays() throws {
+        let (store, dbQueue) = try makeStore()
+        try seed(dbQueue, words: 10, duration: 30, daysAgo: 0)
+        try seed(dbQueue, words: 10, duration: 30, daysAgo: 1)
+        try seed(dbQueue, words: 10, duration: 30, daysAgo: 2)
+        let stats = try store.homeStats()
+        #expect(stats.streakDays == 3)
+    }
+
+    @Test("streakDays stops at the first gap")
+    func streakStopsAtGap() throws {
+        let (store, dbQueue) = try makeStore()
+        try seed(dbQueue, words: 10, duration: 30, daysAgo: 0)
+        try seed(dbQueue, words: 10, duration: 30, daysAgo: 1)
+        try seed(dbQueue, words: 10, duration: 30, daysAgo: 3)   // gap at day 2
+        let stats = try store.homeStats()
+        #expect(stats.streakDays == 2)
+    }
+
+    @Test("streakDays is 0 with no entries today")
+    func streakIsZeroWithoutToday() throws {
+        let (store, dbQueue) = try makeStore()
+        try seed(dbQueue, words: 10, duration: 30, daysAgo: 1)
+        let stats = try store.homeStats()
+        #expect(stats.streakDays == 0)
+    }
+
+    @Test("last7DaysWordCounts has 7 entries, 0 for empty days")
+    func last7DaysHasSevenEntries() throws {
+        let (store, dbQueue) = try makeStore()
+        try seed(dbQueue, words: 20, duration: 60, daysAgo: 0)
+        try seed(dbQueue, words: 30, duration: 90, daysAgo: 6)
+        let stats = try store.homeStats()
+        #expect(stats.last7DaysWordCounts.count == 7)
+        #expect(stats.last7DaysWordCounts.last == 20)    // today, last in the array
+        #expect(stats.last7DaysWordCounts.first == 30)   // 6 days ago, first in the array
+        #expect(stats.last7DaysWordCounts[1...5].allSatisfy { $0 == 0 })
+    }
+
+    @Test("homeStats on an empty store returns all zeros")
+    func emptyStoreReturnsZeros() throws {
+        let (store, _) = try makeStore()
+        let stats = try store.homeStats()
+        #expect(stats.wordsToday == 0)
+        #expect(stats.durationTodaySeconds == 0)
+        #expect(stats.streakDays == 0)
+        #expect(stats.last7DaysWordCounts == [0, 0, 0, 0, 0, 0, 0])
+    }
+}
+
+@Suite("HomeStats derived values")
+struct HomeStatsDerivedTests {
+    @Test("speakingPaceWPM computes words per minute")
+    func wpmComputes() {
+        let stats = HomeStats(wordsToday: 150, durationTodaySeconds: 60, streakDays: 1, last7DaysWordCounts: Array(repeating: 0, count: 7))
+        #expect(stats.speakingPaceWPM == 150)
+    }
+
+    @Test("speakingPaceWPM is 0 with no dictation time")
+    func wpmIsZeroWithNoDuration() {
+        let stats = HomeStats(wordsToday: 0, durationTodaySeconds: 0, streakDays: 0, last7DaysWordCounts: Array(repeating: 0, count: 7))
+        #expect(stats.speakingPaceWPM == 0)
+    }
+
+    @Test("minutesSavedVsTyping is positive when dictation is faster than typing at 45wpm")
+    func minutesSavedPositive() {
+        // 450 words dictated in 2 minutes (120s); typing at 45wpm would take 10 minutes.
+        let stats = HomeStats(wordsToday: 450, durationTodaySeconds: 120, streakDays: 1, last7DaysWordCounts: Array(repeating: 0, count: 7))
+        #expect(stats.minutesSavedVsTyping == 8)
+    }
+
+    @Test("minutesSavedVsTyping never goes negative")
+    func minutesSavedClampedToZero() {
+        // 10 words dictated in 10 minutes (600s) -- slower than typing.
+        let stats = HomeStats(wordsToday: 10, durationTodaySeconds: 600, streakDays: 1, last7DaysWordCounts: Array(repeating: 0, count: 7))
+        #expect(stats.minutesSavedVsTyping == 0)
+    }
+}

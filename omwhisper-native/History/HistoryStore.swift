@@ -32,6 +32,29 @@ enum ExportFormat {
     case text, markdown, json
 }
 
+nonisolated struct HomeStats: Equatable {
+    let wordsToday: Int
+    let durationTodaySeconds: Double
+    let streakDays: Int
+    /// Oldest to newest (index 0 = 6 days ago, index 6 = today); 0 for any
+    /// day with no dictations.
+    let last7DaysWordCounts: [Int]
+
+    var speakingPaceWPM: Int {
+        guard durationTodaySeconds > 0 else { return 0 }
+        return Int((Double(wordsToday) / (durationTodaySeconds / 60)).rounded())
+    }
+
+    /// Typing time at 45wpm minus actual dictation time, clamped to >= 0 --
+    /// dictating slower than you'd type is a real (if rare) outcome and
+    /// shouldn't show as negative "time saved."
+    var minutesSavedVsTyping: Int {
+        let typingMinutes = Double(wordsToday) / 45.0
+        let dictationMinutes = durationTodaySeconds / 60.0
+        return max(0, Int((typingMinutes - dictationMinutes).rounded()))
+    }
+}
+
 // nonisolated: GRDB's DatabaseQueue.read/write are synchronous, blocking I/O —
 // this collaborator has no UI affinity and must be callable from the
 // background Task that runs import/cleanup (see AppState concurrency note
@@ -131,6 +154,60 @@ nonisolated final class HistoryStore: Sendable {
             let pageCount = try Int64.fetchOne(db, sql: "PRAGMA page_count") ?? 0
             let pageSize = try Int64.fetchOne(db, sql: "PRAGMA page_size") ?? 0
             return (count, pageCount * pageSize)
+        }
+    }
+
+    /// Backs the hub's Home dashboard. `streakDays`' algorithm is a direct
+    /// port of the old Tauri app's get_stats_summary (omwhisper/src-tauri/src/
+    /// history.rs) -- consecutive distinct days including today, walking
+    /// backward, stopping at the first gap. "Words today"/"time saved"/
+    /// "speaking pace" are new for this dashboard (the old app never computed
+    /// them), derived from the real wordCount/durationSeconds columns.
+    func homeStats() throws -> HomeStats {
+        try dbQueue.read { db in
+            let todayRow = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT COALESCE(SUM(wordCount), 0) AS words, COALESCE(SUM(durationSeconds), 0) AS duration
+                FROM transcriptions WHERE DATE(createdAt) = DATE('now')
+                """
+            )
+            let wordsToday: Int = todayRow?["words"] ?? 0
+            let durationToday: Double = todayRow?["duration"] ?? 0
+
+            let dayRows = try Row.fetchAll(
+                db,
+                sql: "SELECT DISTINCT DATE(createdAt) AS day FROM transcriptions ORDER BY day DESC"
+            )
+            let dayStrings: [String] = dayRows.compactMap { $0["day"] }
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "yyyy-MM-dd"
+            dayFormatter.timeZone = TimeZone.current
+            let calendar = Calendar.current
+
+            var streak = 0
+            var expected = Date()
+            for dayString in dayStrings {
+                guard let day = dayFormatter.date(from: dayString) else { break }
+                if calendar.isDate(day, inSameDayAs: expected) {
+                    streak += 1
+                    expected = calendar.date(byAdding: .day, value: -1, to: expected) ?? expected
+                } else {
+                    break
+                }
+            }
+
+            var last7: [Int] = []
+            for offset in stride(from: 6, through: 0, by: -1) {
+                let row = try Row.fetchOne(
+                    db,
+                    sql: "SELECT COALESCE(SUM(wordCount), 0) AS words FROM transcriptions WHERE DATE(createdAt) = DATE('now', ?)",
+                    arguments: ["-\(offset) days"]
+                )
+                last7.append(row?["words"] ?? 0)
+            }
+
+            return HomeStats(wordsToday: wordsToday, durationTodaySeconds: durationToday, streakDays: streak, last7DaysWordCounts: last7)
         }
     }
 
