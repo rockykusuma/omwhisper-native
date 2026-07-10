@@ -17,44 +17,22 @@ import SwiftUI
 // MenuBarExtra registered none. NSStatusItem is the reliable path.
 struct OmWhisperApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         makeScene()
     }
 
-    // @SceneBuilder so we can store the openSettings/openWindow actions on the
-    // delegate (bridges SwiftUI to AppKit) and still return multiple scenes.
+    // @SceneBuilder so we can store the openWindow actions on the delegate
+    // (bridges SwiftUI to AppKit) and still return multiple scenes.
     @SceneBuilder
     private func makeScene() -> some Scene {
         let _ = {
-            delegate.openSettingsAction = openSettings
-            delegate.openHistoryAction = openWindow
-            delegate.openMemoryAction = openWindow
             delegate.openHubAction = openWindow
             #if DEBUG
             delegate.openDesignGalleryAction = openWindow
             #endif
         }()
-        Settings {
-            SettingsView()
-                .environment(delegate.appState)
-        }
-        .defaultLaunchBehavior(.suppressed)
-        // .suppressed: without this, macOS's window-state restoration reopens this
-        // window at next launch whenever the app was last killed uncleanly (e.g.
-        // Xcode's Stop button) while it was open — should only appear via the menu.
-        Window("History", id: "history") {
-            HistoryView()
-                .environment(delegate.appState)
-        }
-        .defaultLaunchBehavior(.suppressed)
-        Window("Memory", id: "memory") {
-            MemoryView()
-                .environment(delegate.appState)
-        }
-        .defaultLaunchBehavior(.suppressed)
         Window("OmWhisper", id: "hub") {
             HubShellView()
                 .environment(delegate.appState)
@@ -80,10 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let updaterController = SPUStandardUpdaterController(
         startingUpdater: !isRunningUnderTests, updaterDelegate: nil, userDriverDelegate: nil
     )
-    // Set by OmWhisperApp.makeScene() so AppKit menu can open the SwiftUI Settings/History scenes.
-    var openSettingsAction: OpenSettingsAction?
-    var openHistoryAction: OpenWindowAction?
-    var openMemoryAction: OpenWindowAction?
+    // Set by OmWhisperApp.makeScene() so AppKit menu can open the hub/gallery scenes.
     var openHubAction: OpenWindowAction?
     #if DEBUG
     var openDesignGalleryAction: OpenWindowAction?
@@ -158,10 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             addItem(to: menu, title: "Grant Accessibility Access…", action: #selector(grantAccessibility))
         }
 
-        addItem(to: menu, title: "Settings…", action: #selector(openSettings), key: ",")
-        addItem(to: menu, title: "History…", action: #selector(openHistory))
-        addItem(to: menu, title: "Memory…", action: #selector(openMemory))
-        addItem(to: menu, title: "Hub (Preview)…", action: #selector(openHub))
+        addItem(to: menu, title: "Open OmWhisper…", action: #selector(openHub), key: ",")
         addItem(to: menu, title: "Check for Updates…", action: #selector(checkForUpdates))
             .isEnabled = updaterController.updater.canCheckForUpdates
         #if DEBUG
@@ -185,21 +157,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleDictation() { appState.toggleDictation() }
     @objc private func grantAccessibility() { PasteService.openAccessibilitySettings() }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
-
-    @objc private func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        openSettingsAction?()
-    }
-
-    @objc private func openHistory() {
-        NSApp.activate(ignoringOtherApps: true)
-        openHistoryAction?(id: "history")
-    }
-
-    @objc private func openMemory() {
-        NSApp.activate(ignoringOtherApps: true)
-        openMemoryAction?(id: "memory")
-    }
 
     @objc private func openHub() {
         NSApp.activate(ignoringOtherApps: true)

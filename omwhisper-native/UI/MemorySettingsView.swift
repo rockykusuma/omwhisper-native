@@ -3,7 +3,8 @@
 //  OmWhisper
 //
 //  Just the toggle, pause, and retention controls -- search/browse UI lives
-//  in MemoryView.swift (Window("Memory"), opened from the menu bar).
+//  in MemoryView.swift, composed together with these controls inside
+//  HubMemorySectionView.swift (the hub's Memory section).
 //
 
 import SwiftUI
