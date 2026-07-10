@@ -13,15 +13,21 @@ struct MeetingsSettingsView: View {
 
     var body: some View {
         @Bindable var state = appState
-        Form {
-            Section {
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
                 Toggle("Detect and record meetings", isOn: $state.meetingsEnabled)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
                 Text("When a recognized call app is active, you'll be asked for consent before anything is recorded — a 10-second countdown, and no response means nothing is recorded. Recordings stay on this Mac.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.Porcelain.dim)
             }
+            .padding(16)
+            .omCard()
+            .padding(20)
         }
-        .formStyle(.grouped)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.Porcelain.bg)
     }
 }
 
