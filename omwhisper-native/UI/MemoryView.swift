@@ -78,28 +78,33 @@ private struct MemorySnapshotsView: View {
     }
 
     private var list: some View {
-        List {
-            ForEach(entries) { entry in
-                MemorySnapshotRow(
-                    entry: entry,
-                    isExpanded: expandedID == entry.id,
-                    onToggleExpand: { expandedID = expandedID == entry.id ? nil : entry.id },
-                    onCopy: { copy(entry) },
-                    onDelete: { delete(entry) }
-                )
-                .onAppear { loadNextPageIfNeeded(current: entry) }
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(entries) { entry in
+                    MemorySnapshotRow(
+                        entry: entry,
+                        isExpanded: expandedID == entry.id,
+                        onToggleExpand: { expandedID = expandedID == entry.id ? nil : entry.id },
+                        onCopy: { copy(entry) },
+                        onDelete: { delete(entry) }
+                    )
+                    .onAppear { loadNextPageIfNeeded(current: entry) }
+                }
             }
+            .padding(16)
         }
+        .background(Color.Porcelain.bg)
     }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
             Spacer()
             Text("🧠").font(.system(size: 40))
-            Text("Nothing captured yet").foregroundStyle(.secondary)
+            Text("Nothing captured yet").foregroundStyle(Color.Porcelain.dim)
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        .background(Color.Porcelain.bg)
     }
 
     private var footer: some View {
@@ -107,11 +112,12 @@ private struct MemorySnapshotsView: View {
             if let storageInfo {
                 Text("\(storageInfo.count) snapshot\(storageInfo.count == 1 ? "" : "s") · \(formatBytes(storageInfo.bytes))")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.Porcelain.dim)
             }
             Spacer()
         }
         .padding(8)
+        .background(Color.Porcelain.bg)
     }
 
     private func reload() async {
@@ -198,35 +204,39 @@ private struct MemorySnapshotRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(entry.appName).fontWeight(.medium)
-                Text(entry.windowTitle).foregroundStyle(.secondary)
-            }
-            .font(.callout)
-            Text(entry.content)
-                .lineLimit(isExpanded ? nil : 2)
-                .font(.body)
-            HStack(spacing: 4) {
-                Text(entry.lastSeenAt)
-                if !entry.url.isEmpty {
-                    Text("· \(entry.url)")
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            if isExpanded {
+        Button(action: onToggleExpand) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Button("Copy", action: onCopy)
-                    Button("Delete", role: .destructive, action: onDelete)
+                    Text(entry.appName).fontWeight(.medium).foregroundStyle(Color.Porcelain.ink)
+                    Text(entry.windowTitle).foregroundStyle(Color.Porcelain.dim)
                 }
-                .buttonStyle(.borderless)
+                .font(.callout)
+                Text(entry.content)
+                    .lineLimit(isExpanded ? nil : 2)
+                    .font(.body)
+                    .foregroundStyle(Color.Porcelain.ink)
+                HStack(spacing: 4) {
+                    Text(entry.lastSeenAt)
+                    if !entry.url.isEmpty {
+                        Text("· \(entry.url)")
+                    }
+                }
                 .font(.caption)
+                .foregroundStyle(Color.Porcelain.dim)
+                if isExpanded {
+                    HStack {
+                        Button("Copy", action: onCopy)
+                        Button("Delete", role: .destructive, action: onDelete)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { onToggleExpand() }
-        .padding(.vertical, 2)
+        .buttonStyle(.plain)
+        .omRowCard()
+        .accessibilityLabel("\(entry.appName), \(entry.windowTitle), \(entry.lastSeenAt)")
     }
 }
 
