@@ -12,6 +12,19 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Motion
+
+/// The hub's single spring family (design skill §2: one spring, reused). ~350ms
+/// with slight overshoot. `resolved(reduceMotion:)` returns nil under Reduced
+/// Motion so callers degrade to no animation (non-negotiable, skill §2.5).
+enum PorcelainMotion {
+    static let spring: Animation = .spring(response: 0.35, dampingFraction: 0.82)
+
+    static func resolved(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : spring
+    }
+}
+
 // MARK: - Porcelain appearance (pin the window to light)
 
 extension AppearancePreference {
@@ -199,6 +212,7 @@ struct NavRow: View {
     var badge: String? = nil
 
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 11) {
@@ -233,9 +247,12 @@ struct NavRow: View {
                     .frame(width: 2.5)
                     .padding(.vertical, 8)
                     .offset(x: -12)
+                    .transition(.opacity.combined(with: .scale(scale: 0.4, anchor: .center)))
             }
         }
         .onHover { isHovering = $0 }
+        .animation(PorcelainMotion.resolved(reduceMotion: reduceMotion), value: isSelected)
+        .animation(PorcelainMotion.resolved(reduceMotion: reduceMotion), value: isHovering)
     }
 }
 
