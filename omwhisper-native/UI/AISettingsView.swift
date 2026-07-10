@@ -18,6 +18,9 @@ struct AISettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var newStyleName = ""
     @State private var newStylePrompt = ""
+    @State private var ollamaReachable: Bool?
+    @State private var ollamaModels: [String] = []
+    @State private var ollamaChecking = false
 
     var body: some View {
         @Bindable var state = appState
@@ -26,10 +29,44 @@ struct AISettingsView: View {
                 Picker("Polish backend", selection: $state.polishBackend) {
                     Text("Disabled").tag(PolishBackendKind.disabled)
                     Text("System (Apple Intelligence)").tag(PolishBackendKind.system)
+                    Text("Ollama (local)").tag(PolishBackendKind.ollama)
                 }
                 .pickerStyle(.radioGroup)
                 .tint(Color.Porcelain.emerald)
                 .foregroundStyle(Color.Porcelain.ink)
+            }
+
+            if state.polishBackend == .ollama {
+                PorcelainSection(eyebrow: "Ollama") {
+                    TextField("Base URL", text: $state.ollamaBaseURL).porcelainField()
+                    HStack {
+                        Button(ollamaChecking ? "Checking…" : "Test Connection") { testOllama(state.ollamaBaseURL) }
+                            .disabled(ollamaChecking)
+                        if let ollamaReachable {
+                            Text(ollamaReachable
+                                 ? "Connected — \(ollamaModels.count) model\(ollamaModels.count == 1 ? "" : "s")"
+                                 : "Couldn't reach Ollama. Is it running?")
+                                .font(.caption)
+                                .foregroundStyle(ollamaReachable ? Color.Porcelain.dim : .red)
+                        }
+                    }
+                    if !ollamaModels.isEmpty {
+                        Picker("Model", selection: $state.ollamaModel) {
+                            Text("Select a model").tag("")
+                            ForEach(ollamaModels, id: \.self) { Text($0).tag($0) }
+                        }
+                        .tint(Color.Porcelain.emerald)
+                        .foregroundStyle(Color.Porcelain.ink)
+                    } else if ollamaReachable == true {
+                        Text("No models installed — run `ollama pull <model>` in Terminal.")
+                            .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                    } else if !state.ollamaModel.isEmpty {
+                        Text("Model: \(state.ollamaModel)")
+                            .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                    }
+                    Text("Runs entirely on your Mac via Ollama. Nothing leaves this device.")
+                        .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                }
             }
 
             PorcelainSection(eyebrow: "Smart Dictation & Polish Selected Text") {
@@ -89,6 +126,16 @@ struct AISettingsView: View {
 
     private func trimmed(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func testOllama(_ baseURL: String) {
+        ollamaChecking = true
+        Task {
+            let reachable = await Ollama.checkStatus(baseURL: baseURL)
+            ollamaModels = reachable ? await Ollama.listModels(baseURL: baseURL) : []
+            ollamaReachable = reachable
+            ollamaChecking = false
+        }
     }
 
     private func addStyle() {
