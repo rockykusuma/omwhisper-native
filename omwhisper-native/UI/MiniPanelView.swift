@@ -43,12 +43,23 @@ struct MiniPanelView: View {
         .padding(16)
         .frame(width: 270)
         .background(Color.Porcelain.bg)
+        .preferredColorScheme(appState.appearancePreference.colorScheme)
         .task { load() }
+    }
+
+    /// The scheme actually in effect (explicit preference, or live system when
+    /// `.system`) — for the Canvas orb, which can't read the adaptive palette.
+    private var effectiveScheme: ColorScheme {
+        switch appState.appearancePreference {
+        case .system: colorScheme
+        case .light: .light
+        case .dark: .dark
+        }
     }
 
     private var header: some View {
         HStack(spacing: 10) {
-            OmOrbView(appState: appState, palette: colorScheme == .dark ? .dark : .porcelain)
+            OmOrbView(appState: appState, palette: effectiveScheme == .dark ? .dark : .porcelain)
                 .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: 1) {
                 Text("OmWhisper")

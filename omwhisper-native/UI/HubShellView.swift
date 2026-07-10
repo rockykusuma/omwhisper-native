@@ -71,7 +71,19 @@ struct HubShellView: View {
                 .background(Color.Porcelain.bg)
         }
         .frame(minWidth: 760, minHeight: 560)
-        .porcelainWindow()
+        .porcelainWindow(colorScheme: appState.appearancePreference.colorScheme)
+        .preferredColorScheme(appState.appearancePreference.colorScheme)
+    }
+
+    /// The scheme actually in effect: the explicit preference, or the live
+    /// system scheme when the preference is `.system`. Used for the Canvas orb,
+    /// which isn't token-driven so can't read the adaptive palette itself.
+    private var effectiveScheme: ColorScheme {
+        switch appState.appearancePreference {
+        case .system: colorScheme
+        case .light: .light
+        case .dark: .dark
+        }
     }
 
     private var sidebar: some View {
@@ -125,7 +137,7 @@ struct HubShellView: View {
 
     private var brandRow: some View {
         HStack(spacing: 10) {
-            OmOrbView(appState: appState, palette: colorScheme == .dark ? .dark : .porcelain)
+            OmOrbView(appState: appState, palette: effectiveScheme == .dark ? .dark : .porcelain)
                 .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 1) {
                 Text("OmWhisper")

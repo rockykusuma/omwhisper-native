@@ -14,13 +14,27 @@ import SwiftUI
 
 // MARK: - Porcelain appearance (pin the window to light)
 
-/// Cleans up the hub window's chrome: drops the title text + makes the title bar
-/// transparent so the Porcelain canvas reads to the top edge with only the
-/// traffic lights on it. Deliberately does NOT pin the appearance — the
-/// `Color.Porcelain.*` tokens are adaptive (see OmColors.swift), so the window
-/// follows system light/dark and the palette tracks it. (It used to force
-/// `.aqua`; removed 2026-07-10 when the hub gained real dark-mode support.)
+extension AppearancePreference {
+    /// nil = follow the system; otherwise pin to light/dark. Drives both
+    /// SwiftUI `.preferredColorScheme` and the window's NSAppearance.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+/// Cleans up the hub window's chrome (title-less, transparent titlebar so the
+/// Porcelain canvas reads to the top edge) AND applies the user's appearance
+/// preference to the window's NSAppearance: nil = follow system, else pin
+/// light/dark. Pinning the window is what makes NSAppearance-driven bits (the
+/// `porcelainAdaptive` dynamic NSColor, native controls, the titlebar) honor a
+/// Light/Dark override even when the whole Mac is the other way.
 private struct PorcelainWindowConfigurator: NSViewRepresentable {
+    let preferredScheme: ColorScheme?
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async { configure(view.window) }
@@ -33,16 +47,22 @@ private struct PorcelainWindowConfigurator: NSViewRepresentable {
 
     private func configure(_ window: NSWindow?) {
         guard let window else { return }
+        window.appearance = switch preferredScheme {
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        case .none: nil            // follow system
+        case .some: nil            // future ColorScheme cases → follow system
+        }
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
     }
 }
 
 extension View {
-    /// Give the host window a title-less, transparent-titlebar top edge so the
-    /// Porcelain canvas reads to the top. Apply once at a window-root view.
-    func porcelainWindow() -> some View {
-        background(PorcelainWindowConfigurator())
+    /// Give the host window a title-less top edge and apply the appearance
+    /// preference (`nil` = follow system). Apply once at a window-root view.
+    func porcelainWindow(colorScheme: ColorScheme?) -> some View {
+        background(PorcelainWindowConfigurator(preferredScheme: colorScheme))
     }
 }
 

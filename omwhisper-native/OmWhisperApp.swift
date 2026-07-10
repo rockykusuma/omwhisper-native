@@ -117,6 +117,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         popover.contentSize = NSSize(width: 270, height: 340)
+        // Honor the appearance preference so the mini-panel's adaptive Porcelain
+        // colors resolve to the same theme as the hub (nil = follow system).
+        popover.appearance = switch appState.appearancePreference {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
         popover.contentViewController = NSHostingController(
             rootView: MiniPanelView(onOpenHub: { [weak self] in
                 self?.popover.performClose(nil)

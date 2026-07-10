@@ -79,6 +79,22 @@ final class AppState {
         get { UserDefaults.standard.object(forKey: SettingsKeys.pasteAfterStop) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.pasteAfterStop) }
     }
+    /// Hub/menu-bar-panel appearance. `.system` (default) follows macOS; `.light`/
+    /// `.dark` override it. Drives the window's NSAppearance + SwiftUI colorScheme
+    /// (see HubShellView). access/withMutation needed for the same reason as
+    /// polishBackend — it backs a Picker that must re-highlight on change.
+    var appearancePreference: AppearancePreference {
+        get {
+            access(keyPath: \.appearancePreference)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.appearancePreference) else { return .system }
+            return AppearancePreference(rawValue: raw) ?? .system
+        }
+        set {
+            withMutation(keyPath: \.appearancePreference) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.appearancePreference)
+            }
+        }
+    }
     var soundEnabled: Bool {
         get { UserDefaults.standard.object(forKey: SettingsKeys.soundEnabled) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.soundEnabled) }
@@ -981,8 +997,21 @@ nonisolated enum PolishBackendKind: String, Codable, CaseIterable {
     // Sub-project 2 adds: case ollama, cloud
 }
 
+nonisolated enum AppearancePreference: String, Codable, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+}
+
 nonisolated enum SettingsKeys {
     static let pasteAfterStop = "pasteAfterStop"
+    static let appearancePreference = "appearancePreference"
     static let polishBackend = "polishBackend"
     static let activePolishStyleID = "activePolishStyleID"
     static let translateTargetLanguage = "translateTargetLanguage"
