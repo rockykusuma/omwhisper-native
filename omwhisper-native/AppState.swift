@@ -897,6 +897,14 @@ final class AppState {
         }
     }
 
+    /// Re-runs a past history entry's text through the current polish
+    /// backend/style. Callers copy the result to the clipboard -- this never
+    /// pastes into the frontmost app the way live dictation's stop-and-paste
+    /// does, since there's no "target app" context for a hub-window action.
+    func rePolish(_ text: String) async -> String {
+        await polishedText(for: text)
+    }
+
     /// Pure decision: what the overlay's exit flourish should be. Evaluated
     /// *after* the transcript drains (not at key-release), so a quick-but-real
     /// utterance isn't wrongly cancelled. `heldFor` is nil for a toggle-stop
