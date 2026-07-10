@@ -152,6 +152,28 @@ final class AppState {
             }
         }
     }
+    var ollamaBaseURL: String {
+        get {
+            access(keyPath: \.ollamaBaseURL)
+            return UserDefaults.standard.string(forKey: SettingsKeys.ollamaBaseURL) ?? "http://localhost:11434"
+        }
+        set {
+            withMutation(keyPath: \.ollamaBaseURL) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.ollamaBaseURL)
+            }
+        }
+    }
+    var ollamaModel: String {
+        get {
+            access(keyPath: \.ollamaModel)
+            return UserDefaults.standard.string(forKey: SettingsKeys.ollamaModel) ?? ""
+        }
+        set {
+            withMutation(keyPath: \.ollamaModel) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.ollamaModel)
+            }
+        }
+    }
     /// Defaults to Smart Correct — the least presumptuous built-in (cleanup only,
     /// preserves the speaker's own wording), a safe universal default.
     var activePolishStyleID: UUID {
@@ -836,13 +858,13 @@ final class AppState {
         let tonePrefix = (try? String(contentsOf: ToneProfile.toneFileURL(), encoding: .utf8))
             .map { ToneProfile.promptPrefix(from: $0) }
         let style = Self.draftStyle(mode: mode, windowContext: windowContext, tonePrefix: tonePrefix)
-        guard SystemLLM.isAvailable(), polishBackend == .system else {
-            errorMessage = "Reply assist needs the System backend enabled in AI settings."
+        guard let backend = activePolishBackend() else {
+            errorMessage = "Reply assist needs an AI polish backend enabled in AI settings."
             return
         }
         let drafted: String
         do {
-            drafted = try await systemLLM.polish(intent, style: style, targetLanguage: nil)
+            drafted = try await backend.polish(intent, style: style, targetLanguage: nil)
         } catch {
             log.error("draftAndStream — polish failed: \(error)")
             errorMessage = "Reply assist: draft failed (\(error.localizedDescription))."
@@ -895,18 +917,32 @@ final class AppState {
     /// unavailable, model error, timeout) — dictated/selected text must never
     /// be silently dropped. Shows the one-time-per-launch Settings nudge
     /// specifically when the cause is Foundation Models being unavailable.
+    /// The polish backend the user has configured, or nil when polish shouldn't
+    /// run (Disabled, System-but-unavailable, or Ollama with no model chosen).
+    /// The single place backend selection happens — both dictation polish and
+    /// Reply Assist route through it.
+    func activePolishBackend() -> PolishBackend? {
+        switch polishBackend {
+        case .disabled: return nil
+        case .system: return SystemLLM.isAvailable() ? systemLLM : nil
+        case .ollama: return ollamaModel.isEmpty ? nil : Ollama(baseURL: ollamaBaseURL, model: ollamaModel)
+        }
+    }
+
     private func polishedText(for original: String) async -> String {
-        guard polishBackend == .system, let style = activePolishStyle else { return original }
-        guard SystemLLM.isAvailable() else {
+        // The one-time nudge fires only when System is selected but off — not for
+        // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
+        if polishBackend == .system, !SystemLLM.isAvailable() {
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
                 errorMessage = "Apple Intelligence is off — enable it in Settings > AI to use polish, or pasted raw text for now."
             }
             return original
         }
+        guard let backend = activePolishBackend(), let style = activePolishStyle else { return original }
         do {
             let target = style.requiresTargetLanguage ? translateTargetLanguage : nil
-            return try await systemLLM.polish(original, style: style, targetLanguage: target)
+            return try await backend.polish(original, style: style, targetLanguage: target)
         } catch {
             log.error("polishedText — polish failed: \(error)")
             return original
@@ -993,8 +1029,8 @@ nonisolated extension Duration {
 }
 
 nonisolated enum PolishBackendKind: String, Codable, CaseIterable {
-    case disabled, system
-    // Sub-project 2 adds: case ollama, cloud
+    case disabled, system, ollama
+    // Sub-project 2b adds: case cloud
 }
 
 nonisolated enum AppearancePreference: String, Codable, CaseIterable, Identifiable {
@@ -1013,6 +1049,8 @@ nonisolated enum SettingsKeys {
     static let pasteAfterStop = "pasteAfterStop"
     static let appearancePreference = "appearancePreference"
     static let polishBackend = "polishBackend"
+    static let ollamaBaseURL = "ollamaBaseURL"
+    static let ollamaModel = "ollamaModel"
     static let activePolishStyleID = "activePolishStyleID"
     static let translateTargetLanguage = "translateTargetLanguage"
     static let customPolishStyles = "customPolishStyles"
