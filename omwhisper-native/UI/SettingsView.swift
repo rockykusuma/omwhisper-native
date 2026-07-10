@@ -13,24 +13,54 @@
 import SwiftUI
 
 struct SettingsView: View {
-    var body: some View {
-        TabView {
-            Tab("General", systemImage: "gearshape") {
-                GeneralSettingsView()
-            }
-            Tab("Audio", systemImage: "waveform") {
-                AudioSettingsView()
-            }
-            Tab("Transcription", systemImage: "waveform.badge.mic") {
-                TranscriptionSettingsView()
-            }
-            Tab("MCP", systemImage: "point.3.connected.trianglepath.dotted") {
-                MCPSettingsView()
-            }
-            Tab("About", systemImage: "info.circle") {
-                AboutSettingsView()
+    private enum Tab: String, CaseIterable, Identifiable {
+        case general, audio, transcription, mcp, about
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .general: "General"
+            case .audio: "Audio"
+            case .transcription: "Transcription"
+            case .mcp: "MCP"
+            case .about: "About"
             }
         }
+
+        var icon: String {
+            switch self {
+            case .general: "gearshape"
+            case .audio: "waveform"
+            case .transcription: "waveform.badge.mic"
+            case .mcp: "point.3.connected.trianglepath.dotted"
+            case .about: "info.circle"
+            }
+        }
+    }
+
+    @State private var tab: Tab = .general
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $tab) {
+                ForEach(Tab.allCases) { t in
+                    Label(t.title, systemImage: t.icon).tag(t)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .tint(Color.Porcelain.emerald)
+            .padding(12)
+            Divider()
+            switch tab {
+            case .general: GeneralSettingsView()
+            case .audio: AudioSettingsView()
+            case .transcription: TranscriptionSettingsView()
+            case .mcp: MCPSettingsView()
+            case .about: AboutSettingsView()
+            }
+        }
+        .background(Color.Porcelain.bg)
     }
 }
 

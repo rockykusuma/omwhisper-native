@@ -16,27 +16,37 @@ struct MCPSettingsView: View {
 
     var body: some View {
         @Bindable var state = state
-        Form {
-            Toggle("Allow MCP access", isOn: $state.mcpAccessEnabled)
-            if state.mcpAccessEnabled {
-                configSection
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Toggle("Allow MCP access", isOn: $state.mcpAccessEnabled)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                if state.mcpAccessEnabled {
+                    configSection
+                }
+                Text("Lets Claude Desktop query your captured memory, chronicles, and dictation history through the Model Context Protocol. Read-only, off by default. Revoking access takes effect the next time Claude Desktop launches the connection, not instantly.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
             }
-            Text("Lets Claude Desktop query your captured memory, chronicles, and dictation history through the Model Context Protocol. Read-only, off by default. Revoking access takes effect the next time Claude Desktop launches the connection, not instantly.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .padding(16)
+            .omCard()
+            .padding(20)
         }
-        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.Porcelain.bg)
     }
 
     private var configSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Add this to Claude Desktop's config (\(configPath)):")
                 .font(.callout)
+                .foregroundStyle(Color.Porcelain.ink)
             Text(configJSON)
                 .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(Color.Porcelain.ink)
                 .textSelection(.enabled)
                 .padding(8)
-                .background(Color.secondary.opacity(0.1))
+                .background(Color.Porcelain.panel2)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             Button("Copy Config") {
                 NSPasteboard.general.clearContents()

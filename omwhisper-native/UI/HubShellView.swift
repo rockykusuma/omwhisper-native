@@ -89,16 +89,19 @@ struct HubShellView: View {
         }
         .padding(12)
         .navigationSplitViewColumnWidth(min: 200, ideal: 224)
-        // ponytail: DESIGN_DIRECTION.md §4 specifies an emerald-tinted "aurora"
-        // underlay behind the glass material; simplified to a flat tint here
-        // and left for D4's polish pass (motion/contrast) to refine into the
-        // real radial-gradient treatment -- structural correctness now,
-        // visual polish later matches this project's D1-D4 phasing.
+        // `.ultraThinMaterial` is an NSVisualEffectView-backed vibrancy
+        // material -- it follows system Dark Mode regardless of any SwiftUI
+        // color layered under it, which rendered this sidebar as dark glass
+        // instead of hub-concept.html's light frosted look (found via live
+        // screenshots, 2026-07-10). Fixed, non-adaptive gradient instead —
+        // still an approximation of DESIGN_DIRECTION.md §4's "aurora"
+        // underlay, real radial-gradient treatment is D4b's job.
         .background(
-            ZStack {
-                Color.Porcelain.emerald.opacity(0.06)
-                Rectangle().fill(.ultraThinMaterial)
-            }
+            LinearGradient(
+                colors: [Color.Porcelain.emerald.opacity(0.10), Color.Porcelain.panel2],
+                startPoint: .top,
+                endPoint: .bottom
+            )
         )
     }
 
