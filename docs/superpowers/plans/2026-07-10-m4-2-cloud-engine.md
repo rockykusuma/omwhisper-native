@@ -309,7 +309,11 @@ Create `omwhisper-native/Transcription/CloudEngine.swift`:
 @preconcurrency import AVFoundation
 import Foundation
 
-struct CloudEngine: TranscriptionEngine {
+// nonisolated on the whole struct: without it, nested static members (the
+// TurnMessage Decodable conformance, the sampleRate constant) inherit the
+// project's MainActor default and can't be reached from the nonisolated
+// static helper functions below -- same gotcha ParakeetEngine/MCPServer hit.
+nonisolated struct CloudEngine: TranscriptionEngine {
     let kind: EngineKind = .cloud
 
     enum EngineError: Error, LocalizedError {
