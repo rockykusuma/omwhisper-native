@@ -35,6 +35,31 @@ extension View {
     }
 }
 
+// MARK: - omRowCard
+
+private struct OmRowCardModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .background(Color.Porcelain.panel)
+            .overlay(
+                RoundedRectangle(cornerRadius: 13)
+                    .strokeBorder(Color.Porcelain.hair, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 13))
+    }
+}
+
+extension View {
+    /// hub-concept.html `.rowc`: panel bg, 1pt hair border, 13pt radius, no
+    /// shadow (lighter than `omCard()`) — used for list rows (history,
+    /// memory snapshots, chronicle days).
+    func omRowCard() -> some View {
+        modifier(OmRowCardModifier())
+    }
+}
+
 // MARK: - NavRow
 
 /// One sidebar navigation row. `isSelected` drives the accent-tint fill and
