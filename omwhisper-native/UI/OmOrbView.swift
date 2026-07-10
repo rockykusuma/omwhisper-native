@@ -78,8 +78,51 @@ private final class OrbSignal {
     }
 }
 
+/// Parameterizes OmOrbView's layer stack by ground color — dark HUD (additive
+/// light on green-black) or Porcelain (watercolor washes on white). Two
+/// palettes, one view: see docs/DESIGN_DIRECTION.md §4 ("parameterize the
+/// existing layer stack by palette, do not fork the view").
+struct OrbPalette {
+    let blobColors: [Color]
+    let blobAlpha: (Double) -> Double
+    let blendMode: GraphicsContext.BlendMode
+    let ringColor: Color
+    let ringAlpha: (Double) -> Double
+    /// Backing plate drawn behind the glyph before the glyph fill itself —
+    /// dark under-copy on the HUD (keeps the glyph legible over a bright
+    /// field), a soft white halo on Porcelain (hub-concept.html's `under`).
+    let glyphUnderColor: Color
+    let glyphLow: (r: Double, g: Double, b: Double)
+    let glyphHigh: (r: Double, g: Double, b: Double)
+
+    static let dark = OrbPalette(
+        blobColors: [.omEmerald, .omTeal, .omMint],
+        blobAlpha: darkBlobAlpha,
+        blendMode: .plusLighter,
+        ringColor: .omMint,
+        ringAlpha: darkRingAlpha,
+        glyphUnderColor: .omGlyphUnderCopy,
+        glyphLow: (234, 255, 245),   // omGlyphCore
+        glyphHigh: (255, 255, 255)   // omGlyphPeak
+    )
+
+    static let porcelain = OrbPalette(
+        blobColors: [Color(red: 0x10 / 255, green: 0xB9 / 255, blue: 0x81 / 255),
+                      Color(red: 0x0D / 255, green: 0x94 / 255, blue: 0x88 / 255),
+                      Color(red: 0x05 / 255, green: 0x96 / 255, blue: 0x69 / 255)],
+        blobAlpha: porcelainBlobAlpha,
+        blendMode: .normal,
+        ringColor: Color.Porcelain.mint,
+        ringAlpha: porcelainRingAlpha,
+        glyphUnderColor: .white,
+        glyphLow: (6, 95, 70),
+        glyphHigh: (12, 135, 105)
+    )
+}
+
 struct OmOrbView: View {
     let appState: AppState
+    var palette: OrbPalette = .dark
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var signal = OrbSignal()
     @State private var phaseStartedAt = Date()
@@ -136,11 +179,9 @@ struct OmOrbView: View {
 
     // MARK: §5.1 Energy field (3 blobs)
 
-    private static let blobColors: [Color] = [.omEmerald, .omTeal, .omMint]
-
     private func drawField(context: inout GraphicsContext, center: CGPoint, amp: Float, t: TimeInterval) {
         let rBase = 13.5, ak1 = 8.0, w1 = 1.5, k2 = 4.0, w2 = 1.0, k3 = 2.0
-        context.blendMode = .plusLighter
+        context.blendMode = palette.blendMode
         for i in 0..<3 {
             let phi = Double(i) * 2.1
             let path = blobPath(center: center) { theta in
@@ -148,8 +189,8 @@ struct OmOrbView: View {
                     + sin(3 * theta + t / 0.30 + phi) * (w1 + Double(amp) * k2)
                     + sin(5 * theta - t / 0.20 + phi) * (w2 + Double(amp) * k3)
             }
-            let alpha = 0.16 + Double(amp) * 0.20
-            context.fill(path, with: .color(Self.blobColors[i].opacity(alpha)))
+            let alpha = palette.blobAlpha(Double(amp))
+            context.fill(path, with: .color(palette.blobColors[i].opacity(alpha)))
         }
     }
 
@@ -168,11 +209,11 @@ struct OmOrbView: View {
     // MARK: §5.2 Pulse ring + §5.5 finalize expanding wave
 
     private func drawRing(context: inout GraphicsContext, center: CGPoint, amp: Float, t: TimeInterval, dictation: DictationState, elapsed: TimeInterval) {
-        context.blendMode = .plusLighter
+        context.blendMode = palette.blendMode
 
         let restingRadius = 17 + Double(amp) * 10 + sin(t / 0.6) * 1
-        let restingAlpha = 0.10 + Double(amp) * 0.30
-        context.stroke(ringPath(center: center, radius: restingRadius), with: .color(Color.omMint.opacity(restingAlpha)), lineWidth: 0.75)
+        let restingAlpha = palette.ringAlpha(Double(amp))
+        context.stroke(ringPath(center: center, radius: restingRadius), with: .color(palette.ringColor.opacity(restingAlpha)), lineWidth: 0.75)
 
         guard dictation == .finalizing else { return }
         // One expanding, fading wave on entering .finalizing — a seal on top of
@@ -180,7 +221,7 @@ struct OmOrbView: View {
         let waveProgress = min(1, elapsed / 0.42)
         let waveRadius = restingRadius + waveProgress * (30 - 17)
         let waveAlpha = restingAlpha * (1 - waveProgress)
-        context.stroke(ringPath(center: center, radius: waveRadius), with: .color(Color.omMint.opacity(waveAlpha)), lineWidth: 0.75)
+        context.stroke(ringPath(center: center, radius: waveRadius), with: .color(palette.ringColor.opacity(waveAlpha)), lineWidth: 0.75)
     }
 
     private func ringPath(center: CGPoint, radius: Double) -> Path {
@@ -201,7 +242,7 @@ struct OmOrbView: View {
         let underRect = rect.offsetBy(dx: 1.5, dy: 1.5)
 
         guard dictation == .starting else {
-            context.fill(OmGlyph().path(in: underRect), with: .color(Color.omGlyphUnderCopy.opacity(0.9)))
+            context.fill(OmGlyph().path(in: underRect), with: .color(palette.glyphUnderColor.opacity(0.9)))
             context.fill(OmGlyph().path(in: rect), with: .color(color))
             return
         }
@@ -219,21 +260,14 @@ struct OmOrbView: View {
         }
         let crossfade = min(1, (elapsed - 0.24) / 0.08)
         context.opacity = crossfade
-        context.fill(OmGlyph().path(in: underRect), with: .color(Color.omGlyphUnderCopy.opacity(0.9)))
+        context.fill(OmGlyph().path(in: underRect), with: .color(palette.glyphUnderColor.opacity(0.9)))
         context.fill(OmGlyph().path(in: rect), with: .color(color))
         context.opacity = 1
     }
 
     private func glyphLuminanceColor(_ lum: Double) -> Color {
-        // Mirrors Color.omGlyphCore (#EAFFF5) -> Color.omGlyphPeak (white).
-        let core = (r: 234.0, g: 255.0, b: 245.0)
-        let peak = (r: 255.0, g: 255.0, b: 255.0)
-        let clamped = min(1, max(0, lum))
-        return Color(
-            red: (core.r + (peak.r - core.r) * clamped) / 255,
-            green: (core.g + (peak.g - core.g) * clamped) / 255,
-            blue: (core.b + (peak.b - core.b) * clamped) / 255
-        )
+        let rgb = lerpRGB(palette.glyphLow, palette.glyphHigh, lum)
+        return Color(red: rgb.r / 255, green: rgb.g / 255, blue: rgb.b / 255)
     }
 
     // MARK: §11 Reduced Motion
@@ -241,16 +275,19 @@ struct OmOrbView: View {
     private func drawReducedMotion(context: inout GraphicsContext, center: CGPoint, amp: Float, dictation: DictationState, elapsed: TimeInterval) {
         // Static soft disc whose opacity (not shape) tracks amp; glyph breath off.
         let radius = 13.5
-        let alpha = 0.16 + Double(amp) * 0.20
-        context.blendMode = .plusLighter
-        context.fill(ringPath(center: center, radius: radius), with: .color(Color.omEmerald.opacity(alpha)))
+        let alpha = palette.blobAlpha(Double(amp))
+        context.blendMode = palette.blendMode
+        context.fill(ringPath(center: center, radius: radius), with: .color(palette.blobColors[0].opacity(alpha)))
 
         let size: CGFloat = 44   // matches drawGlyph's sizing (see its ponytail note)
         let rect = CGRect(x: center.x - size / 2, y: center.y - size / 2 + 2, width: size, height: size)
         // Stroke-draw becomes a plain fade (no trim animation).
         let fadeIn = dictation == .starting ? min(1, elapsed / 0.24) : 1
         context.opacity = fadeIn
-        context.fill(OmGlyph().path(in: rect), with: .color(.omGlyphCore))
+        // glyphLuminanceColor(0) resolves to palette.glyphLow, which for .dark
+        // is (234,255,245) == omGlyphCore exactly -- pixel-identical to what
+        // this line hardcoded before the palette refactor.
+        context.fill(OmGlyph().path(in: rect), with: .color(glyphLuminanceColor(0)))
         context.opacity = 1
     }
 }
