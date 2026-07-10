@@ -70,6 +70,7 @@ struct HubShellView: View {
                 .background(Color.Porcelain.bg)
         }
         .frame(minWidth: 760, minHeight: 560)
+        .porcelainWindow()
     }
 
     private var sidebar: some View {

@@ -17,77 +17,62 @@ struct VocabularySettingsView: View {
 
     var body: some View {
         @Bindable var state = appState
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("CUSTOM WORDS").font(.system(size: 11, weight: .semibold)).tracking(1.2)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    ForEach(state.customVocabulary, id: \.self) { word in
-                        VocabularyWordRow(
-                            word: word,
-                            onSave: { updated in replaceWord(word, with: updated) },
-                            onDelete: { removeWord(word) }
-                        )
-                    }
-                    HStack {
-                        TextField("Add a word or phrase", text: $newWord)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit(addWord)
-                        Button("Add", action: addWord)
-                            .disabled(trimmed(newWord).isEmpty)
-                    }
+        return PorcelainPage {
+            PorcelainSection(eyebrow: "Custom Words") {
+                ForEach(state.customVocabulary, id: \.self) { word in
+                    VocabularyWordRow(
+                        word: word,
+                        onSave: { updated in replaceWord(word, with: updated) },
+                        onDelete: { removeWord(word) }
+                    )
                 }
-                .padding(16)
-                .omCard()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("AUTO-REPLACEMENTS").font(.system(size: 11, weight: .semibold)).tracking(1.2)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    ForEach(state.wordReplacements, id: \.from) { rule in
-                        ReplacementRuleRow(
-                            rule: rule,
-                            onSave: { updated in saveReplacement(updated) },
-                            onDelete: { removeReplacement(rule) }
-                        )
-                    }
-                    HStack {
-                        TextField("Replace…", text: $newFrom).textFieldStyle(.roundedBorder)
-                        Text("→").foregroundStyle(Color.Porcelain.dim)
-                        TextField("With…", text: $newTo)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit(addReplacement)
-                        Button("Add", action: addReplacement)
-                            .disabled(trimmed(newFrom).isEmpty)
-                    }
+                HStack {
+                    TextField("Add a word or phrase", text: $newWord)
+                        .porcelainField()
+                        .onSubmit(addWord)
+                    Button("Add", action: addWord)
+                        .disabled(trimmed(newWord).isEmpty)
                 }
-                .padding(16)
-                .omCard()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Toggle("Fuzzy-match near-miss words", isOn: $state.fuzzyVocabCorrection)
-                        .tint(Color.Porcelain.emerald)
-                        .foregroundStyle(Color.Porcelain.ink)
-                    Text("Auto-correct near-misses to your terms. Off by default.")
-                        .font(.caption)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    Text("Examples: \"okay\" → \"OK\" · \"gonna\" → \"going to\" · \"OmWhisper\" as a custom word")
-                        .font(.caption)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    Divider().padding(.vertical, 4)
-                    Toggle("Use On-Screen Context", isOn: $state.contextAwareDictationEnabled)
-                        .tint(Color.Porcelain.emerald)
-                        .foregroundStyle(Color.Porcelain.ink)
-                    Text("Reads the frontmost window's visible text when dictation starts, to bias recognition toward names and terms already on screen. Nothing is stored. Off by default.")
-                        .font(.caption)
-                        .foregroundStyle(Color.Porcelain.dim)
-                }
-                .padding(16)
-                .omCard()
             }
-            .padding(20)
+
+            PorcelainSection(eyebrow: "Auto-Replacements") {
+                ForEach(state.wordReplacements, id: \.from) { rule in
+                    ReplacementRuleRow(
+                        rule: rule,
+                        onSave: { updated in saveReplacement(updated) },
+                        onDelete: { removeReplacement(rule) }
+                    )
+                }
+                HStack {
+                    TextField("Replace…", text: $newFrom).porcelainField()
+                    Text("→").foregroundStyle(Color.Porcelain.dim)
+                    TextField("With…", text: $newTo)
+                        .porcelainField()
+                        .onSubmit(addReplacement)
+                    Button("Add", action: addReplacement)
+                        .disabled(trimmed(newFrom).isEmpty)
+                }
+            }
+
+            PorcelainSection {
+                Toggle("Fuzzy-match near-miss words", isOn: $state.fuzzyVocabCorrection)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                Text("Auto-correct near-misses to your terms. Off by default.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+                Text("Examples: \"okay\" → \"OK\" · \"gonna\" → \"going to\" · \"OmWhisper\" as a custom word")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+                Divider().padding(.vertical, 4)
+                Toggle("Use On-Screen Context", isOn: $state.contextAwareDictationEnabled)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                Text("Reads the frontmost window's visible text when dictation starts, to bias recognition toward names and terms already on screen. Nothing is stored. Off by default.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.Porcelain.bg)
     }
 
     private func trimmed(_ s: String) -> String {
@@ -157,7 +142,7 @@ private struct VocabularyWordRow: View {
         HStack {
             if isEditing {
                 TextField("Word", text: $draft)
-                    .textFieldStyle(.roundedBorder)
+                    .porcelainField()
                     .onSubmit(commit)
             } else {
                 Text(word)
@@ -198,10 +183,10 @@ private struct ReplacementRuleRow: View {
         HStack {
             if isEditing {
                 TextField("From", text: $draftFrom)
-                    .textFieldStyle(.roundedBorder)
+                    .porcelainField()
                 Text("→").foregroundStyle(Color.Porcelain.dim)
                 TextField("To", text: $draftTo)
-                    .textFieldStyle(.roundedBorder)
+                    .porcelainField()
                     .onSubmit(commit)
             } else {
                 Text(rule.from).foregroundStyle(Color.Porcelain.ink)

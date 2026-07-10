@@ -16,8 +16,8 @@ struct MCPSettingsView: View {
 
     var body: some View {
         @Bindable var state = state
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+        return PorcelainPage {
+            PorcelainSection {
                 Toggle("Allow MCP access", isOn: $state.mcpAccessEnabled)
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
@@ -28,12 +28,7 @@ struct MCPSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)
             }
-            .padding(16)
-            .omCard()
-            .padding(20)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.Porcelain.bg)
     }
 
     private var configSection: some View {

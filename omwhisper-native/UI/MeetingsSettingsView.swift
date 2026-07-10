@@ -13,8 +13,8 @@ struct MeetingsSettingsView: View {
 
     var body: some View {
         @Bindable var state = appState
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+        return PorcelainPage {
+            PorcelainSection {
                 Toggle("Detect and record meetings", isOn: $state.meetingsEnabled)
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
@@ -22,12 +22,7 @@ struct MeetingsSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)
             }
-            .padding(16)
-            .omCard()
-            .padding(20)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.Porcelain.bg)
     }
 }
 

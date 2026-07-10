@@ -117,6 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         popover.contentSize = NSSize(width: 270, height: 340)
+        // Pin to light: the mini-panel is Porcelain too, and its native
+        // controls would otherwise render dark on a Dark-Mode Mac (see
+        // PorcelainWindowConfigurator).
+        popover.appearance = NSAppearance(named: .aqua)
         popover.contentViewController = NSHostingController(
             rootView: MiniPanelView(onOpenHub: { [weak self] in
                 self?.popover.performClose(nil)

@@ -9,7 +9,120 @@
 //  .eyebrow/h1 rules) for the exact reference this ports.
 //
 
+import AppKit
 import SwiftUI
+
+// MARK: - Porcelain appearance (pin the window to light)
+
+/// Porcelain is a committed *light* palette (design skill §1: "never ship a
+/// dark app window"). But `Form`/`TextField`/`Picker`/the title bar are all
+/// NSAppearance-driven native controls — on a Mac in Dark Mode they render
+/// dark and bleed through the Porcelain layer (black text fields, dark title
+/// bar strip — found live 2026-07-10). Pinning the host window to `.aqua`
+/// forces every native control AND the title bar to light in one move; the
+/// explicit `Color.Porcelain.*` tokens are unaffected since they're fixed hex.
+private struct PorcelainWindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { configure(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { configure(nsView.window) }
+    }
+
+    private func configure(_ window: NSWindow?) {
+        guard let window else { return }
+        window.appearance = NSAppearance(named: .aqua)
+        // Drop the dark title-bar strip: let the Porcelain canvas read to the
+        // top edge with only the traffic lights floating on it.
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+    }
+}
+
+extension View {
+    /// Pin the host window to light (aqua) appearance + a title-less bar so the
+    /// Porcelain palette isn't undercut by Dark Mode native chrome. Apply once
+    /// at a window-root view (the hub, the mini-panel).
+    func porcelainWindow() -> some View {
+        background(PorcelainWindowConfigurator())
+    }
+}
+
+// MARK: - PorcelainPage / PorcelainSection
+
+/// Standard scrollable Porcelain content pane: fixed `bg` canvas, consistent
+/// outer padding, sections stacked with even gaps. Every settings screen uses
+/// this so their spacing/background are identical rather than each re-deriving
+/// its own `ScrollView { VStack ... }.background(...)`.
+struct PorcelainPage<Content: View>: View {
+    var spacing: CGFloat = 16
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: spacing) {
+                content()
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.Porcelain.bg)
+    }
+}
+
+/// One card-wrapped settings group with an optional uppercase eyebrow. Always
+/// full-column-width (`maxWidth: .infinity`) so stacked cards line up instead
+/// of shrink-wrapping to their content (the ragged-width look found live).
+struct PorcelainSection<Content: View>: View {
+    var eyebrow: String? = nil
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let eyebrow {
+                Text(eyebrow.uppercased())
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(1.4)
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .omCard()
+    }
+}
+
+// MARK: - porcelainField
+
+private struct PorcelainFieldModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .textFieldStyle(.plain)
+            .foregroundStyle(Color.Porcelain.ink)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 8)
+            .background(Color.Porcelain.panel2)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(Color.Porcelain.hair, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+extension View {
+    /// Porcelain text-field chrome (panel2 fill, hair border) — matches the card
+    /// system instead of the native inset `.roundedBorder` bezel, which renders
+    /// dark under Dark Mode. Apply to `TextField`/`SecureField`.
+    func porcelainField() -> some View {
+        modifier(PorcelainFieldModifier())
+    }
+}
 
 // MARK: - omCard
 
@@ -84,12 +197,12 @@ struct NavRow: View {
             Spacer()
             if let badge {
                 Text(badge)
-                    .font(.system(size: 9.5))
+                    .font(.system(size: 9.5, weight: .semibold))
                     .tracking(0.6)
-                    .foregroundStyle(Color.Porcelain.dim)
+                    .foregroundStyle(Color.Porcelain.mint)
                     .padding(.horizontal, 7)
-                    .padding(.vertical, 1.5)
-                    .overlay(Capsule().strokeBorder(Color.Porcelain.hair, lineWidth: 1))
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.Porcelain.accentTint2))
             }
         }
         .padding(.horizontal, 10)

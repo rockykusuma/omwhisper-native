@@ -21,91 +21,70 @@ struct AISettingsView: View {
 
     var body: some View {
         @Bindable var state = appState
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("BACKEND").font(.system(size: 11, weight: .semibold)).tracking(1.2)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    Picker("Polish backend", selection: $state.polishBackend) {
-                        Text("Disabled").tag(PolishBackendKind.disabled)
-                        Text("System (Apple Intelligence)").tag(PolishBackendKind.system)
-                    }
-                    .pickerStyle(.radioGroup)
-                    .tint(Color.Porcelain.emerald)
-                    .foregroundStyle(Color.Porcelain.ink)
+        return PorcelainPage {
+            PorcelainSection(eyebrow: "Backend") {
+                Picker("Polish backend", selection: $state.polishBackend) {
+                    Text("Disabled").tag(PolishBackendKind.disabled)
+                    Text("System (Apple Intelligence)").tag(PolishBackendKind.system)
                 }
-                .padding(16)
-                .omCard()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("SMART DICTATION & POLISH SELECTED TEXT").font(.system(size: 11, weight: .semibold)).tracking(1.2)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    Picker("Default style", selection: $state.activePolishStyleID) {
-                        ForEach(PolishStyles.all(customStyles: state.customPolishStyles)) { style in
-                            Text(style.name).tag(style.id)
-                        }
-                    }
-                    .tint(Color.Porcelain.emerald)
-                    .foregroundStyle(Color.Porcelain.ink)
-                    if appState.activePolishStyle?.requiresTargetLanguage == true {
-                        Picker("Target language", selection: $state.translateTargetLanguage) {
-                            ForEach(translateLanguages, id: \.self) { language in
-                                Text(language).tag(language)
-                            }
-                        }
-                        .tint(Color.Porcelain.emerald)
-                        .foregroundStyle(Color.Porcelain.ink)
-                    }
-                    Text("Cmd+Shift+B always polishes what you just said. Cmd+Shift+P polishes whatever's selected in the frontmost app.")
-                        .font(.caption)
-                        .foregroundStyle(Color.Porcelain.dim)
-                }
-                .padding(16)
-                .omCard()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("BUILT-IN STYLES").font(.system(size: 11, weight: .semibold)).tracking(1.2)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    ForEach(PolishStyles.builtIns) { style in
-                        Text(style.name).foregroundStyle(Color.Porcelain.ink)
-                    }
-                }
-                .padding(16)
-                .omCard()
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("CUSTOM STYLES").font(.system(size: 11, weight: .semibold)).tracking(1.2)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    ForEach(state.customPolishStyles) { style in
-                        HStack {
-                            Text(style.name).foregroundStyle(Color.Porcelain.ink)
-                            Spacer()
-                            Button {
-                                removeStyle(style)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(Color.Porcelain.dim)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Delete \(style.name)")
-                        }
-                    }
-                    VStack(alignment: .leading) {
-                        TextField("Style name", text: $newStyleName).textFieldStyle(.roundedBorder)
-                        TextField("Prompt", text: $newStylePrompt, axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(2...4)
-                        Button("Add Style", action: addStyle)
-                            .disabled(trimmed(newStyleName).isEmpty || trimmed(newStylePrompt).isEmpty)
-                    }
-                }
-                .padding(16)
-                .omCard()
+                .pickerStyle(.radioGroup)
+                .tint(Color.Porcelain.emerald)
+                .foregroundStyle(Color.Porcelain.ink)
             }
-            .padding(20)
+
+            PorcelainSection(eyebrow: "Smart Dictation & Polish Selected Text") {
+                Picker("Default style", selection: $state.activePolishStyleID) {
+                    ForEach(PolishStyles.all(customStyles: state.customPolishStyles)) { style in
+                        Text(style.name).tag(style.id)
+                    }
+                }
+                .tint(Color.Porcelain.emerald)
+                .foregroundStyle(Color.Porcelain.ink)
+                if appState.activePolishStyle?.requiresTargetLanguage == true {
+                    Picker("Target language", selection: $state.translateTargetLanguage) {
+                        ForEach(translateLanguages, id: \.self) { language in
+                            Text(language).tag(language)
+                        }
+                    }
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                }
+                Text("Cmd+Shift+B always polishes what you just said. Cmd+Shift+P polishes whatever's selected in the frontmost app.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
+
+            PorcelainSection(eyebrow: "Built-in Styles") {
+                ForEach(PolishStyles.builtIns) { style in
+                    Text(style.name).foregroundStyle(Color.Porcelain.ink)
+                }
+            }
+
+            PorcelainSection(eyebrow: "Custom Styles") {
+                ForEach(state.customPolishStyles) { style in
+                    HStack {
+                        Text(style.name).foregroundStyle(Color.Porcelain.ink)
+                        Spacer()
+                        Button {
+                            removeStyle(style)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Color.Porcelain.dim)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Delete \(style.name)")
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Style name", text: $newStyleName).porcelainField()
+                    TextField("Prompt", text: $newStylePrompt, axis: .vertical)
+                        .porcelainField()
+                        .lineLimit(2...4)
+                    Button("Add Style", action: addStyle)
+                        .disabled(trimmed(newStyleName).isEmpty || trimmed(newStylePrompt).isEmpty)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.Porcelain.bg)
     }
 
     private func trimmed(_ s: String) -> String {

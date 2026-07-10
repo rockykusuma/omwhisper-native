@@ -10,8 +10,8 @@ struct ReplyAssistSettingsView: View {
 
     var body: some View {
         @Bindable var state = state
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+        return PorcelainPage {
+            PorcelainSection {
                 Toggle("Reply assist (double-tap right ⌥)", isOn: $state.replyAssistEnabled)
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
@@ -19,12 +19,7 @@ struct ReplyAssistSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)
             }
-            .padding(16)
-            .omCard()
-            .padding(20)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.Porcelain.bg)
     }
 }
 

@@ -11,34 +11,25 @@ import SwiftUI
 
 struct AboutSettingsView: View {
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    LabeledContent("Version", value: appVersionString)
-                        .foregroundStyle(Color.Porcelain.ink)
-                    Text("Powered by Apple's on-device Speech framework.")
-                        .font(.caption)
-                        .foregroundStyle(Color.Porcelain.dim)
-                }
-                .padding(16)
-                .omCard()
-
-                VStack(alignment: .leading) {
-                    Link("Documentation", destination: URL(string: "https://rockykusuma.github.io/omwhisper/")!)
-                        .foregroundStyle(Color.Porcelain.emerald)
-                }
-                .padding(16)
-                .omCard()
-
-                Text("Made with ॐ by Rakesh Kusuma")
+        PorcelainPage {
+            PorcelainSection {
+                LabeledContent("Version", value: appVersionString)
+                    .foregroundStyle(Color.Porcelain.ink)
+                Text("Powered by Apple's on-device Speech framework.")
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)
-                    .frame(maxWidth: .infinity, alignment: .center)
             }
-            .padding(20)
+
+            PorcelainSection {
+                Link("Documentation", destination: URL(string: "https://rockykusuma.github.io/omwhisper/")!)
+                    .foregroundStyle(Color.Porcelain.emerald)
+            }
+
+            Text("Made with ॐ by Rakesh Kusuma")
+                .font(.caption)
+                .foregroundStyle(Color.Porcelain.dim)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.Porcelain.bg)
     }
 
     private var appVersionString: String {
