@@ -407,7 +407,7 @@ struct HubHomeView: View {
 
     private var streakSentence: String {
         guard let stats else { return " " }
-        switch stats.streakDays {
+        return switch stats.streakDays {
         case 0: "Press ⌘⇧V to start dictating."
         case 1: "You've dictated today — nice start."
         default: "You've spoken instead of typed for \(stats.streakDays) days straight."
