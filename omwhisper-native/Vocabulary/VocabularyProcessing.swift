@@ -83,6 +83,19 @@ nonisolated func fuzzyCorrect(_ text: String, dictionary: [String]) -> String {
     return result
 }
 
+/// Assembles the vocabulary handed to a TranscriptionEngine for biasing.
+/// Apple/Parakeet get the user's custom terms plus S2's auto-extracted
+/// screen terms (deduped case-insensitively); Cloud gets only the user's
+/// own explicitly-typed terms -- screen terms were never reviewed or
+/// approved by the user, and shouldn't leave the device just because
+/// Cloud was selected. See docs/superpowers/specs/2026-07-09-m4-2-cloud-engine-design.md.
+nonisolated func mergeEngineVocabulary(customTerms: [String], screenTerms: [String], engineKind: EngineKind) -> [String] {
+    guard engineKind != .cloud else { return customTerms }
+    return customTerms + screenTerms.filter { term in
+        !customTerms.contains { $0.caseInsensitiveCompare(term) == .orderedSame }
+    }
+}
+
 /// Splits inclusive on whitespace: each element (except possibly the last)
 /// ends with the whitespace character that terminated it, mirroring Rust's
 /// `str::split_inclusive` — this is what lets whitespace layout (including

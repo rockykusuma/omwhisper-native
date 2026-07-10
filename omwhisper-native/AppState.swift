@@ -362,11 +362,12 @@ final class AppState {
     private let audioCapture = AudioCapture()
     private let appleEngine: TranscriptionEngine = AppleEngine()
     let parakeetEngine = ParakeetEngine()
+    private let cloudEngine: TranscriptionEngine = CloudEngine()
     private var activeEngine: TranscriptionEngine {
         switch engineKind {
         case .apple: appleEngine
         case .parakeet: parakeetEngine
-        case .cloud: appleEngine  // M4.2 not shipped yet; falls back silently
+        case .cloud: cloudEngine
         }
     }
     private let overlay = OverlayPanel()
@@ -664,10 +665,16 @@ final class AppState {
             // vocabSnapshot itself, which also doubles as fuzzyCorrect's
             // post-hoc snap-to-nearest-term dictionary below. Mixing noisy
             // auto-extracted terms into that harder rewrite is a different
-            // risk profile than soft engine biasing.
+            // risk profile than soft engine biasing. Cloud excludes screen
+            // terms entirely -- see mergeEngineVocabulary.
             let screenTerms = await contextCaptureTask?.value ?? []
-            let engineVocabulary = vocabSnapshot + screenTerms.filter { term in
-                !vocabSnapshot.contains { $0.caseInsensitiveCompare(term) == .orderedSame }
+            let engineVocabulary = mergeEngineVocabulary(
+                customTerms: vocabSnapshot,
+                screenTerms: screenTerms,
+                engineKind: engineKind
+            )
+            if engineKind == .cloud, !screenTerms.isEmpty {
+                log.debug("cloud engine active: excluding \(screenTerms.count) screen term(s) from vocabulary")
             }
 
             let events = activeEngine.transcribe(audioStream, vocabulary: engineVocabulary)

@@ -97,3 +97,50 @@ struct FuzzyCorrectTests {
         #expect(fuzzyCorrect("say Kase now", dictionary: d) == "say Kase now")
     }
 }
+
+struct EngineVocabularyMergeTests {
+    @Test func appleEngineMergesScreenTermsNotAlreadyPresent() {
+        let result = mergeEngineVocabulary(
+            customTerms: ["OmWhisper"],
+            screenTerms: ["Xcode", "OmWhisper"],
+            engineKind: .apple
+        )
+        #expect(result == ["OmWhisper", "Xcode"])
+    }
+
+    @Test func parakeetEngineAlsoMergesScreenTerms() {
+        let result = mergeEngineVocabulary(
+            customTerms: ["Parakeet"],
+            screenTerms: ["FluidAudio"],
+            engineKind: .parakeet
+        )
+        #expect(result == ["Parakeet", "FluidAudio"])
+    }
+
+    @Test func cloudEngineExcludesScreenTermsEntirely() {
+        let result = mergeEngineVocabulary(
+            customTerms: ["OmWhisper"],
+            screenTerms: ["Xcode", "SecretProjectName"],
+            engineKind: .cloud
+        )
+        #expect(result == ["OmWhisper"])
+    }
+
+    @Test func cloudEngineWithNoCustomTermsSendsNothing() {
+        let result = mergeEngineVocabulary(
+            customTerms: [],
+            screenTerms: ["Xcode"],
+            engineKind: .cloud
+        )
+        #expect(result.isEmpty)
+    }
+
+    @Test func caseInsensitiveDedupeStillAppliesForNonCloudEngines() {
+        let result = mergeEngineVocabulary(
+            customTerms: ["OmWhisper"],
+            screenTerms: ["omwhisper", "Xcode"],
+            engineKind: .apple
+        )
+        #expect(result == ["OmWhisper", "Xcode"])
+    }
+}
