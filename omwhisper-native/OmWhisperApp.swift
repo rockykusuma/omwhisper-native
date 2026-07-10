@@ -32,6 +32,7 @@ struct OmWhisperApp: App {
             delegate.openSettingsAction = openSettings
             delegate.openHistoryAction = openWindow
             delegate.openMemoryAction = openWindow
+            delegate.openHubAction = openWindow
             #if DEBUG
             delegate.openDesignGalleryAction = openWindow
             #endif
@@ -51,6 +52,11 @@ struct OmWhisperApp: App {
         .defaultLaunchBehavior(.suppressed)
         Window("Memory", id: "memory") {
             MemoryView()
+                .environment(delegate.appState)
+        }
+        .defaultLaunchBehavior(.suppressed)
+        Window("OmWhisper", id: "hub") {
+            HubShellView()
                 .environment(delegate.appState)
         }
         .defaultLaunchBehavior(.suppressed)
@@ -78,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var openSettingsAction: OpenSettingsAction?
     var openHistoryAction: OpenWindowAction?
     var openMemoryAction: OpenWindowAction?
+    var openHubAction: OpenWindowAction?
     #if DEBUG
     var openDesignGalleryAction: OpenWindowAction?
     #endif
@@ -154,6 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addItem(to: menu, title: "Settings…", action: #selector(openSettings), key: ",")
         addItem(to: menu, title: "History…", action: #selector(openHistory))
         addItem(to: menu, title: "Memory…", action: #selector(openMemory))
+        addItem(to: menu, title: "Hub (Preview)…", action: #selector(openHub))
         addItem(to: menu, title: "Check for Updates…", action: #selector(checkForUpdates))
             .isEnabled = updaterController.updater.canCheckForUpdates
         #if DEBUG
@@ -191,6 +199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openMemory() {
         NSApp.activate(ignoringOtherApps: true)
         openMemoryAction?(id: "memory")
+    }
+
+    @objc private func openHub() {
+        NSApp.activate(ignoringOtherApps: true)
+        openHubAction?(id: "hub")
     }
 
     #if DEBUG
