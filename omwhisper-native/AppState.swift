@@ -174,6 +174,28 @@ final class AppState {
             }
         }
     }
+    var cloudAPIURL: String {
+        get {
+            access(keyPath: \.cloudAPIURL)
+            return UserDefaults.standard.string(forKey: SettingsKeys.cloudAPIURL) ?? "https://api.openai.com/v1"
+        }
+        set {
+            withMutation(keyPath: \.cloudAPIURL) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.cloudAPIURL)
+            }
+        }
+    }
+    var cloudModel: String {
+        get {
+            access(keyPath: \.cloudModel)
+            return UserDefaults.standard.string(forKey: SettingsKeys.cloudModel) ?? "gpt-4o-mini"
+        }
+        set {
+            withMutation(keyPath: \.cloudModel) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.cloudModel)
+            }
+        }
+    }
     /// Defaults to Smart Correct — the least presumptuous built-in (cleanup only,
     /// preserves the speaker's own wording), a safe universal default.
     var activePolishStyleID: UUID {
@@ -926,6 +948,9 @@ final class AppState {
         case .disabled: return nil
         case .system: return SystemLLM.isAvailable() ? systemLLM : nil
         case .ollama: return ollamaModel.isEmpty ? nil : Ollama(baseURL: ollamaBaseURL, model: ollamaModel)
+        case .cloud:
+            guard let key = Keychain.loadCloudLLMKey(), !key.isEmpty else { return nil }
+            return CloudLLM(apiURL: cloudAPIURL, model: cloudModel, apiKey: key)
         }
     }
 
@@ -1029,8 +1054,7 @@ nonisolated extension Duration {
 }
 
 nonisolated enum PolishBackendKind: String, Codable, CaseIterable {
-    case disabled, system, ollama
-    // Sub-project 2b adds: case cloud
+    case disabled, system, ollama, cloud
 }
 
 nonisolated enum AppearancePreference: String, Codable, CaseIterable, Identifiable {
@@ -1051,6 +1075,8 @@ nonisolated enum SettingsKeys {
     static let polishBackend = "polishBackend"
     static let ollamaBaseURL = "ollamaBaseURL"
     static let ollamaModel = "ollamaModel"
+    static let cloudAPIURL = "cloudAPIURL"
+    static let cloudModel = "cloudModel"
     static let activePolishStyleID = "activePolishStyleID"
     static let translateTargetLanguage = "translateTargetLanguage"
     static let customPolishStyles = "customPolishStyles"
