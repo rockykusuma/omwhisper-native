@@ -19,6 +19,8 @@ struct HubHomeView: View {
     @State private var rePolishingID: Int64?
     @State private var copiedID: Int64?
     @State private var errorMessage: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathing = false
 
     var body: some View {
         ScrollView {
@@ -106,6 +108,10 @@ struct HubHomeView: View {
             ForEach(Array(stats.last7DaysWordCounts.enumerated()), id: \.offset) { _, count in
                 RoundedRectangle(cornerRadius: 3)
                     .fill(Color.Porcelain.emerald.opacity(count == 0 ? 0.12 : 0.55))
+                    // Calm ambient breath (skill §2: the field breathes, slowly).
+                    // Not tied to any action, so it passes the 40th-dictation test;
+                    // static under Reduced Motion.
+                    .opacity(breathing && count != 0 && !reduceMotion ? 0.78 : 1.0)
                     .frame(height: max(4, 34 * Double(count) / Double(maxCount)))
             }
         }
@@ -113,6 +119,15 @@ struct HubHomeView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .omCard()
+        .onAppear {
+            guard !reduceMotion else { return }
+            // ponytail: the one non-spring animation — a spring can't loop a
+            // breath; a 2.5s autoreversing ease = a ~5s cycle (hub-concept.html
+            // `breathebar`). Intentional exception to "one spring".
+            withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
+                breathing = true
+            }
+        }
     }
 
     // MARK: Recent
