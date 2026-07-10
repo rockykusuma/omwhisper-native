@@ -31,4 +31,16 @@ struct KeychainTests {
     func deleteWhenEmpty() throws {
         try Keychain.deleteAssemblyAIKey()
     }
+
+    @Test("cloud-LLM key round-trips independently of the AssemblyAI item")
+    func cloudLLMKeyRoundTrip() throws {
+        try Keychain.deleteCloudLLMKey()
+        #expect(Keychain.loadCloudLLMKey() == nil)
+        try Keychain.saveCloudLLMKey("sk-test-123")
+        #expect(Keychain.loadCloudLLMKey() == "sk-test-123")
+        try Keychain.saveCloudLLMKey("sk-test-456")  // overwrite
+        #expect(Keychain.loadCloudLLMKey() == "sk-test-456")
+        try Keychain.deleteCloudLLMKey()
+        #expect(Keychain.loadCloudLLMKey() == nil)
+    }
 }

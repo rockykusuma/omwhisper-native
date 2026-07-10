@@ -13,6 +13,7 @@ import Security
 nonisolated enum Keychain {
     private static let service = Bundle.main.bundleIdentifier ?? "com.omwhisper.mac"
     private static let assemblyAIAccount = "assemblyai-api-key"
+    private static let cloudLLMAccount = "cloud-llm-api-key"
 
     enum KeychainError: Error, LocalizedError {
         case unhandled(OSStatus)
@@ -23,11 +24,23 @@ nonisolated enum Keychain {
         }
     }
 
-    static func loadAssemblyAIKey() -> String? {
+    // MARK: AssemblyAI (M4.2 CloudEngine)
+    static func loadAssemblyAIKey() -> String? { load(account: assemblyAIAccount) }
+    static func saveAssemblyAIKey(_ key: String) throws { try save(key, account: assemblyAIAccount) }
+    static func deleteAssemblyAIKey() throws { try delete(account: assemblyAIAccount) }
+
+    // MARK: Cloud polish LLM (M3-2b)
+    static func loadCloudLLMKey() -> String? { load(account: cloudLLMAccount) }
+    static func saveCloudLLMKey(_ key: String) throws { try save(key, account: cloudLLMAccount) }
+    static func deleteCloudLLMKey() throws { try delete(account: cloudLLMAccount) }
+
+    // MARK: Generic core
+
+    private static func load(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: assemblyAIAccount,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -37,16 +50,15 @@ nonisolated enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
-    static func saveAssemblyAIKey(_ key: String) throws {
+    private static func save(_ key: String, account: String) throws {
         let data = Data(key.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: assemblyAIAccount,
+            kSecAttrAccount as String: account,
         ]
-        if loadAssemblyAIKey() != nil {
-            let update: [String: Any] = [kSecValueData as String: data]
-            let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        if load(account: account) != nil {
+            let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
             guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
         } else {
             var attributes = query
@@ -56,11 +68,11 @@ nonisolated enum Keychain {
         }
     }
 
-    static func deleteAssemblyAIKey() throws {
+    private static func delete(account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: assemblyAIAccount,
+            kSecAttrAccount as String: account,
         ]
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
