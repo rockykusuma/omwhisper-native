@@ -30,8 +30,7 @@ nonisolated struct SystemLLM: PolishBackend {
     }
 
     func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {
-        let instructions = Self.instructions(for: style, targetLanguage: targetLanguage)
-        let session = LanguageModelSession(instructions: instructions)
+        let session = LanguageModelSession(instructions: style.systemPrompt(targetLanguage: targetLanguage))
 
         return try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask {
@@ -46,10 +45,5 @@ nonisolated struct SystemLLM: PolishBackend {
             group.cancelAll()
             return result
         }
-    }
-
-    private static func instructions(for style: PolishStyle, targetLanguage: String?) -> String {
-        guard style.requiresTargetLanguage, let targetLanguage else { return style.prompt }
-        return style.prompt.replacingOccurrences(of: "{language}", with: targetLanguage)
     }
 }

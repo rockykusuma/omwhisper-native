@@ -21,6 +21,15 @@ nonisolated struct PolishStyle: Codable, Identifiable, Hashable {
     var requiresTargetLanguage: Bool = false
 }
 
+nonisolated extension PolishStyle {
+    /// The system prompt for this style. Substitutes `{language}` when the style
+    /// needs a target language, else returns `prompt` verbatim. Shared by every backend.
+    func systemPrompt(targetLanguage: String?) -> String {
+        guard requiresTargetLanguage, let targetLanguage else { return prompt }
+        return prompt.replacingOccurrences(of: "{language}", with: targetLanguage)
+    }
+}
+
 protocol PolishBackend: Sendable {
     /// `targetLanguage` is non-nil only when `style.requiresTargetLanguage`.
     func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String
