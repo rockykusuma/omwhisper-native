@@ -14,9 +14,15 @@
 import SwiftUI
 
 enum HubSection: String, CaseIterable, Identifiable {
-    case home, history, meetings, vocabulary, aiPolish, replyAssist, memory
+    case home, history, meetings, vocabulary, aiPolish, replyAssist, memory, settings
 
     var id: String { rawValue }
+
+    /// The main sidebar list -- everything except `.settings`, which renders
+    /// separately in the footer (hub-concept.html's `.side-foot` treatment).
+    static var contentSections: [HubSection] {
+        allCases.filter { $0 != .settings }
+    }
 
     var title: String {
         switch self {
@@ -27,6 +33,7 @@ enum HubSection: String, CaseIterable, Identifiable {
         case .aiPolish: "AI Polish"
         case .replyAssist: "Reply Assist"
         case .memory: "Memory"
+        case .settings: "Settings"
         }
     }
 
@@ -39,6 +46,7 @@ enum HubSection: String, CaseIterable, Identifiable {
         case .aiPolish: "sparkles"
         case .replyAssist: "text.bubble"
         case .memory: "brain"
+        case .settings: "gearshape"
         }
     }
 
@@ -67,12 +75,17 @@ struct HubShellView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
             brandRow
-            ForEach(HubSection.allCases) { section in
+            ForEach(HubSection.contentSections) { section in
                 NavRow(icon: section.icon, title: section.title, isSelected: selection == section, badge: section.badge)
                     .contentShape(Rectangle())
                     .onTapGesture { selection = section }
             }
             Spacer()
+            Divider().padding(.vertical, 4)
+            NavRow(icon: HubSection.settings.icon, title: HubSection.settings.title, isSelected: selection == .settings)
+                .contentShape(Rectangle())
+                .onTapGesture { selection = .settings }
+            privacyStatusLine
         }
         .padding(12)
         .navigationSplitViewColumnWidth(min: 200, ideal: 224)
@@ -87,6 +100,22 @@ struct HubShellView: View {
                 Rectangle().fill(.ultraThinMaterial)
             }
         )
+    }
+
+    /// hub-concept.html's "🔒 All processing on this Mac" line -- made live
+    /// rather than copied verbatim, since that copy predates M4.2's CloudEngine:
+    /// it would be actively misleading if the user has Cloud selected.
+    private var privacyStatusLine: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(appState.engineKind == .cloud ? Color.Porcelain.dim : Color.Porcelain.emerald)
+                .frame(width: 6, height: 6)
+            Text(appState.engineKind == .cloud ? "Cloud transcription active — audio leaves this Mac" : "All processing on this Mac")
+                .font(.system(size: 10.5))
+                .foregroundStyle(Color.Porcelain.dim)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
     }
 
     private var brandRow: some View {
@@ -117,6 +146,7 @@ struct HubShellView: View {
         case .aiPolish: AISettingsView()
         case .replyAssist: ReplyAssistSettingsView()
         case .memory: HubMemorySectionView()
+        case .settings: SettingsView()
         }
     }
 }

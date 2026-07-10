@@ -2,6 +2,13 @@
 //  SettingsView.swift
 //  OmWhisper
 //
+//  App-wide configuration only -- Vocabulary/AI/Meetings/Reply Assist/Memory
+//  moved to their own hub sidebar sections in D2a (docs/superpowers/plans/
+//  2026-07-10-d2a-hub-shell-migrations.md). This is now embedded as the
+//  hub's Settings section content (HubShellView), not a standalone window --
+//  the fixed frame that made sense for a standalone Settings window is gone;
+//  it flows within the hub's own content area now.
+//
 
 import SwiftUI
 
@@ -14,23 +21,8 @@ struct SettingsView: View {
             Tab("Audio", systemImage: "waveform") {
                 AudioSettingsView()
             }
-            Tab("Vocabulary", systemImage: "textformat.abc") {
-                VocabularySettingsView()
-            }
-            Tab("AI", systemImage: "sparkles") {
-                AISettingsView()
-            }
             Tab("Transcription", systemImage: "waveform.badge.mic") {
                 TranscriptionSettingsView()
-            }
-            Tab("Meetings", systemImage: "person.2.wave.2") {
-                MeetingsSettingsView()
-            }
-            Tab("Reply Assist", systemImage: "text.bubble") {
-                ReplyAssistSettingsView()
-            }
-            Tab("Memory", systemImage: "brain") {
-                MemorySettingsView()
             }
             Tab("MCP", systemImage: "point.3.connected.trianglepath.dotted") {
                 MCPSettingsView()
@@ -39,10 +31,6 @@ struct SettingsView: View {
                 AboutSettingsView()
             }
         }
-        // 10 tabs now (added Transcription) -- S5.2 already had to widen
-        // this once for a 9th tab overflowing into a ">>" menu; bump ahead
-        // of that recurring per-tab pattern instead of waiting to hit it again.
-        .frame(width: 720, height: 440)
     }
 }
 
