@@ -34,6 +34,34 @@ nonisolated func nextSmoothedValue(current: Float, target: Float, attackRate: Fl
     return current + (target - current) * rate
 }
 
+// MARK: - Pure palette-interpolation functions (Task 2, D1)
+
+/// Linear-interpolate an RGB triple; `t` is clamped to [0, 1].
+nonisolated func lerpRGB(
+    _ low: (r: Double, g: Double, b: Double),
+    _ high: (r: Double, g: Double, b: Double),
+    _ t: Double
+) -> (r: Double, g: Double, b: Double) {
+    let c = min(1, max(0, t))
+    return (
+        low.r + (high.r - low.r) * c,
+        low.g + (high.g - low.g) * c,
+        low.b + (high.b - low.b) * c
+    )
+}
+
+/// Dark HUD blob alpha (§5.1): `0.16 + amp·0.20`.
+nonisolated func darkBlobAlpha(amp: Double) -> Double { 0.16 + amp * 0.20 }
+
+/// Porcelain orb blob alpha, copied from hub-concept.html's `orbTheme.blobA`.
+nonisolated func porcelainBlobAlpha(amp: Double) -> Double { 0.10 + amp * 0.14 }
+
+/// Dark HUD ring alpha (§5.2): `0.10 + amp·0.30`.
+nonisolated func darkRingAlpha(amp: Double) -> Double { 0.10 + amp * 0.30 }
+
+/// Porcelain orb ring alpha, copied from hub-concept.html's `orbTheme.ring`.
+nonisolated func porcelainRingAlpha(amp: Double) -> Double { 0.15 + amp * 0.30 }
+
 /// Holds the per-frame smoothed amplitude/glow across Canvas redraws. A plain
 /// class (not @Observable) stored in `@State` — TimelineView's own clock
 /// already forces a redraw every tick; this just needs its identity (and thus
