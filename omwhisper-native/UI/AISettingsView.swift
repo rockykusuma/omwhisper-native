@@ -21,6 +21,10 @@ struct AISettingsView: View {
     @State private var ollamaReachable: Bool?
     @State private var ollamaModels: [String] = []
     @State private var ollamaChecking = false
+    @State private var cloudKeyInput = ""
+    @State private var cloudHasSavedKey = false
+    @State private var cloudTesting = false
+    @State private var cloudTestResult: String?
 
     var body: some View {
         @Bindable var state = appState
@@ -30,6 +34,7 @@ struct AISettingsView: View {
                     Text("Disabled").tag(PolishBackendKind.disabled)
                     Text("System (Apple Intelligence)").tag(PolishBackendKind.system)
                     Text("Ollama (local)").tag(PolishBackendKind.ollama)
+                    Text("Cloud (OpenAI-compatible)").tag(PolishBackendKind.cloud)
                 }
                 .pickerStyle(.radioGroup)
                 .tint(Color.Porcelain.emerald)
@@ -66,6 +71,30 @@ struct AISettingsView: View {
                     }
                     Text("Runs entirely on your Mac via Ollama. Nothing leaves this device.")
                         .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                }
+            }
+
+            if state.polishBackend == .cloud {
+                PorcelainSection(eyebrow: "Cloud") {
+                    Text("Your dictated text is sent to this provider while polishing. Secrets and PII (emails, keys, cards) are redacted before it leaves your Mac. Requires your own API key.")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+                    TextField("API URL", text: $state.cloudAPIURL).porcelainField()
+                    TextField("Model", text: $state.cloudModel).porcelainField()
+                    SecureField("API key", text: $cloudKeyInput).porcelainField()
+                    HStack {
+                        Button("Save", action: saveCloudKey).disabled(cloudKeyInput.isEmpty)
+                        Button("Clear", action: clearCloudKey).disabled(!cloudHasSavedKey)
+                        Button(cloudTesting ? "Testing…" : "Test Connection", action: testCloud)
+                            .disabled(cloudTesting || !cloudHasSavedKey)
+                    }
+                    Text(cloudHasSavedKey ? "Key saved." : "No key saved yet.")
+                        .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                    if let cloudTestResult {
+                        Text(cloudTestResult)
+                            .font(.caption)
+                            .foregroundStyle(cloudTestResult == "Connected." ? Color.Porcelain.dim : .red)
+                    }
                 }
             }
 
@@ -122,6 +151,7 @@ struct AISettingsView: View {
                 }
             }
         }
+        .task { cloudHasSavedKey = Keychain.loadCloudLLMKey() != nil }
     }
 
     private func trimmed(_ s: String) -> String {
@@ -135,6 +165,34 @@ struct AISettingsView: View {
             ollamaModels = reachable ? await Ollama.listModels(baseURL: baseURL) : []
             ollamaReachable = reachable
             ollamaChecking = false
+        }
+    }
+
+    private func saveCloudKey() {
+        do {
+            try Keychain.saveCloudLLMKey(cloudKeyInput)
+            cloudKeyInput = ""
+            cloudHasSavedKey = true
+            cloudTestResult = nil
+        } catch {
+            cloudTestResult = error.localizedDescription
+        }
+    }
+
+    private func clearCloudKey() {
+        try? Keychain.deleteCloudLLMKey()
+        cloudHasSavedKey = false
+        cloudTestResult = nil
+    }
+
+    private func testCloud() {
+        cloudTesting = true
+        cloudTestResult = nil
+        Task {
+            let key = Keychain.loadCloudLLMKey() ?? ""
+            let err = await CloudLLM.testConnection(apiURL: appState.cloudAPIURL, model: appState.cloudModel, apiKey: key)
+            cloudTestResult = err ?? "Connected."
+            cloudTesting = false
         }
     }
 
