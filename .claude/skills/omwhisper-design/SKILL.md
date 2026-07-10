@@ -73,11 +73,18 @@ Gradients: emerald→teal at 135° for primary CTAs and the glyph fill. Smart
 dictation (AI polish) may use a violet accent variant — an open question in
 OVERLAY_SPEC §14; ask before introducing it.
 
-**Scope rule**: dark palette = overlay HUD + onboarding ONLY. Everything else
-(hub window, Settings, History, menu-bar panel) is Porcelain. Never let the
-HUD adapt to light mode (spec §1.5); never ship a dark app window. App windows
-still use native SwiftUI controls and glass materials — Porcelain is the color
-system laid over native structure, not web-style custom chrome.
+**Scope rule**: the overlay HUD + onboarding are ALWAYS dark (`om*` tokens) —
+never let the HUD adapt to light mode (spec §1.5). App windows (hub, Settings,
+History, menu-bar panel) use the **Porcelain** tokens, which as of 2026-07-10
+are **adaptive**: light "porcelain" in Light Mode, the brand's dark
+emerald-on-green-black identity in Dark Mode (R reversed the original
+always-light rule). Build hub UI with `Color.Porcelain.*` and it tracks the
+system theme for free — do NOT pin app windows to `.aqua` or hard-code the
+light hex. The tokens live in `UI/OmColors.swift`, built on
+`porcelainAdaptive(light:dark:)`. The Canvas orb isn't token-driven — pass its
+palette explicitly from `@Environment(\.colorScheme)` (`.dark` vs
+`.porcelain`). App windows still use native SwiftUI controls — Porcelain is the
+color system laid over native structure, not web-style custom chrome.
 
 ## 2. Motion philosophy (the part that makes it OmWhisper)
 
