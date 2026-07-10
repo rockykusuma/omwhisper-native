@@ -60,6 +60,7 @@ enum HubSection: String, CaseIterable, Identifiable {
 struct HubShellView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selection: HubSection = .home
 
     var body: some View {
@@ -69,6 +70,9 @@ struct HubShellView: View {
             content
                 .frame(minWidth: 480, minHeight: 520)
                 .background(Color.Porcelain.bg)
+                .id(selection)
+                .transition(.opacity)
+                .animation(PorcelainMotion.resolved(reduceMotion: reduceMotion), value: selection)
         }
         .frame(minWidth: 760, minHeight: 560)
         .porcelainWindow(colorScheme: appState.appearancePreference.colorScheme)
@@ -90,15 +94,27 @@ struct HubShellView: View {
         VStack(alignment: .leading, spacing: 2) {
             brandRow
             ForEach(HubSection.contentSections) { section in
-                NavRow(icon: section.icon, title: section.title, isSelected: selection == section, badge: section.badge)
-                    .contentShape(Rectangle())
-                    .onTapGesture { selection = section }
+                Button {
+                    selection = section
+                } label: {
+                    NavRow(icon: section.icon, title: section.title, isSelected: selection == section, badge: section.badge)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(section.title)
+                .accessibilityAddTraits(selection == section ? [.isButton, .isSelected] : .isButton)
             }
             Spacer()
             Divider().padding(.vertical, 4)
-            NavRow(icon: HubSection.settings.icon, title: HubSection.settings.title, isSelected: selection == .settings)
-                .contentShape(Rectangle())
-                .onTapGesture { selection = .settings }
+            Button {
+                selection = .settings
+            } label: {
+                NavRow(icon: HubSection.settings.icon, title: HubSection.settings.title, isSelected: selection == .settings)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(HubSection.settings.title)
+            .accessibilityAddTraits(selection == .settings ? [.isButton, .isSelected] : .isButton)
             privacyStatusLine
         }
         .padding(12)
