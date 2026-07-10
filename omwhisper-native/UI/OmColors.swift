@@ -40,3 +40,35 @@ extension Color {
     /// field behind it is bright. "omTeal 900-ish".
     static let omGlyphUnderCopy = Color(hex: 0x04342C)
 }
+
+/// Porcelain — the light palette for every app window (hub, Settings, menu-bar
+/// panel). Fixed values, not adaptive to system appearance, for the same reason
+/// as the dark HUD tokens above: see docs/DESIGN_DIRECTION.md and
+/// .claude/skills/omwhisper-design/SKILL.md §1 ("Scope rule" — dark palette is
+/// HUD + onboarding ONLY, everything else is Porcelain).
+extension Color {
+    enum Porcelain {
+        static let bg = Color(hex: 0xF7FAF8)
+        static let panel = Color.white
+        static let panel2 = Color(hex: 0xF0F5F1)
+        static let ink = Color(hex: 0x0F241B)
+        static let dim = Color(hex: 0x66796F)
+        static let hair = Color(hex: 0xE3ECE5)
+        static let emerald = Color(hex: 0x0FA97C)
+        static let mint = Color(hex: 0x0D9488)
+        static let teal = Color(hex: 0x0E7490)
+        /// Card/window depth shadow — green-tinted, never pure black (skill §1).
+        static let shadow = Color(hex: 0x173A2C)
+
+        /// Big stat numerals (hub-concept.html `.big`).
+        static let numeralGradient = LinearGradient(
+            colors: [emerald, teal],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        /// Hover fill.
+        static var accentTint: Color { emerald.opacity(0.07) }
+        /// Active/selected nav-row fill.
+        static var accentTint2: Color { emerald.opacity(0.13) }
+    }
+}
