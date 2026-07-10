@@ -16,7 +16,7 @@ struct ReplyAssistSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .padding()
+        .formStyle(.grouped)
     }
 }
 
