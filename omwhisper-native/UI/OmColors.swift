@@ -78,12 +78,14 @@ extension Color {
         static let panel = porcelainAdaptive(light: 0xFFFFFF, dark: 0x0E1512)
         static let panel2 = porcelainAdaptive(light: 0xF0F5F1, dark: 0x16211C)
         static let ink = porcelainAdaptive(light: 0x0F241B, dark: 0xEAFFF5)
-        // Dark `dim` brightened above the HUD's omDim (5D7A6E) so caption text
-        // stays AA-legible on the darker hub card panel.
-        static let dim = porcelainAdaptive(light: 0x66796F, dark: 0x8CA69B)
+        // Light values darkened for WCAG AA-normal (4.5:1) on the canvas/white —
+        // 66796F (4.41 on the F7FAF8 canvas) and 0D9488 (3.74 on white, used for
+        // the small Copy/Re-polish labels) were AA-large only. Dark `dim`
+        // brightened above the HUD's omDim (5D7A6E); dark values already pass 7.0+.
+        static let dim = porcelainAdaptive(light: 0x607269, dark: 0x8CA69B)
         static let hair = porcelainAdaptive(light: 0xE3ECE5, dark: 0x243029)
         static let emerald = porcelainAdaptive(light: 0x0FA97C, dark: 0x34D399)
-        static let mint = porcelainAdaptive(light: 0x0D9488, dark: 0x6EE7B7)
+        static let mint = porcelainAdaptive(light: 0x0B7D73, dark: 0x6EE7B7)
         static let teal = porcelainAdaptive(light: 0x0E7490, dark: 0x2DD4BF)
         /// Card/window depth shadow — green-tinted on light; near-black on dark
         /// (green-tinted shadow reads as a halo on a dark ground).
