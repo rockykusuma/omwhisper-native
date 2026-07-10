@@ -20,14 +20,35 @@ struct MemoryChroniclesView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(chronicles, selection: $selectedDay) { chronicle in
-                VStack(alignment: .leading) {
-                    Text(chronicle.day).fontWeight(.medium)
-                    Text("\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(chronicles) { chronicle in
+                        Button {
+                            selectedDay = chronicle.day
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(chronicle.day)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(Color.Porcelain.ink)
+                                Text("\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.Porcelain.dim)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 9)
+                                    .fill(selectedDay == chronicle.day ? Color.Porcelain.accentTint2 : Color.clear)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(chronicle.day), \(chronicle.snapshotCount) snapshots")
+                        .accessibilityAddTraits(selectedDay == chronicle.day ? .isSelected : [])
+                    }
                 }
+                .padding(10)
             }
+            .background(Color.Porcelain.bg)
             .navigationSplitViewColumnWidth(min: 160, ideal: 200)
         } detail: {
             detail
@@ -68,11 +89,16 @@ struct MemoryChroniclesView: View {
             ScrollView {
                 Text(.init(chronicle.summary))
                     .textSelection(.enabled)
+                    .foregroundStyle(Color.Porcelain.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
             }
+            .background(Color.Porcelain.bg)
         } else {
-            Text("Select a day").foregroundStyle(.secondary)
+            Text("Select a day")
+                .foregroundStyle(Color.Porcelain.dim)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.Porcelain.bg)
         }
     }
 
@@ -81,12 +107,13 @@ struct MemoryChroniclesView: View {
             Spacer()
             Text("📅").font(.system(size: 40))
             Text("Chronicles appear here once a day, generated automatically. Use \"Generate Today's Chronicle\" above to create the first one now.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.Porcelain.dim)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.Porcelain.bg)
     }
 
     private func load() {
