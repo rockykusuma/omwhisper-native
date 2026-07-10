@@ -50,6 +50,8 @@ struct OmWhisperApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let appState = AppState()
     private var statusItem: NSStatusItem?
+    private let statusMenu = NSMenu()
+    private let popover = NSPopover()
     // Reads SUFeedURL from Info.plist — inert until a real appcast.xml + EdDSA
     // public key exist (SUPublicEDKey not set yet); "Check for Updates…" will
     // just fail quietly until then. startingUpdater: begins the normal
@@ -71,11 +73,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !isRunningUnderTests else { return }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let menu = NSMenu()
-        menu.delegate = self          // rebuilt on each open — reflects live state
-        item.menu = menu
+        statusMenu.delegate = self          // rebuilt on each open — reflects live state
+        item.button?.target = self
+        item.button?.action = #selector(statusItemClicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
-        observeDictationState()       // keep the icon in sync while the menu is closed
+        popover.behavior = .transient        // closes on outside click
+        observeDictationState()             // keep the icon in sync while the menu is closed
+    }
+
+    // MARK: Click routing — left-click shows the mini-panel popover,
+    // right-click shows the traditional menu (docs/DESIGN_DIRECTION.md §3:
+    // "menu stays as right-click fallback"). Neither is ever assigned to
+    // `statusItem.menu` permanently -- doing that hands ALL clicks to the
+    // menu and this button action never fires again.
+
+    @objc private func statusItemClicked() {
+        guard let event = NSApp.currentEvent else { return }
+        if event.type == .rightMouseUp {
+            showMenu()
+        } else {
+            togglePopover()
+        }
+    }
+
+    /// Synthesizes the menu popup for a right-click without permanently
+    /// binding `statusItem.menu` (which would hijack left-clicks too):
+    /// assign, perform, un-assign. `menuNeedsUpdate` fires automatically
+    /// during `performClick` since `statusMenu.delegate` is set once at launch.
+    private func showMenu() {
+        guard let item = statusItem else { return }
+        item.menu = statusMenu
+        item.button?.performClick(nil)
+        item.menu = nil
+    }
+
+    /// Rebuilds the popover's content fresh on every open, matching
+    /// `menuNeedsUpdate`'s "read live state, never cache" principle.
+    private func togglePopover() {
+        guard let button = statusItem?.button else { return }
+        if popover.isShown {
+            popover.performClose(nil)
+            return
+        }
+        popover.contentSize = NSSize(width: 270, height: 340)
+        popover.contentViewController = NSHostingController(
+            rootView: MiniPanelView(onOpenHub: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.openHub()
+            }).environment(appState)
+        )
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
     // Menu-bar-only (LSUIElement) app: NSStatusItem is what keeps it alive, not a
