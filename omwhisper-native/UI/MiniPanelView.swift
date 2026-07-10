@@ -24,6 +24,7 @@ nonisolated func miniPanelStateLine(for dictation: DictationState) -> String {
 
 struct MiniPanelView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.colorScheme) private var colorScheme
     @State private var lastEntry: TranscriptionEntry?
     @State private var copied = false
     let onOpenHub: () -> Void
@@ -47,7 +48,7 @@ struct MiniPanelView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            OmOrbView(appState: appState, palette: .porcelain)
+            OmOrbView(appState: appState, palette: colorScheme == .dark ? .dark : .porcelain)
                 .frame(width: 40, height: 40)
             VStack(alignment: .leading, spacing: 1) {
                 Text("OmWhisper")

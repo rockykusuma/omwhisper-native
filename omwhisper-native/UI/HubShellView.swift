@@ -59,6 +59,7 @@ enum HubSection: String, CaseIterable, Identifiable {
 
 struct HubShellView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.colorScheme) private var colorScheme
     @State private var selection: HubSection = .home
 
     var body: some View {
@@ -124,7 +125,7 @@ struct HubShellView: View {
 
     private var brandRow: some View {
         HStack(spacing: 10) {
-            OmOrbView(appState: appState, palette: .porcelain)
+            OmOrbView(appState: appState, palette: colorScheme == .dark ? .dark : .porcelain)
                 .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 1) {
                 Text("OmWhisper")

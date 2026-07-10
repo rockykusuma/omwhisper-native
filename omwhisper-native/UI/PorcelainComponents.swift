@@ -14,13 +14,12 @@ import SwiftUI
 
 // MARK: - Porcelain appearance (pin the window to light)
 
-/// Porcelain is a committed *light* palette (design skill §1: "never ship a
-/// dark app window"). But `Form`/`TextField`/`Picker`/the title bar are all
-/// NSAppearance-driven native controls — on a Mac in Dark Mode they render
-/// dark and bleed through the Porcelain layer (black text fields, dark title
-/// bar strip — found live 2026-07-10). Pinning the host window to `.aqua`
-/// forces every native control AND the title bar to light in one move; the
-/// explicit `Color.Porcelain.*` tokens are unaffected since they're fixed hex.
+/// Cleans up the hub window's chrome: drops the title text + makes the title bar
+/// transparent so the Porcelain canvas reads to the top edge with only the
+/// traffic lights on it. Deliberately does NOT pin the appearance — the
+/// `Color.Porcelain.*` tokens are adaptive (see OmColors.swift), so the window
+/// follows system light/dark and the palette tracks it. (It used to force
+/// `.aqua`; removed 2026-07-10 when the hub gained real dark-mode support.)
 private struct PorcelainWindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -34,18 +33,14 @@ private struct PorcelainWindowConfigurator: NSViewRepresentable {
 
     private func configure(_ window: NSWindow?) {
         guard let window else { return }
-        window.appearance = NSAppearance(named: .aqua)
-        // Drop the dark title-bar strip: let the Porcelain canvas read to the
-        // top edge with only the traffic lights floating on it.
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
     }
 }
 
 extension View {
-    /// Pin the host window to light (aqua) appearance + a title-less bar so the
-    /// Porcelain palette isn't undercut by Dark Mode native chrome. Apply once
-    /// at a window-root view (the hub, the mini-panel).
+    /// Give the host window a title-less, transparent-titlebar top edge so the
+    /// Porcelain canvas reads to the top. Apply once at a window-root view.
     func porcelainWindow() -> some View {
         background(PorcelainWindowConfigurator())
     }
