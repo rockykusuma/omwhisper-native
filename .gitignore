@@ -69,3 +69,6 @@ playground.xcworkspace
 ### Python (plugin skill scripts)
 __pycache__/
 *.pyc
+
+# superpowers SDD scratch (briefs, reports, ledger)
+.superpowers/
