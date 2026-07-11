@@ -38,7 +38,7 @@ struct MiniPanelView: View {
                 lastTranscriptionCard(lastEntry)
             }
             Divider()
-            openHubRow
+            footerRow
         }
         .padding(16)
         .frame(width: 270)
@@ -129,18 +129,26 @@ struct MiniPanelView: View {
         .omCard()
     }
 
-    private var openHubRow: some View {
-        Button(action: onOpenHub) {
-            HStack {
-                Text("Open OmWhisper")
-                    .font(.system(size: 12.5))
-                Spacer()
-                Image(systemName: "arrow.up.right")
-                    .font(.system(size: 10.5))
+    private var footerRow: some View {
+        HStack {
+            Button(action: onOpenHub) {
+                HStack(spacing: 5) {
+                    Text("Open OmWhisper")
+                        .font(.system(size: 12.5))
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 10.5))
+                }
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.Porcelain.ink)
+
+            Spacer()
+
+            Button("Quit") { NSApplication.shared.terminate(nil) }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.Porcelain.dim)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.Porcelain.ink)
     }
 
     private func load() {
