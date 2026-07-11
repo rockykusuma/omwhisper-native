@@ -737,6 +737,7 @@ final class AppState {
         case .idle:
             // Claim the state synchronously (before any await) so a second fast
             // toggle can't pass startDictation's guard and double-start.
+            overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
             pttPressedAt = nil   // toggle has no "hold" concept — never inherit a stale PTT timestamp
             isSmartDictationSession = smart
             dictation = .starting
@@ -757,6 +758,7 @@ final class AppState {
         // Ignore if already toggled-on via Cmd+Shift+V, or mid-transition — same
         // one-attempt-in-flight discipline as toggleDictation's .idle case.
         guard dictation == .idle else { return }
+        overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
         stopRequestedWhilePTTStarting = false
         pttPressedAt = .now
         dictation = .starting
@@ -823,6 +825,14 @@ final class AppState {
             try await Task.sleep(for: .milliseconds(500))
         } catch {
             // Cancelled by a second Preview press — fall through to cleanup.
+        }
+        // If a real dictation started during the demo, it now owns the overlay —
+        // abandon quietly (clear only preview-owned state), never hide it or wipe
+        // its transcript.
+        guard dictation == .idle else {
+            overlayPreview = nil
+            previewAmplitude = nil
+            return
         }
         overlay.hide()
         overlayPhase = .none
