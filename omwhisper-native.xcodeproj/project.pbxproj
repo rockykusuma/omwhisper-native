@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		961A05623002BCC000A9AE0D /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 961A05613002BCC000A9AE0D /* WhisperKit */; };
 		96BBDF972FFD0F5200EE67CF /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBDF962FFD0F5200EE67CF /* GRDB */; };
 		96BBDF982FFD0F5200EE67CF /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBDF962FFD0F5200EE67CF /* GRDB */; };
 		96BBE06D2FFD24AC00EE67CF /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 96BBE06C2FFD24AC00EE67CF /* Sparkle */; };
@@ -46,6 +47,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				961A05623002BCC000A9AE0D /* WhisperKit in Frameworks */,
 				96BBDF972FFD0F5200EE67CF /* GRDB in Frameworks */,
 				96BBE06D2FFD24AC00EE67CF /* Sparkle in Frameworks */,
 				9E89153962F1918FFB3B1B9D /* FluidAudio in Frameworks */,
@@ -105,6 +107,7 @@
 				96BBDF962FFD0F5200EE67CF /* GRDB */,
 				96BBE06C2FFD24AC00EE67CF /* Sparkle */,
 				4D2FD12C3C08929E1CE9D102 /* FluidAudio */,
+				961A05613002BCC000A9AE0D /* WhisperKit */,
 			);
 			productName = "omwhisper-native";
 			productReference = 9604F78B2FFBE64C00E63B3E /* OmWhisper.app */;
@@ -166,6 +169,7 @@
 				96BBDF952FFD0F5200EE67CF /* XCRemoteSwiftPackageReference "GRDB.swift" */,
 				96BBE06B2FFD24AC00EE67CF /* XCRemoteSwiftPackageReference "Sparkle" */,
 				5D67DD796084099608A7073B /* XCRemoteSwiftPackageReference "FluidAudio" */,
+				961A05603002BCC000A9AE0D /* XCRemoteSwiftPackageReference "WhisperKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 9604F78C2FFBE64C00E63B3E /* Products */;
@@ -382,8 +386,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OmWhisper;
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "OmWhisper needs system audio access to record the other side of your meetings, with your consent each time.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OmWhisper uses Apple's on-device speech recognition to turn your voice into text.";
 				INFOPLIST_KEY_SUFeedURL = "https://omwhisper.in/appcast.xml";
@@ -423,8 +427,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OmWhisper;
 				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "OmWhisper needs system audio access to record the other side of your meetings, with your consent each time.";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OmWhisper uses Apple's on-device speech recognition to turn your voice into text.";
 				INFOPLIST_KEY_SUFeedURL = "https://omwhisper.in/appcast.xml";
@@ -522,6 +526,22 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		5D67DD796084099608A7073B /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.15.5;
+			};
+		};
+		961A05603002BCC000A9AE0D /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				kind = exactVersion;
+				version = 0.18.0;
+			};
+		};
 		96BBDF952FFD0F5200EE67CF /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/groue/GRDB.swift.git";
@@ -538,17 +558,19 @@
 				minimumVersion = 2.9.4;
 			};
 		};
-		5D67DD796084099608A7073B /* XCRemoteSwiftPackageReference "FluidAudio" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/FluidInference/FluidAudio.git";
-			requirement = {
-				kind = upToNextMinorVersion;
-				minimumVersion = 0.15.5;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		4D2FD12C3C08929E1CE9D102 /* FluidAudio */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5D67DD796084099608A7073B /* XCRemoteSwiftPackageReference "FluidAudio" */;
+			productName = FluidAudio;
+		};
+		961A05613002BCC000A9AE0D /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 961A05603002BCC000A9AE0D /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
 		96BBDF962FFD0F5200EE67CF /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 96BBDF952FFD0F5200EE67CF /* XCRemoteSwiftPackageReference "GRDB.swift" */;
@@ -558,11 +580,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 96BBE06B2FFD24AC00EE67CF /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
-		};
-		4D2FD12C3C08929E1CE9D102 /* FluidAudio */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5D67DD796084099608A7073B /* XCRemoteSwiftPackageReference "FluidAudio" */;
-			productName = FluidAudio;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
