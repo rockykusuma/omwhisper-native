@@ -27,14 +27,15 @@ struct CloudEngineTests {
         #expect(CloudEngine.cappedKeyterms([]) == [])
     }
 
-    @Test("connection URL always carries sample_rate, encoding, and format_turns")
+    @Test("connection URL carries sample_rate, encoding, and the required speech_model/mode")
     func connectionURLBaseParams() {
         let url = CloudEngine.connectionURL(keyterms: [])
         let query = url.query ?? ""
         #expect(url.absoluteString.hasPrefix("wss://streaming.assemblyai.com/v3/ws?"))
         #expect(query.contains("sample_rate=16000"))
         #expect(query.contains("encoding=pcm_s16le"))
-        #expect(query.contains("format_turns=true"))
+        #expect(query.contains("speech_model=universal-3-5-pro"))
+        #expect(query.contains("mode=balanced"))
         #expect(!query.contains("keyterms_prompt"))
     }
 

@@ -5,8 +5,14 @@
 //  Third TranscriptionEngine backend: AssemblyAI Universal Streaming over a
 //  WebSocket. Stateless like AppleEngine -- a streaming connection has no
 //  warm-up cost worth persisting across dictation sessions, unlike
-//  ParakeetEngine's CoreML model load. API details verified live against
-//  AssemblyAI's docs -- see docs/superpowers/plans/2026-07-10-m4-2-cloud-engine.md.
+//  ParakeetEngine's CoreML model load.
+//
+//  Auth: this is a native app holding the user's OWN key (in Keychain), so it's
+//  the "server-side" case in AssemblyAI's docs -- the raw API key goes directly
+//  in the WebSocket upgrade's Authorization header (NO "Bearer" prefix, and no
+//  ephemeral-token round-trip, which exists only for untrusted browser/mobile
+//  clients that must not hold the long-lived key). See AssemblyAI's
+//  Universal-Streaming reference and docs/superpowers/plans/2026-07-10-m4-2-cloud-engine.md.
 //
 
 // @preconcurrency: AVAudioPCMBuffer/AVAudioConverter aren't Sendable; see the
@@ -19,13 +25,11 @@ nonisolated struct CloudEngine: TranscriptionEngine {
 
     enum EngineError: Error, LocalizedError {
         case missingAPIKey
-        case tokenRequestFailed
         case connectionFailed
 
         var errorDescription: String? {
             switch self {
             case .missingAPIKey: "Add your AssemblyAI API key in Settings → Transcription to use Cloud."
-            case .tokenRequestFailed: "Couldn't authenticate with AssemblyAI."
             case .connectionFailed: "Couldn't connect to AssemblyAI."
             }
         }
@@ -35,19 +39,25 @@ nonisolated struct CloudEngine: TranscriptionEngine {
 
     // MARK: Pure helpers (unit-tested directly, no network involved)
 
-    /// AssemblyAI's own documented limits: 100 keyterms max, 50 chars each.
-    /// Over-length terms are silently ignored server-side -- truncating here
-    /// keeps them usable rather than dropping the whole term.
+    /// AssemblyAI's own documented realtime limits: 100 keyterms max, 50 chars
+    /// each. Over-length terms are ignored server-side -- truncating here keeps
+    /// them usable rather than dropping the whole term.
     nonisolated static func cappedKeyterms(_ vocabulary: [String]) -> [String] {
         vocabulary.prefix(100).map { String($0.prefix(50)) }
     }
 
     nonisolated static func connectionURL(keyterms: [String]) -> URL {
         var components = URLComponents(string: "wss://streaming.assemblyai.com/v3/ws")!
+        // speech_model is REQUIRED on realtime (a singular string, unlike the
+        // pre-recorded plural array); `mode` is the primary latency/accuracy
+        // preset. `format_turns`/`end_of_turn_confidence_threshold` are NOT
+        // Universal-3.5-Pro knobs -- on U3.5 Pro formatting always tracks
+        // `end_of_turn`, which parseServerMessage already keys on.
         components.queryItems = [
             URLQueryItem(name: "sample_rate", value: String(sampleRate)),
             URLQueryItem(name: "encoding", value: "pcm_s16le"),
-            URLQueryItem(name: "format_turns", value: "true"),
+            URLQueryItem(name: "speech_model", value: "universal-3-5-pro"),
+            URLQueryItem(name: "mode", value: "balanced"),
         ]
         if !keyterms.isEmpty,
            let data = try? JSONEncoder().encode(keyterms),
@@ -77,25 +87,6 @@ nonisolated struct CloudEngine: TranscriptionEngine {
         return (turn.endOfTurn ?? false) ? .final(transcript) : .partial(transcript)
     }
 
-    // MARK: Token exchange
-
-    private struct TokenResponse: Decodable {
-        let token: String
-    }
-
-    nonisolated private static func requestEphemeralToken(apiKey: String) async throws -> String {
-        var components = URLComponents(string: "https://streaming.assemblyai.com/v3/token")!
-        components.queryItems = [URLQueryItem(name: "expires_in_seconds", value: "60")]
-        var request = URLRequest(url: components.url!)
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let decoded = try? JSONDecoder().decode(TokenResponse.self, from: data) else {
-            throw EngineError.tokenRequestFailed
-        }
-        return decoded.token
-    }
-
     // MARK: TranscriptionEngine
 
     nonisolated func transcribe(
@@ -109,7 +100,6 @@ nonisolated struct CloudEngine: TranscriptionEngine {
                 guard let apiKey = Keychain.loadAssemblyAIKey(), !apiKey.isEmpty else {
                     throw EngineError.missingAPIKey
                 }
-                let token = try await Self.requestEphemeralToken(apiKey: apiKey)
                 let keyterms = Self.cappedKeyterms(vocabulary)
                 let url = Self.connectionURL(keyterms: keyterms)
 
@@ -123,7 +113,8 @@ nonisolated struct CloudEngine: TranscriptionEngine {
                 }
 
                 var request = URLRequest(url: url)
-                request.setValue(token, forHTTPHeaderField: "Authorization")
+                // Raw key, NO "Bearer" prefix -- native app = server-side auth.
+                request.setValue(apiKey, forHTTPHeaderField: "Authorization")
                 let urlSession = URLSession(configuration: .default)
                 let socket = urlSession.webSocketTask(with: request)
                 socket.resume()
