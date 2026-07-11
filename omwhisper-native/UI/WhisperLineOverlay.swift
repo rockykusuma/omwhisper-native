@@ -35,11 +35,17 @@ struct WhisperBars: View {
         } else {
             TimelineView(.animation) { timeline in
                 let phase = timeline.date.timeIntervalSinceReferenceDate
+                let amp = appState.audioLevel
+                let a = CGFloat(max(0, min(1, amp)))
+                // Bars brighten and glow with volume — dim at rest, full when loud.
+                let brightness = 0.6 + 0.4 * Double(a)
+                let glow = Double(a) * 0.7
                 HStack(spacing: 3) {
                     ForEach(0..<5, id: \.self) { i in
                         Capsule()
-                            .fill(Color.omMint)
-                            .frame(width: 3, height: barHeight(amplitude: appState.audioLevel, index: i, phase: phase))
+                            .fill(Color.omMint.opacity(brightness))
+                            .frame(width: 3, height: barHeight(amplitude: amp, index: i, phase: phase))
+                            .shadow(color: Color.omMint.opacity(glow), radius: 3 * a)
                     }
                 }
             }
@@ -50,13 +56,11 @@ struct WhisperBars: View {
 struct WhisperLineOverlay: View {
     let appState: AppState
     let isVisible: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 7) {
-            OmGlyph()
-                .fill(Color.omEmerald)
-                .frame(width: 16, height: 16)
-                .shadow(color: Color.omEmerald.opacity(0.6), radius: 4)
+            breathingGlyph
             if isVisible {
                 WhisperBars(appState: appState)
             }
@@ -65,5 +69,26 @@ struct WhisperLineOverlay: View {
         .frame(width: 132, height: 38)
         .background(Color.omBackground.opacity(0.92), in: Capsule())
         .overlay(Capsule().strokeBorder(Color.omBorder.opacity(0.35), lineWidth: 1))
+    }
+
+    // The micro-ॐ gently breathes (scale + glow) with speech; static under
+    // Reduced Motion or when hidden.
+    @ViewBuilder private var breathingGlyph: some View {
+        if isVisible && !reduceMotion {
+            TimelineView(.animation) { _ in
+                glyph(amp: appState.audioLevel)
+            }
+        } else {
+            glyph(amp: 0)
+        }
+    }
+
+    private func glyph(amp: Float) -> some View {
+        let a = CGFloat(max(0, min(1, amp)))
+        return OmGlyph()
+            .fill(Color.omEmerald)
+            .frame(width: 16, height: 16)
+            .scaleEffect(1 + 0.10 * a)
+            .shadow(color: Color.omEmerald.opacity(0.4 + 0.5 * Double(a)), radius: 3 + 5 * a)
     }
 }
