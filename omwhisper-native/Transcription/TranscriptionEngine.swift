@@ -45,7 +45,7 @@ protocol TranscriptionEngine: Sendable {
     /// `vocabulary` biases recognition toward custom words/phrases (product names,
     /// jargon) — read fresh at the start of each call, not cached, since engines
     /// are rebuilt per dictation session anyway.
-    func transcribe(
+    nonisolated func transcribe(
         _ audio: sending AsyncStream<AVAudioPCMBuffer>,
         vocabulary: [String]
     ) -> AsyncThrowingStream<TranscriptEvent, Error>
