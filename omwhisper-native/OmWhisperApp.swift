@@ -57,7 +57,9 @@ struct OmWhisperApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let appState = AppState()
     private var statusItem: NSStatusItem?
-    private let statusMenu = NSMenu()
+    #if DEBUG
+    private let statusMenu = NSMenu()   // dev-tools right-click menu (DEBUG only)
+    #endif
     private let popover = NSPopover()
     // Reads SUFeedURL from Info.plist — inert until a real appcast.xml + EdDSA
     // public key exist (SUPublicEDKey not set yet); "Check for Updates…" will
@@ -81,7 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !isRunningUnderTests else { return }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusMenu.delegate = self          // rebuilt on each open — reflects live state
+        #if DEBUG
+        statusMenu.delegate = self          // dev-tools menu, rebuilt on each open (DEBUG only)
+        #endif
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked)
         item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -107,24 +111,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // menu and this button action never fires again.
 
     @objc private func statusItemClicked() {
-        guard let event = NSApp.currentEvent else { return }
-        if event.type == .rightMouseUp {
+        #if DEBUG
+        // Debug builds keep a right-click dev-tools menu; real users get the
+        // mini-panel on any click — no confusing, undiscoverable hidden menu.
+        if NSApp.currentEvent?.type == .rightMouseUp {
             showMenu()
-        } else {
-            togglePopover()
+            return
         }
+        #endif
+        togglePopover()
     }
 
-    /// Synthesizes the menu popup for a right-click without permanently
-    /// binding `statusItem.menu` (which would hijack left-clicks too):
-    /// assign, perform, un-assign. `menuNeedsUpdate` fires automatically
-    /// during `performClick` since `statusMenu.delegate` is set once at launch.
+    #if DEBUG
+    /// Synthesizes the dev-tools menu popup for a right-click without permanently
+    /// binding `statusItem.menu` (which would hijack left-clicks too).
     private func showMenu() {
         guard let item = statusItem else { return }
         item.menu = statusMenu
         item.button?.performClick(nil)
         item.menu = nil
     }
+    #endif
 
     /// Rebuilds the popover's content fresh on every open, matching
     /// `menuNeedsUpdate`'s "read live state, never cache" principle.
@@ -184,56 +191,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem?.button?.image = image
     }
 
-    // MARK: Menu — mirrors the old MenuContent view; rebuilt on every open so
-    // Start/Stop, the error line, and the accessibility item reflect current state.
+    // MARK: Dev-tools menu (DEBUG only)
+    // The status item shows the mini-panel on any click for real users (see
+    // statusItemClicked). Everything the old menu offered lives elsewhere now:
+    // Start/Stop, Open OmWhisper, and Quit are in the mini-panel; Check for
+    // Updates is in Settings → About; Grant Accessibility is a contextual
+    // mini-panel row. Only DEBUG dev tools remain, behind a right-click menu
+    // that never ships to users.
 
+    #if DEBUG
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-
-        // No key equivalent: Cmd+Shift+V is owned by GlobalHotkey (a menu key
-        // equivalent here would double-fire when the app is frontmost).
-        addItem(to: menu,
-                title: appState.dictation == .idle ? "Start Dictation" : "Stop Dictation",
-                action: #selector(toggleDictation))
-
-        if let error = appState.errorMessage {
-            menu.addItem(.separator())
-            menu.addItem(withTitle: error, action: nil, keyEquivalent: "")  // disabled label
-        }
-
-        menu.addItem(.separator())
-
-        if !appState.hasAccessibilityPermission {
-            addItem(to: menu, title: "Grant Accessibility Access…", action: #selector(grantAccessibility))
-        }
-
-        addItem(to: menu, title: "Open OmWhisper…", action: #selector(openHub), key: ",")
-        addItem(to: menu, title: "Check for Updates…", action: #selector(checkForUpdates))
-            .isEnabled = updaterController.updater.canCheckForUpdates
-        #if DEBUG
-        menu.addItem(.separator())
         addItem(to: menu, title: "Meeting Self-Test…", action: #selector(runMeetingSelfTest))
         addItem(to: menu, title: "Memory Self-Test…", action: #selector(runMemorySelfTest))
         addItem(to: menu, title: "Design Gallery…", action: #selector(openDesignGallery))
         addItem(to: menu, title: "Reset Onboarding…", action: #selector(resetOnboarding))
-        #endif
-        addItem(to: menu, title: "Quit OmWhisper", action: #selector(quit), key: "q")
     }
 
     @discardableResult
     private func addItem(to menu: NSMenu, title: String, action: Selector, key: String = "") -> NSMenuItem {
         let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
-        item.target = self   // explicit target so status-menu items are enabled + routed here
+        item.target = self
         return item
     }
+    #endif
 
     // MARK: Actions
 
-    @objc private func toggleDictation() { appState.toggleDictation() }
-    @objc private func grantAccessibility() { PasteService.openAccessibilitySettings() }
-    @objc private func quit() { NSApplication.shared.terminate(nil) }
-
-    @objc private func openHub() {
+    // Called from the mini-panel's "Open OmWhisper" row (via a closure), not a menu.
+    private func openHub() {
         NSApp.activate(ignoringOtherApps: true)
         openHubAction?(id: "hub")
     }
@@ -245,8 +231,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     #endif
 
-    @objc private func checkForUpdates() {
+    /// Triggered from Settings → About (no longer a menu item). Internal so the
+    /// About view can reach it via `NSApp.delegate as? AppDelegate`.
+    func checkForUpdates() {
         updaterController.checkForUpdates(nil)
+    }
+
+    /// Whether Sparkle can currently check — lets the About button disable itself.
+    var canCheckForUpdates: Bool {
+        updaterController.updater.canCheckForUpdates
     }
 
     #if DEBUG

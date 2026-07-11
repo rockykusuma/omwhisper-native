@@ -37,6 +37,9 @@ struct MiniPanelView: View {
             if let lastEntry {
                 lastTranscriptionCard(lastEntry)
             }
+            if !appState.hasAccessibilityPermission {
+                accessibilityRow
+            }
             Divider()
             footerRow
         }
@@ -127,6 +130,22 @@ struct MiniPanelView: View {
         }
         .padding(10)
         .omCard()
+    }
+
+    // Shown only while Accessibility is missing (so auto-paste can't work). This
+    // was a conditional item in the removed status-bar menu; surfaced here instead.
+    private var accessibilityRow: some View {
+        Button {
+            PasteService.openAccessibilitySettings()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "lock.shield")
+                Text("Grant Accessibility to auto-paste")
+                    .font(.system(size: 12))
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.Porcelain.mint)
     }
 
     private var footerRow: some View {

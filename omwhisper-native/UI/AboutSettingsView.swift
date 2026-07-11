@@ -2,9 +2,10 @@
 //  AboutSettingsView.swift
 //  OmWhisper
 //
-//  Version/attribution only — no analytics/crash-reporting toggles (no such
-//  backend exists in this app), no feedback form (needs email infra the old
-//  app had via Resend, not ported), no update UI (Sparkle's job, M2 pending).
+//  Version/attribution + a Check for Updates button (Sparkle) — relocated here
+//  when the status-bar right-click menu was removed. No analytics/crash-reporting
+//  toggles (no such backend exists), no feedback form (needs email infra the old
+//  app had via Resend, not ported).
 //
 
 import SwiftUI
@@ -23,6 +24,11 @@ struct AboutSettingsView: View {
             PorcelainSection {
                 Link("Documentation", destination: URL(string: "https://rockykusuma.github.io/omwhisper/")!)
                     .foregroundStyle(Color.Porcelain.emerald)
+                Button("Check for Updates…") {
+                    (NSApp.delegate as? AppDelegate)?.checkForUpdates()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.Porcelain.emerald)
             }
 
             Text("Made with ॐ by Rakesh Kusuma")
