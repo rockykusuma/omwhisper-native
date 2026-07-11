@@ -73,6 +73,11 @@ final class AppState {
     var finalizedTranscript: String = ""
     /// Set on permission failure or engine error; cleared at the start of the next attempt.
     var errorMessage: String?
+    /// True only while the onboarding "Try it" step is on screen. Makes
+    /// stopDictation() skip the paste/clipboard + history-record blocks, so the
+    /// real dictation pipeline runs (overlay, sounds, live transcript) but the
+    /// demo never pastes into another app or pollutes history. Set by OnboardingView.
+    var onboardingDemoActive = false
 
     // MARK: Settings (persisted; keep keys stable — see SettingsKeys)
     var pasteAfterStop: Bool {
@@ -451,6 +456,21 @@ final class AppState {
         set {
             withMutation(keyPath: \.mcpAccessEnabled) {
                 UserDefaults.standard.set(newValue, forKey: SettingsKeys.mcpAccessEnabled)
+            }
+        }
+    }
+
+    /// First-run gate. False until onboarding is finished or skipped; then the
+    /// Welcome window never auto-opens again. access/withMutation so a DEBUG
+    /// "Reset Onboarding" re-open (and any bound control) sees the change.
+    var hasCompletedOnboarding: Bool {
+        get {
+            access(keyPath: \.hasCompletedOnboarding)
+            return UserDefaults.standard.object(forKey: SettingsKeys.hasCompletedOnboarding) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.hasCompletedOnboarding) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.hasCompletedOnboarding)
             }
         }
     }
@@ -879,7 +899,7 @@ final class AppState {
             overlayPhase = phase
         }
 
-        if phase == .pasting, pasteAfterStop {
+        if phase == .pasting, pasteAfterStop, !onboardingDemoActive {
             if PasteService.hasAccessibilityPermission() {
                 PasteService.paste(text)
                 latencyLog.info("stop-to-paste: \(stopRequestedAt.duration(to: .now))")
@@ -895,7 +915,8 @@ final class AppState {
 
         // Recorded independent of pasteAfterStop — history isn't tied to auto-paste,
         // only to "did this session actually produce real text" (phase == .pasting).
-        if phase == .pasting {
+        // Skipped during onboarding's demo — the try-it run must not pollute history.
+        if phase == .pasting, !onboardingDemoActive {
             let durationSeconds = recordingStartedAt.map { $0.duration(to: .now).seconds } ?? 0
             do {
                 try historyStore?.record(text: text, duration: durationSeconds, modelUsed: "Apple SpeechTranscriber")
@@ -1112,6 +1133,15 @@ final class AppState {
             }
         }
     }
+
+    /// Public entry point for onboarding's permissions step. Requests mic then
+    /// speech and returns both results for the ✓/denied display. Once granted,
+    /// startDictation()'s own requests return immediately (no second prompt).
+    func requestDictationPermissions() async -> (mic: Bool, speech: Bool) {
+        let mic = await requestMicrophonePermission()
+        let speech = await requestSpeechPermission()
+        return (mic, speech)
+    }
 }
 
 nonisolated extension Duration {
@@ -1153,6 +1183,7 @@ nonisolated enum SettingsKeys {
     static let fuzzyVocabCorrection = "fuzzyVocabCorrection"
     static let contextAwareDictationEnabled = "contextAwareDictationEnabled"
     static let hasImportedLegacyHistory = "hasImportedLegacyHistory"
+    static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let meetingsEnabled = "meetingsEnabled"
     static let replyAssistEnabled = "replyAssistEnabled"
     static let memoryEnabled = "memoryEnabled"
