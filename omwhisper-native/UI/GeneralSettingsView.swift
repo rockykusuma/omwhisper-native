@@ -25,6 +25,26 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(Color.Porcelain.dim)
             }
 
+            PorcelainSection(eyebrow: "Recording overlay") {
+                Text("How OmWhisper appears while you dictate. Every style shows warming, listening, and errors — minimal styles just skip the live words.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+                HStack(spacing: 10) {
+                    ForEach(OverlayStyle.allCases) { style in
+                        OverlayStyleCard(
+                            style: style,
+                            appState: appState,
+                            isSelected: state.overlayStyle == style,
+                            onSelect: { state.overlayStyle = style }
+                        )
+                    }
+                }
+                Button("Preview") { appState.previewOverlay(appState.overlayStyle) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.Porcelain.mint)
+            }
+
             PorcelainSection(eyebrow: "General") {
                 Toggle("Paste into the active app when dictation stops", isOn: $state.pasteAfterStop)
                     .tint(Color.Porcelain.emerald)
@@ -37,6 +57,72 @@ struct GeneralSettingsView: View {
             Text("OmWhisper 2.0 — native rewrite in progress. See NATIVE_MIGRATION_PLAN.md.")
                 .font(.caption)
                 .foregroundStyle(Color.Porcelain.dim)
+        }
+    }
+}
+
+private struct OverlayStyleCard: View {
+    let style: OverlayStyle
+    let appState: AppState
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(spacing: 8) {
+                miniPreview.frame(height: 44)
+                Text(style.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color.Porcelain.ink)
+                Text(style.caption)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Color.Porcelain.dim)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? Color.Porcelain.emerald.opacity(0.06) : Color.Porcelain.panel2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isSelected ? Color.Porcelain.emerald : Color.Porcelain.hair,
+                                  lineWidth: isSelected ? 1.5 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(style.title) overlay style")
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    // Dark HUD chips on the light card (intended contrast, per the mockup).
+    @ViewBuilder private var miniPreview: some View {
+        switch style {
+        case .full:
+            HStack(spacing: 5) {
+                Circle().fill(Color.omEmerald).frame(width: 10, height: 10)
+                Capsule()
+                    .fill(LinearGradient(colors: [Color.omMint.opacity(0.9), Color.omMint.opacity(0.25)],
+                                         startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 3)
+            }
+            .padding(.horizontal, 7)
+            .frame(width: 120, height: 26)
+            .background(Color.omBackground.opacity(0.92), in: RoundedRectangle(cornerRadius: 13))
+            .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(Color.omBorder.opacity(0.35), lineWidth: 1))
+        case .orb:
+            OmOrbView(appState: appState)
+                .frame(width: 30, height: 30)
+                .frame(width: 40, height: 40)
+                .background(Color.omBackground.opacity(0.92), in: Circle())
+                .overlay(Circle().strokeBorder(Color.omBorder.opacity(0.35), lineWidth: 1))
+        case .whisperLine:
+            WhisperBars(appState: appState)
+                .frame(width: 64, height: 20)
+                .background(Color.omBackground.opacity(0.92), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.omBorder.opacity(0.35), lineWidth: 1))
         }
     }
 }
