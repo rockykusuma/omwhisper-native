@@ -258,17 +258,27 @@ final class AppState {
     }
     /// SMAppService is itself the source of truth (macOS's login-item registry) —
     /// unlike the other settings above, nothing is mirrored into UserDefaults.
+    /// access/withMutation so `@Observable` re-renders a bound control after the
+    /// register/unregister — without them the getter is a plain computed property
+    /// that fires no change notification, so a Toggle/checkbox never reflects the
+    /// new status (a switch-style Toggle masks it with its own animation; a
+    /// `.checkbox` Toggle, like onboarding's, visibly snaps back).
     var launchAtLogin: Bool {
-        get { SMAppService.mainApp.status == .enabled }
+        get {
+            access(keyPath: \.launchAtLogin)
+            return SMAppService.mainApp.status == .enabled
+        }
         set {
-            do {
-                if newValue {
-                    try SMAppService.mainApp.register()
-                } else {
-                    try SMAppService.mainApp.unregister()
+            withMutation(keyPath: \.launchAtLogin) {
+                do {
+                    if newValue {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                } catch {
+                    log.error("launchAtLogin — \(newValue ? "register" : "unregister") failed: \(error)")
                 }
-            } catch {
-                log.error("launchAtLogin — \(newValue ? "register" : "unregister") failed: \(error)")
             }
         }
     }
