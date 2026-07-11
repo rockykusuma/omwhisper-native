@@ -29,6 +29,7 @@ struct OmWhisperApp: App {
     private func makeScene() -> some Scene {
         let _ = {
             delegate.openHubAction = openWindow
+            delegate.openOnboardingAction = openWindow
             #if DEBUG
             delegate.openDesignGalleryAction = openWindow
             #endif
@@ -38,6 +39,12 @@ struct OmWhisperApp: App {
                 .environment(delegate.appState)
         }
         .defaultLaunchBehavior(.suppressed)
+        Window("Welcome", id: "onboarding") {
+            OnboardingView()
+                .environment(delegate.appState)
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .windowResizability(.contentSize)
         #if DEBUG
         Window("Design Gallery", id: "design-gallery") {
             DesignGalleryView()
@@ -62,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     )
     // Set by OmWhisperApp.makeScene() so AppKit menu can open the hub/gallery scenes.
     var openHubAction: OpenWindowAction?
+    var openOnboardingAction: OpenWindowAction?
     #if DEBUG
     var openDesignGalleryAction: OpenWindowAction?
     #endif
@@ -80,6 +88,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = item
         popover.behavior = .transient        // closes on outside click
         observeDictationState()             // keep the icon in sync while the menu is closed
+
+        // First run: show the Welcome window once. Dispatched to the next runloop
+        // tick so makeScene() has stored openOnboardingAction (same store-on-delegate
+        // bridge as openHubAction). LSUIElement app → activate so it comes forward.
+        if !appState.hasCompletedOnboarding {
+            DispatchQueue.main.async { [weak self] in
+                NSApp.activate(ignoringOtherApps: true)
+                self?.openOnboardingAction?(id: "onboarding")
+            }
+        }
     }
 
     // MARK: Click routing — left-click shows the mini-panel popover,
@@ -197,6 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         addItem(to: menu, title: "Meeting Self-Test…", action: #selector(runMeetingSelfTest))
         addItem(to: menu, title: "Memory Self-Test…", action: #selector(runMemorySelfTest))
         addItem(to: menu, title: "Design Gallery…", action: #selector(openDesignGallery))
+        addItem(to: menu, title: "Reset Onboarding…", action: #selector(resetOnboarding))
         #endif
         addItem(to: menu, title: "Quit OmWhisper", action: #selector(quit), key: "q")
     }
@@ -247,6 +266,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.messageText = "Memory Self-Test"
         alert.informativeText = report
         alert.runModal()
+    }
+
+    @objc private func resetOnboarding() {
+        appState.hasCompletedOnboarding = false
+        NSApp.activate(ignoringOtherApps: true)
+        openOnboardingAction?(id: "onboarding")
     }
     #endif
 }
