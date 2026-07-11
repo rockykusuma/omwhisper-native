@@ -27,6 +27,7 @@ nonisolated enum EngineKind: String, CaseIterable, Codable, Sendable {
     case apple      // SpeechTranscriber — on-device, zero-config (default)
     case parakeet   // FluidAudio CoreML — optional download (M4)
     case cloud      // WebSocket streaming provider (M4)
+    case whisper    // WhisperKit CoreML — optional download, broad language coverage
 }
 
 protocol TranscriptionEngine: Sendable {

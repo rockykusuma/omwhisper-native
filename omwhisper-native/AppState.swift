@@ -524,6 +524,37 @@ final class AppState {
         }
     }
 
+    /// Which Whisper variant to load (only relevant when engineKind == .whisper).
+    /// access/withMutation so the radio picker re-highlights; setter syncs the engine.
+    var whisperModel: WhisperModel {
+        get {
+            access(keyPath: \.whisperModel)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.whisperModel),
+                  let model = WhisperModel(rawValue: raw) else { return .largeV3Turbo }
+            return model
+        }
+        set {
+            withMutation(keyPath: \.whisperModel) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.whisperModel)
+            }
+            whisperEngine.setModel(newValue)
+        }
+    }
+
+    /// Whisper spoken-language code ("auto" = detect). Changing it needs no reload.
+    var whisperLanguage: String {
+        get {
+            access(keyPath: \.whisperLanguage)
+            return UserDefaults.standard.string(forKey: SettingsKeys.whisperLanguage) ?? "auto"
+        }
+        set {
+            withMutation(keyPath: \.whisperLanguage) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.whisperLanguage)
+            }
+            whisperEngine.setLanguage(newValue)
+        }
+    }
+
     /// Which overlay presentation to use. Bound by the "Recording overlay" picker;
     /// read into sessionOverlayStyle at dictation start. access/withMutation so the
     /// picker re-highlights on change.
@@ -545,12 +576,14 @@ final class AppState {
     private let audioCapture = AudioCapture()
     private let appleEngine: TranscriptionEngine = AppleEngine()
     let parakeetEngine = ParakeetEngine()
+    let whisperEngine = WhisperEngine()
     private let cloudEngine: TranscriptionEngine = CloudEngine()
     private var activeEngine: TranscriptionEngine {
         switch engineKind {
         case .apple: appleEngine
         case .parakeet: parakeetEngine
         case .cloud: cloudEngine
+        case .whisper: whisperEngine
         }
     }
     private let overlay = OverlayPanel()
@@ -665,6 +698,8 @@ final class AppState {
             smartDictationHotkey.start()
             polishSelectedTextHotkey.start()
             parakeetEngine.setModel(parakeetModel)  // engine defaults to .v3; honor the persisted choice
+            whisperEngine.setModel(whisperModel)     // engine defaults to turbo; honor the persisted choice
+            whisperEngine.setLanguage(whisperLanguage)
             if meetingsEnabled { meetingsEnabled = true }  // re-runs the setter's wiring/start path
             if replyAssistEnabled { replyAssistEnabled = true }  // re-runs the setter's wiring/start path
             if memoryEnabled { memoryEnabled = true }  // re-runs the setter's wiring/start path
@@ -1301,5 +1336,7 @@ nonisolated enum SettingsKeys {
     static let mcpAccessEnabled = "mcpAccessEnabled"
     static let engineKind = "engineKind"
     static let parakeetModel = "parakeetModel"
+    static let whisperModel = "whisperModel"
+    static let whisperLanguage = "whisperLanguage"
     static let overlayStyle = "overlayStyle"
 }
