@@ -20,6 +20,8 @@ struct TranscriptionSettingsView: View {
     @State private var apiKeyInput = ""
     @State private var hasSavedKey = false
     @State private var keychainError: String?
+    @State private var testing = false
+    @State private var testResult: KeyTestResult?
 
     var body: some View {
         @Bindable var state = appState
@@ -58,19 +60,39 @@ struct TranscriptionSettingsView: View {
 
             if state.engineKind == .cloud {
                 PorcelainSection(eyebrow: "AssemblyAI API Key") {
-                    Text("Streams your voice live to AssemblyAI (a third-party service) while dictating. Requires your own API key — see assemblyai.com for pricing.")
+                    Text("Streams your voice live to AssemblyAI (a third-party service) while dictating. Requires your own API key — get one at assemblyai.com.")
                         .font(.caption)
                         .foregroundStyle(Color.Porcelain.dim)
-                    SecureField("API key", text: $apiKeyInput).porcelainField()
+
+                    if hasSavedKey {
+                        Label("API key saved to your Keychain", systemImage: "checkmark.seal.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.Porcelain.emerald)
+                    }
+
+                    SecureField(hasSavedKey ? "Enter a new key to replace the saved one" : "Paste your API key",
+                                text: $apiKeyInput)
+                        .porcelainField()
+
                     HStack {
-                        Button("Save", action: saveKey)
+                        Button(hasSavedKey ? "Replace" : "Save", action: saveKey)
                             .disabled(apiKeyInput.isEmpty)
                         Button("Clear", action: clearKey)
                             .disabled(!hasSavedKey)
+                        Button(testing ? "Testing…" : "Test Connection", action: testConnection)
+                            .disabled(testing || !hasSavedKey)
                     }
-                    Text(hasSavedKey ? "Key saved." : "No key saved yet.")
-                        .font(.caption)
-                        .foregroundStyle(Color.Porcelain.dim)
+
+                    if !hasSavedKey {
+                        Text("No key saved yet.")
+                            .font(.caption)
+                            .foregroundStyle(Color.Porcelain.dim)
+                    }
+                    if let testResult {
+                        Label(testResult.message, systemImage: testResult.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(testResult.ok ? Color.Porcelain.mint : .red)
+                    }
                     if let keychainError {
                         Text(keychainError)
                             .font(.caption)
@@ -110,6 +132,7 @@ struct TranscriptionSettingsView: View {
 
     private func saveKey() {
         keychainError = nil
+        testResult = nil   // the saved key changed — any prior test result is stale
         do {
             try Keychain.saveAssemblyAIKey(apiKeyInput)
             apiKeyInput = ""
@@ -121,6 +144,7 @@ struct TranscriptionSettingsView: View {
 
     private func clearKey() {
         keychainError = nil
+        testResult = nil
         do {
             try Keychain.deleteAssemblyAIKey()
             hasSavedKey = false
@@ -128,6 +152,26 @@ struct TranscriptionSettingsView: View {
             keychainError = error.localizedDescription
         }
     }
+
+    private func testConnection() {
+        guard let key = Keychain.loadAssemblyAIKey() else { return }
+        testing = true
+        testResult = nil
+        Task {
+            let error = await CloudEngine.testConnection(apiKey: key)
+            await MainActor.run {
+                testing = false
+                testResult = error == nil
+                    ? KeyTestResult(ok: true, message: "Connected — your key works.")
+                    : KeyTestResult(ok: false, message: error!)
+            }
+        }
+    }
+}
+
+private struct KeyTestResult {
+    let ok: Bool
+    let message: String
 }
 
 #Preview {

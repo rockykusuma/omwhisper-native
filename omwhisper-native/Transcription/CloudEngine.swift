@@ -87,6 +87,26 @@ nonisolated struct CloudEngine: TranscriptionEngine {
         return (turn.endOfTurn ?? false) ? .final(transcript) : .partial(transcript)
     }
 
+    /// Validates a key against AssemblyAI's token endpoint (which requires a
+    /// valid key and returns 200) — backs Settings' Test Connection. Returns nil
+    /// on success, else a short reason. The streaming WS uses the same raw-key
+    /// auth, so a 200 here means live dictation will authenticate too.
+    nonisolated static func testConnection(apiKey: String) async -> String? {
+        var components = URLComponents(string: "https://streaming.assemblyai.com/v3/token")!
+        components.queryItems = [URLQueryItem(name: "expires_in_seconds", value: "60")]
+        var request = URLRequest(url: components.url!)
+        request.setValue(apiKey, forHTTPHeaderField: "Authorization")   // raw key, no Bearer
+        guard let (_, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else {
+            return "Couldn't reach AssemblyAI. Check your connection."
+        }
+        switch http.statusCode {
+        case 200: return nil
+        case 401: return "Invalid API key."
+        default: return "AssemblyAI returned status \(http.statusCode)."
+        }
+    }
+
     // MARK: TranscriptionEngine
 
     nonisolated func transcribe(
