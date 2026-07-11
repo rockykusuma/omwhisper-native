@@ -55,6 +55,11 @@ struct OverlayView: View {
 
     var body: some View {
         content
+            // Center the (variously-sized) style within the fixed-size panel in
+            // SwiftUI, so a narrower style (Orb/Whisper-line) lands centered on the
+            // very first show after a style change — not on the hosting view's
+            // second layout pass, which left the first dictation off-center.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .offset(y: exitOffsetY)
             .opacity(isVisible ? 1 : 0)
             .animation(envelopeAnimation, value: isVisible)
