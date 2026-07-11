@@ -929,6 +929,7 @@ final class AppState {
         recordingStartedAt = nil
         contextCaptureTask = nil
         isSmartDictationSession = false
+        onboardingDemoActive = false   // demo bracket ends with the session (set on .recording in TryItStep)
         await finishOverlayExit(exitDuration(for: phase))
     }
 

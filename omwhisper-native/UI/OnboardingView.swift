@@ -199,13 +199,23 @@ private struct TryItStep: View {
                 .font(.system(size: 13))
                 .foregroundStyle(Color.omMint)
                 .padding(.top, 4)
+                if appState.dictation == .idle {
+                    Button("Skip this step →") { onNext() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.omGlyphCore.opacity(0.4))
+                        .padding(.top, 2)
+                }
             }
         }
-        .onAppear { appState.onboardingDemoActive = true }
-        .onDisappear { appState.onboardingDemoActive = false }
         .onChange(of: appState.dictation) { _, newValue in
             switch newValue {
             case .recording:
+                // Set the demo flag per session (not on appear) so it is active exactly
+                // from record-start through stopDictation's end (which clears it). A
+                // session that outlives this step (e.g. Skip setup mid-record) is still
+                // suppressed, and a visit with no dictation never sets the flag at all.
+                appState.onboardingDemoActive = true
                 sessionStart = Date()
             case .idle:
                 if let start = sessionStart {
