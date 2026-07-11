@@ -79,6 +79,22 @@ struct AISettingsView: View {
                     Text("Your dictated text is sent to this provider while polishing. Secrets and PII (emails, keys, cards) are redacted before it leaves your Mac. Requires your own API key.")
                         .font(.caption)
                         .foregroundStyle(Color.Porcelain.dim)
+                    Menu {
+                        ForEach(CloudProviderPreset.all) { preset in
+                            Button(preset.name) {
+                                state.cloudAPIURL = preset.apiURL
+                                state.cloudModel = preset.model
+                            }
+                        }
+                    } label: {
+                        Label("Fill from provider…", systemImage: "wand.and.stars")
+                    }
+                    .menuStyle(.button)
+                    .tint(Color.Porcelain.emerald)
+                    .fixedSize()
+                    Text("Any OpenAI-compatible provider works (Groq, OpenRouter, Anthropic, local, …). A preset fills the URL & model — then paste that provider's key below.")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
                     TextField("API URL", text: $state.cloudAPIURL).porcelainField()
                     TextField("Model", text: $state.cloudModel).porcelainField()
                     SecureField("API key", text: $cloudKeyInput).porcelainField()
@@ -213,6 +229,25 @@ struct AISettingsView: View {
             appState.activePolishStyleID = PolishStyles.builtIns[6].id
         }
     }
+}
+
+/// Starter presets for the Cloud (OpenAI-compatible) backend. Each fills the
+/// API URL + model; the user still supplies their own key. All are editable
+/// afterward — presets are a convenience, not a fixed list.
+private struct CloudProviderPreset: Identifiable {
+    let name: String
+    let apiURL: String
+    let model: String
+    var id: String { name }
+
+    static let all: [CloudProviderPreset] = [
+        CloudProviderPreset(name: "OpenAI", apiURL: "https://api.openai.com/v1", model: "gpt-4o-mini"),
+        CloudProviderPreset(name: "Anthropic (Claude)", apiURL: "https://api.anthropic.com/v1", model: "claude-3-5-sonnet-latest"),
+        CloudProviderPreset(name: "Groq", apiURL: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile"),
+        CloudProviderPreset(name: "OpenRouter", apiURL: "https://openrouter.ai/api/v1", model: "anthropic/claude-3.5-sonnet"),
+        CloudProviderPreset(name: "Together", apiURL: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+        CloudProviderPreset(name: "Local (LM Studio)", apiURL: "http://localhost:1234/v1", model: "local-model"),
+    ]
 }
 
 #Preview {
