@@ -526,6 +526,10 @@ final class AppState {
         }
     }
     private let overlay = OverlayPanel()
+    private var overlayPreviewTask: Task<Void, Never>?
+    /// While a Preview demo runs, `audioLevel` returns this instead of the mic
+    /// level, so the orb/bars look lively without real audio.
+    private var previewAmplitude: Float?
     // @ObservationIgnored: hotkey is a collaborator, not observable UI state, and
     // @Observable can't instrument a `lazy` stored property (it rewrites stored
     // vars into computed ones). lazy is needed because the initializer captures self.
@@ -622,7 +626,8 @@ final class AppState {
     /// every render-loop tick — AudioCapture isn't @Observable, so this registers
     /// no Observation dependency and can't trigger invalidation storms.
     var audioLevel: Float {
-        audioCapture.level
+        if let previewAmplitude { return previewAmplitude }
+        return audioCapture.level
     }
 
     init() {
@@ -788,6 +793,43 @@ final class AppState {
         overlay.hide()
         overlayPhase = .none
         PasteService.paste(result)
+    }
+
+    /// Play a one-off canned demo of `style` in the real HUD so the settings
+    /// picker's choice is visible without starting a real dictation. Guarded on
+    /// idle; never touches `dictation`, so no history/paste/sounds/menu-icon
+    /// side effects. A second call cancels the in-flight demo first.
+    func previewOverlay(_ style: OverlayStyle) {
+        guard dictation == .idle else { return }
+        overlayPreviewTask?.cancel()
+        overlayPreviewTask = Task { await runOverlayPreview(style) }
+    }
+
+    private func runOverlayPreview(_ style: OverlayStyle) async {
+        sessionOverlayStyle = style
+        overlayPreview = style
+        overlayPhase = .none
+        finalizedTranscript = ""
+        volatileTranscript = ""
+        previewAmplitude = 0.12
+        overlay.show(appState: self)
+        do {
+            try await Task.sleep(for: .milliseconds(450))         // warming beat
+            previewAmplitude = 0.5                                 // "listening" liveliness
+            finalizedTranscript = "The overlay should match how much attention you want to give it."
+            try await Task.sleep(for: .milliseconds(1500))         // listening w/ sample text
+            overlayPhase = .pasting                                // finalize beat
+            previewAmplitude = 0.12
+            try await Task.sleep(for: .milliseconds(500))
+        } catch {
+            // Cancelled by a second Preview press — fall through to cleanup.
+        }
+        overlay.hide()
+        overlayPhase = .none
+        overlayPreview = nil
+        previewAmplitude = nil
+        finalizedTranscript = ""
+        volatileTranscript = ""
     }
 
     func startDictation() async {
