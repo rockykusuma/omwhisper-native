@@ -16,13 +16,13 @@ import SwiftUI
 @MainActor
 final class MeetingConsentPanel {
     private var panel: NSPanel?
-    private var countdownTimer: Timer?
+    private var countdownTask: Task<Void, Never>?
 
     func show(appName: String, onDecision: @escaping (Bool) -> Void) {
         dismiss()
 
-        var remaining = Int(MeetingWatcherTiming.consentTimeout.components.seconds)
-        let content = MeetingConsentView(appName: appName, secondsRemaining: remaining) { [weak self] accepted in
+        let initialSeconds = Int(MeetingWatcherTiming.consentTimeout.components.seconds)
+        let content = MeetingConsentView(appName: appName, secondsRemaining: initialSeconds) { [weak self] accepted in
             self?.dismiss()
             onDecision(accepted)
         }
@@ -45,19 +45,21 @@ final class MeetingConsentPanel {
         panel = newPanel
         NSSound(named: "Submarine")?.play()
 
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            remaining -= 1
-            guard remaining > 0 else {
-                self?.dismiss()
-                onDecision(false)
-                return
-            }
+        // Timeout = auto-decline. A Task (not a @Sendable Timer block) inherits this
+        // @MainActor class's isolation, so dismiss()/onDecision are safe to call and
+        // no mutable/non-Sendable state is captured across a concurrency boundary.
+        // The visible countdown is the SwiftUI view's own .onReceive, not this.
+        countdownTask = Task { [weak self] in
+            try? await Task.sleep(for: MeetingWatcherTiming.consentTimeout)
+            guard !Task.isCancelled else { return }
+            self?.dismiss()
+            onDecision(false)
         }
     }
 
     func dismiss() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
+        countdownTask?.cancel()
+        countdownTask = nil
         panel?.orderOut(nil)
         panel = nil
     }

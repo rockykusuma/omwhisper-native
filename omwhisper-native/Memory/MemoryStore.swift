@@ -182,7 +182,7 @@ nonisolated final class MemoryStore: Sendable {
         guard days > 0 else { return }
         let cutoff = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-Double(days) * 86_400))
         try dbQueue.write { db in
-            try MemorySnapshot.filter(Column("lastSeenAt") < cutoff).deleteAll(db)
+            _ = try MemorySnapshot.filter(Column("lastSeenAt") < cutoff).deleteAll(db)
         }
     }
 
