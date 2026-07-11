@@ -182,8 +182,14 @@ nonisolated final class HistoryStore: Sendable {
             let dayStrings: [String] = dayRows.compactMap { $0["day"] }
             let dayFormatter = DateFormatter()
             dayFormatter.dateFormat = "yyyy-MM-dd"
-            dayFormatter.timeZone = TimeZone.current
-            let calendar = Calendar.current
+            // SQLite DATE(createdAt) / DATE('now') both extract the UTC day (as do
+            // wordsToday and last7). Compare the streak in UTC too, or the loop breaks
+            // whenever the local day differs from the UTC day (early morning in UTC+
+            // zones) and streak reads 0. Keeps all of homeStats on one clock.
+            let utc = TimeZone(identifier: "UTC") ?? .current
+            dayFormatter.timeZone = utc
+            var calendar = Calendar.current
+            calendar.timeZone = utc
 
             var streak = 0
             var expected = Date()
