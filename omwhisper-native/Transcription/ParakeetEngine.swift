@@ -83,16 +83,24 @@ nonisolated final class ParakeetEngine: TranscriptionEngine {
     }
 
     /// Set the desired variant (from Settings). If it differs from what's loaded,
-    /// the next ensureModelsLoaded()/transcribe() reloads; isReady flips to false
-    /// until then so Settings shows the new variant's download state.
+    /// the next ensureModelsLoaded()/transcribe() reloads.
     func setModel(_ model: ParakeetModel) {
         state.withLock { $0.requestedModel = model }
     }
 
-    /// True once the *requested* variant's models are loaded. Safe to read from any
-    /// thread — used by Settings to show "Ready" vs. "Download" state.
+    /// Whether the variant's model files exist ON DISK — the truthful "downloaded?"
+    /// check used by Settings. Keying off disk (not the single in-memory cache) is
+    /// what makes "Ready" survive switching variants and app relaunches: transcribe()
+    /// lazily (re)loads a downloaded model from FluidAudio's cache on first use.
+    nonisolated static func isDownloaded(_ model: ParakeetModel) -> Bool {
+        let version = fluidVersion(for: model)
+        return AsrModels.modelsExist(at: AsrModels.defaultCacheDirectory(for: version))
+    }
+
+    /// True once the *requested* variant is downloaded on disk. Used by Settings to
+    /// show "Ready" vs. "Download".
     nonisolated var isReady: Bool {
-        state.withLock { $0.models != nil && $0.loadedModel == $0.requestedModel }
+        Self.isDownloaded(state.withLock { $0.requestedModel })
     }
 
     /// Downloads + loads the main ASR models once (expensive — multi-second CoreML

@@ -9,6 +9,7 @@
 
 import AppKit
 import AVFoundation
+import FluidAudio  // ParakeetEngine download progress type (fractionCompleted)
 import Foundation
 import Observation
 import os
@@ -584,6 +585,49 @@ final class AppState {
         case .parakeet: parakeetEngine
         case .cloud: cloudEngine
         case .whisper: whisperEngine
+        }
+    }
+
+    // Model-download UI state. Stored (so @Observable tracks them) and owned by
+    // AppState, NOT the transient Settings view — so progress survives the view
+    // being recreated when the user navigates between hub sections mid-download,
+    // and the download Task keeps running regardless of what's on screen.
+    var parakeetDownloadProgress: Double?
+    var parakeetDownloadError: String?
+    var whisperDownloadProgress: Double?
+    var whisperDownloadError: String?
+
+    func downloadParakeetModel() {
+        guard parakeetDownloadProgress == nil else { return }   // already in flight
+        parakeetDownloadError = nil
+        parakeetDownloadProgress = 0
+        Task {
+            do {
+                try await parakeetEngine.ensureModelsLoaded { progress in
+                    Task { @MainActor in self.parakeetDownloadProgress = progress.fractionCompleted }
+                }
+                parakeetDownloadProgress = nil
+            } catch {
+                parakeetDownloadProgress = nil
+                parakeetDownloadError = error.localizedDescription
+            }
+        }
+    }
+
+    func downloadWhisperModel() {
+        guard whisperDownloadProgress == nil else { return }
+        whisperDownloadError = nil
+        whisperDownloadProgress = 0
+        Task {
+            do {
+                try await whisperEngine.ensureModelLoaded { progress in
+                    Task { @MainActor in self.whisperDownloadProgress = progress.fractionCompleted }
+                }
+                whisperDownloadProgress = nil
+            } catch {
+                whisperDownloadProgress = nil
+                whisperDownloadError = error.localizedDescription
+            }
         }
     }
     private let overlay = OverlayPanel()

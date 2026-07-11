@@ -15,17 +15,13 @@ import WhisperKit
 
 struct TranscriptionSettingsView: View {
     @Environment(AppState.self) private var appState
-    @State private var downloadProgress: Double?
-    @State private var downloadError: String?
-    @State private var isReady = false
     @State private var apiKeyInput = ""
     @State private var hasSavedKey = false
     @State private var keychainError: String?
     @State private var testing = false
     @State private var testResult: KeyTestResult?
-    @State private var whisperDownloadProgress: Double?
-    @State private var whisperDownloadError: String?
-    @State private var whisperReady = false
+    // Download progress/error + "downloaded?" now live in AppState / on disk, not
+    // local @State — so they survive this view being recreated on hub navigation.
 
     var body: some View {
         @Bindable var state = appState
@@ -57,17 +53,17 @@ struct TranscriptionSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(Color.Porcelain.dim)
 
-                    if isReady {
+                    if ParakeetEngine.isDownloaded(state.parakeetModel) {
                         Text("Ready.")
                             .foregroundStyle(Color.Porcelain.dim)
-                    } else if let downloadProgress {
-                        ProgressView(value: downloadProgress).tint(Color.Porcelain.emerald)
-                        Text("Downloading… \(Int(downloadProgress * 100))%")
+                    } else if let progress = state.parakeetDownloadProgress {
+                        ProgressView(value: progress).tint(Color.Porcelain.emerald)
+                        Text("Downloading… \(Int(progress * 100))%")
                             .font(.caption)
                             .foregroundStyle(Color.Porcelain.dim)
                     } else {
-                        Button("Download \(state.parakeetModel.displayName) Model", action: downloadModel)
-                        if let downloadError {
+                        Button("Download \(state.parakeetModel.displayName) Model") { state.downloadParakeetModel() }
+                        if let downloadError = state.parakeetDownloadError {
                             Text(downloadError)
                                 .font(.caption)
                                 .foregroundStyle(.red)
@@ -100,17 +96,17 @@ struct TranscriptionSettingsView: View {
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
 
-                    if whisperReady {
+                    if WhisperEngine.isDownloaded(state.whisperModel) {
                         Text("Ready.")
                             .foregroundStyle(Color.Porcelain.dim)
-                    } else if let whisperDownloadProgress {
-                        ProgressView(value: whisperDownloadProgress).tint(Color.Porcelain.emerald)
-                        Text("Downloading… \(Int(whisperDownloadProgress * 100))%")
+                    } else if let progress = state.whisperDownloadProgress {
+                        ProgressView(value: progress).tint(Color.Porcelain.emerald)
+                        Text("Downloading… \(Int(progress * 100))%")
                             .font(.caption)
                             .foregroundStyle(Color.Porcelain.dim)
                     } else {
-                        Button("Download \(state.whisperModel.displayName) Model", action: downloadWhisperModel)
-                        if let whisperDownloadError {
+                        Button("Download \(state.whisperModel.displayName) Model") { state.downloadWhisperModel() }
+                        if let whisperDownloadError = state.whisperDownloadError {
                             Text(whisperDownloadError)
                                 .font(.caption)
                                 .foregroundStyle(.red)
@@ -163,44 +159,7 @@ struct TranscriptionSettingsView: View {
             }
         }
         .task {
-            isReady = appState.parakeetEngine.isReady
-            whisperReady = appState.whisperEngine.isReady
             hasSavedKey = Keychain.loadAssemblyAIKey() != nil
-        }
-        .onChange(of: appState.parakeetModel) {
-            // Switching variant means the new one may not be loaded yet — re-read
-            // readiness and clear any prior download progress/error for this section.
-            isReady = appState.parakeetEngine.isReady
-            downloadProgress = nil
-            downloadError = nil
-        }
-        .onChange(of: appState.whisperModel) {
-            whisperReady = appState.whisperEngine.isReady
-            whisperDownloadProgress = nil
-            whisperDownloadError = nil
-        }
-    }
-
-    private func downloadModel() {
-        downloadError = nil
-        downloadProgress = 0
-        Task {
-            do {
-                try await appState.parakeetEngine.ensureModelsLoaded { progress in
-                    Task { @MainActor in
-                        downloadProgress = progress.fractionCompleted
-                    }
-                }
-                await MainActor.run {
-                    downloadProgress = nil
-                    isReady = true
-                }
-            } catch {
-                await MainActor.run {
-                    downloadProgress = nil
-                    downloadError = error.localizedDescription
-                }
-            }
         }
     }
 
@@ -209,29 +168,6 @@ struct TranscriptionSettingsView: View {
         Constants.languages
             .map { (name: $0.key.capitalized, code: $0.value) }
             .sorted { $0.name < $1.name }
-    }
-
-    private func downloadWhisperModel() {
-        whisperDownloadError = nil
-        whisperDownloadProgress = 0
-        Task {
-            do {
-                try await appState.whisperEngine.ensureModelLoaded { progress in
-                    Task { @MainActor in
-                        whisperDownloadProgress = progress.fractionCompleted
-                    }
-                }
-                await MainActor.run {
-                    whisperDownloadProgress = nil
-                    whisperReady = true
-                }
-            } catch {
-                await MainActor.run {
-                    whisperDownloadProgress = nil
-                    whisperDownloadError = error.localizedDescription
-                }
-            }
-        }
     }
 
     private func saveKey() {
