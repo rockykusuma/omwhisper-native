@@ -11,6 +11,7 @@
 
 import SwiftUI
 import FluidAudio
+import WhisperKit
 
 struct TranscriptionSettingsView: View {
     @Environment(AppState.self) private var appState
@@ -22,6 +23,9 @@ struct TranscriptionSettingsView: View {
     @State private var keychainError: String?
     @State private var testing = false
     @State private var testResult: KeyTestResult?
+    @State private var whisperDownloadProgress: Double?
+    @State private var whisperDownloadError: String?
+    @State private var whisperReady = false
 
     var body: some View {
         @Bindable var state = appState
@@ -31,6 +35,7 @@ struct TranscriptionSettingsView: View {
                     Text("Apple (on-device, default)").tag(EngineKind.apple)
                     Text("Parakeet (local CoreML)").tag(EngineKind.parakeet)
                     Text("Cloud (AssemblyAI)").tag(EngineKind.cloud)
+                    Text("Whisper (local CoreML)").tag(EngineKind.whisper)
                 }
                 .pickerStyle(.radioGroup)
                 .tint(Color.Porcelain.emerald)
@@ -64,6 +69,49 @@ struct TranscriptionSettingsView: View {
                         Button("Download \(state.parakeetModel.displayName) Model", action: downloadModel)
                         if let downloadError {
                             Text(downloadError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+            }
+
+            if state.engineKind == .whisper {
+                PorcelainSection(eyebrow: "Whisper Model") {
+                    Picker("Model", selection: $state.whisperModel) {
+                        ForEach(WhisperModel.allCases) { model in
+                            Text(model.displayName).tag(model)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+
+                    Text(state.whisperModel.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+
+                    Picker("Language", selection: $state.whisperLanguage) {
+                        Text("Auto-detect").tag("auto")
+                        ForEach(whisperLanguageOptions, id: \.code) { opt in
+                            Text(opt.name).tag(opt.code)
+                        }
+                    }
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+
+                    if whisperReady {
+                        Text("Ready.")
+                            .foregroundStyle(Color.Porcelain.dim)
+                    } else if let whisperDownloadProgress {
+                        ProgressView(value: whisperDownloadProgress).tint(Color.Porcelain.emerald)
+                        Text("Downloading… \(Int(whisperDownloadProgress * 100))%")
+                            .font(.caption)
+                            .foregroundStyle(Color.Porcelain.dim)
+                    } else {
+                        Button("Download \(state.whisperModel.displayName) Model", action: downloadWhisperModel)
+                        if let whisperDownloadError {
+                            Text(whisperDownloadError)
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         }
@@ -116,6 +164,7 @@ struct TranscriptionSettingsView: View {
         }
         .task {
             isReady = appState.parakeetEngine.isReady
+            whisperReady = appState.whisperEngine.isReady
             hasSavedKey = Keychain.loadAssemblyAIKey() != nil
         }
         .onChange(of: appState.parakeetModel) {
@@ -124,6 +173,11 @@ struct TranscriptionSettingsView: View {
             isReady = appState.parakeetEngine.isReady
             downloadProgress = nil
             downloadError = nil
+        }
+        .onChange(of: appState.whisperModel) {
+            whisperReady = appState.whisperEngine.isReady
+            whisperDownloadProgress = nil
+            whisperDownloadError = nil
         }
     }
 
@@ -145,6 +199,36 @@ struct TranscriptionSettingsView: View {
                 await MainActor.run {
                     downloadProgress = nil
                     downloadError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// WhisperKit's language list ([name: code]) sorted by display name.
+    private var whisperLanguageOptions: [(name: String, code: String)] {
+        Constants.languages
+            .map { (name: $0.key.capitalized, code: $0.value) }
+            .sorted { $0.name < $1.name }
+    }
+
+    private func downloadWhisperModel() {
+        whisperDownloadError = nil
+        whisperDownloadProgress = 0
+        Task {
+            do {
+                try await appState.whisperEngine.ensureModelLoaded { progress in
+                    Task { @MainActor in
+                        whisperDownloadProgress = progress.fractionCompleted
+                    }
+                }
+                await MainActor.run {
+                    whisperDownloadProgress = nil
+                    whisperReady = true
+                }
+            } catch {
+                await MainActor.run {
+                    whisperDownloadProgress = nil
+                    whisperDownloadError = error.localizedDescription
                 }
             }
         }
