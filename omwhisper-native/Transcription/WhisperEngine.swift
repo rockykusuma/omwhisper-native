@@ -51,13 +51,18 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
             .appendingPathComponent(WhisperModel.whisperKitModelID(for: model), isDirectory: true)
     }
 
-    /// Whether the variant is downloaded on disk (non-empty model folder) — the
-    /// truthful "downloaded?" check. Keying off disk (not the single in-memory pipe)
-    /// makes "Ready" survive switching variants, navigating away, and relaunches;
-    /// transcribe() loads a downloaded model from disk on first use (no network).
+    /// Whether the variant is FULLY downloaded on disk — the truthful "downloaded?"
+    /// check. Requires the core compiled models + config, NOT just a non-empty
+    /// folder: a large in-flight download (turbo is multi-GB) creates the folder and
+    /// streams files in, so "non-empty" would read as Ready mid-download and let a
+    /// dictation load an incomplete model. Keying off disk (not the single in-memory
+    /// pipe) makes "Ready" survive switching variants, navigating away, and
+    /// relaunches; transcribe() loads a downloaded model from disk on first use.
     nonisolated static func isDownloaded(_ model: WhisperModel) -> Bool {
-        let contents = try? FileManager.default.contentsOfDirectory(atPath: modelFolderURL(model).path)
-        return !(contents?.isEmpty ?? true)
+        let folder = modelFolderURL(model)
+        let fm = FileManager.default
+        let required = ["config.json", "AudioEncoder.mlmodelc", "MelSpectrogram.mlmodelc", "TextDecoder.mlmodelc"]
+        return required.allSatisfy { fm.fileExists(atPath: folder.appendingPathComponent($0).path) }
     }
 
     /// True once the *requested* variant is downloaded on disk. Used by Settings to

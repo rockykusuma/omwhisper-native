@@ -53,13 +53,13 @@ struct TranscriptionSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(Color.Porcelain.dim)
 
-                    if ParakeetEngine.isDownloaded(state.parakeetModel) {
-                        Text("Ready.")
-                            .foregroundStyle(Color.Porcelain.dim)
-                    } else if let progress = state.parakeetDownloadProgress {
+                    if let progress = state.parakeetDownloadProgress {
                         ProgressView(value: progress).tint(Color.Porcelain.emerald)
                         Text("Downloading… \(Int(progress * 100))%")
                             .font(.caption)
+                            .foregroundStyle(Color.Porcelain.dim)
+                    } else if ParakeetEngine.isDownloaded(state.parakeetModel) {
+                        Text("Ready.")
                             .foregroundStyle(Color.Porcelain.dim)
                     } else {
                         Button("Download \(state.parakeetModel.displayName) Model") { state.downloadParakeetModel() }
@@ -96,13 +96,15 @@ struct TranscriptionSettingsView: View {
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
 
-                    if WhisperEngine.isDownloaded(state.whisperModel) {
-                        Text("Ready.")
-                            .foregroundStyle(Color.Porcelain.dim)
-                    } else if let progress = state.whisperDownloadProgress {
+                    // Progress FIRST: an in-flight download must show progress, never a
+                    // premature "Ready" (isDownloaded could flip true mid-download).
+                    if let progress = state.whisperDownloadProgress {
                         ProgressView(value: progress).tint(Color.Porcelain.emerald)
                         Text("Downloading… \(Int(progress * 100))%")
                             .font(.caption)
+                            .foregroundStyle(Color.Porcelain.dim)
+                    } else if WhisperEngine.isDownloaded(state.whisperModel) {
+                        Text("Ready.")
                             .foregroundStyle(Color.Porcelain.dim)
                     } else {
                         Button("Download \(state.whisperModel.displayName) Model") { state.downloadWhisperModel() }
