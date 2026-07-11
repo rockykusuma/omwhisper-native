@@ -153,6 +153,11 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
                 let options = DecodingOptions(
                     task: .transcribe,
                     language: WhisperModel.decodeLanguage(language),
+                    // 0.18.0's prefill-cache path runs the TextDecoderContextPrefill
+                    // model — present only on large-v3 builds — which yields empty
+                    // output there (base/small don't ship it, so they're unaffected).
+                    // WhisperKit 1.0.0 removed this path entirely; disable it here.
+                    usePrefillCache: false,
                     promptTokens: promptTokens
                 )
                 let results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
