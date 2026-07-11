@@ -30,6 +30,8 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
         var errorDescription: String? { "Download the Whisper model in Settings." }
     }
 
+    nonisolated static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OmWhisper", category: "WhisperEngine")
+
     private struct State {
         var pipe: WhisperKit?
         var loadedModel: WhisperModel?
@@ -94,7 +96,9 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
             let variant = WhisperModel.whisperKitModelID(for: requested)
             folder = try await WhisperKit.download(variant: variant, progressCallback: progressHandler)
         }
+        Self.log.info("loading whisper \(requested.rawValue, privacy: .public) from \(folder.path, privacy: .public)")
         let pipe = try await WhisperKit(WhisperKitConfig(modelFolder: folder.path))
+        Self.log.info("loaded whisper \(requested.rawValue, privacy: .public) — detected variant \(String(describing: pipe.modelVariant), privacy: .public)")
         state.withLockUnchecked { $0.pipe = pipe; $0.loadedModel = requested }
     }
 
@@ -136,7 +140,11 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
                     samples.append(contentsOf: UnsafeBufferPointer(start: ch[0], count: Int(converted.frameLength)))
                 }
 
-                guard !samples.isEmpty else { continuation.finish(); return }
+                guard !samples.isEmpty else {
+                    Self.log.info("whisper: 0 samples, nothing to transcribe")
+                    continuation.finish(); return
+                }
+                Self.log.info("whisper transcribe: \(samples.count, privacy: .public) samples, model=\(requested.rawValue, privacy: .public), lang=\(language, privacy: .public)")
 
                 let prompt = WhisperModel.vocabularyPrompt(vocabulary)
                 // Leading space is the Whisper BPE prompt convention; WhisperKit
@@ -149,9 +157,11 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
                 )
                 let results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
                 let text = results.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                Self.log.info("whisper result: \(results.count, privacy: .public) segments, text=\"\(text, privacy: .public)\"")
                 if !text.isEmpty { continuation.yield(.final(text)) }
                 continuation.finish()
             } catch {
+                Self.log.error("whisper transcribe failed: \(String(describing: error), privacy: .public)")
                 continuation.finish(throwing: error)
             }
         }
