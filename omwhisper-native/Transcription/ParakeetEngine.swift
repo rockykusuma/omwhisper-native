@@ -13,9 +13,11 @@
 //  worked for the FIRST dictation only, then fed every later one a dead input
 //  stream (recognition loop exits immediately → empty transcript → "NOTHING
 //  HEARD"). Instead we cache the *expensive* part — the loaded CoreML models
-//  (`AsrModels`, a Sendable value) — once, and create a fresh, cheap manager per
-//  transcribe() from those cached models (FluidAudio's documented reuse pattern:
-//  pre-load AsrModels, then `SlidingWindowAsrManager.loadModels(_:)`).
+//  (`AsrModels`, a Sendable value) — once per selected variant, and create a
+//  fresh, cheap manager per transcribe() from those cached models (FluidAudio's
+//  documented reuse pattern: pre-load AsrModels, then
+//  `SlidingWindowAsrManager.loadModels(_:)`). Switching variant (setModel) drops
+//  the cache on next load so the new one is fetched.
 //
 //  Vocabulary boosting needs a separate CtcModels download, only triggered when
 //  the caller actually has custom vocabulary, so most Parakeet users never pay it.
@@ -29,6 +31,30 @@
 import FluidAudio
 import os
 
+/// User-selectable Parakeet variant. Pure (no FluidAudio types) so it can back a
+/// UserDefaults setting and be unit-tested without linking FluidAudio into the
+/// test target. Mapped to FluidAudio's AsrModelVersion inside ParakeetEngine.
+nonisolated enum ParakeetModel: String, CaseIterable, Identifiable, Sendable {
+    case v3   // multilingual 0.6B (default)
+    case v2   // English-only 0.6B
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .v3: "Multilingual (v3)"
+        case .v2: "English (v2)"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .v3: "0.6B · many languages · default"
+        case .v2: "0.6B · English only"
+        }
+    }
+}
+
 nonisolated final class ParakeetEngine: TranscriptionEngine {
     let kind: EngineKind = .parakeet
 
@@ -41,16 +67,32 @@ nonisolated final class ParakeetEngine: TranscriptionEngine {
     }
 
     private struct State {
-        var models: AsrModels?        // loaded once, reused across fresh managers
-        var ctcModels: CtcModels?     // vocabulary-boosting model, loaded lazily
+        var models: AsrModels?           // loaded once per variant, reused across fresh managers
+        var loadedModel: ParakeetModel?  // which variant `models` holds (nil = none loaded)
+        var ctcModels: CtcModels?        // vocabulary-boosting model, loaded lazily
+        var requestedModel: ParakeetModel = .v3  // the user's selected variant
     }
 
     nonisolated private let state = OSAllocatedUnfairLock(initialState: State())
 
-    /// True once the main ASR models are loaded. Safe to read from any thread —
-    /// used by Settings to show "Ready" vs. "Download" state.
+    private static func fluidVersion(for model: ParakeetModel) -> AsrModelVersion {
+        switch model {
+        case .v3: .v3
+        case .v2: .v2
+        }
+    }
+
+    /// Set the desired variant (from Settings). If it differs from what's loaded,
+    /// the next ensureModelsLoaded()/transcribe() reloads; isReady flips to false
+    /// until then so Settings shows the new variant's download state.
+    func setModel(_ model: ParakeetModel) {
+        state.withLock { $0.requestedModel = model }
+    }
+
+    /// True once the *requested* variant's models are loaded. Safe to read from any
+    /// thread — used by Settings to show "Ready" vs. "Download" state.
     nonisolated var isReady: Bool {
-        state.withLock { $0.models != nil }
+        state.withLock { $0.models != nil && $0.loadedModel == $0.requestedModel }
     }
 
     /// Downloads + loads the main ASR models once (expensive — multi-second CoreML
@@ -59,9 +101,13 @@ nonisolated final class ParakeetEngine: TranscriptionEngine {
     /// concurrent double-trigger just loads twice and discards one, not a
     /// correctness issue.
     func ensureModelsLoaded(progressHandler: ProgressHandler? = nil) async throws {
-        if state.withLock({ $0.models }) != nil { return }
-        let models = try await AsrModels.downloadAndLoad(progressHandler: progressHandler)
-        state.withLock { $0.models = models }
+        let requested = state.withLock { $0.requestedModel }
+        if state.withLock({ $0.models != nil && $0.loadedModel == requested }) { return }
+        let models = try await AsrModels.downloadAndLoad(
+            version: Self.fluidVersion(for: requested),
+            progressHandler: progressHandler
+        )
+        state.withLock { $0.models = models; $0.loadedModel = requested }
     }
 
     /// Downloads + loads the smaller CTC keyword-spotting model needed for

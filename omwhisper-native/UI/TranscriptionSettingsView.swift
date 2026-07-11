@@ -39,6 +39,19 @@ struct TranscriptionSettingsView: View {
 
             if state.engineKind == .parakeet {
                 PorcelainSection(eyebrow: "Parakeet Model") {
+                    Picker("Model", selection: $state.parakeetModel) {
+                        ForEach(ParakeetModel.allCases) { model in
+                            Text(model.displayName).tag(model)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+
+                    Text(state.parakeetModel.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+
                     if isReady {
                         Text("Ready.")
                             .foregroundStyle(Color.Porcelain.dim)
@@ -48,7 +61,7 @@ struct TranscriptionSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(Color.Porcelain.dim)
                     } else {
-                        Button("Download Parakeet Model", action: downloadModel)
+                        Button("Download \(state.parakeetModel.displayName) Model", action: downloadModel)
                         if let downloadError {
                             Text(downloadError)
                                 .font(.caption)
@@ -104,6 +117,13 @@ struct TranscriptionSettingsView: View {
         .task {
             isReady = appState.parakeetEngine.isReady
             hasSavedKey = Keychain.loadAssemblyAIKey() != nil
+        }
+        .onChange(of: appState.parakeetModel) {
+            // Switching variant means the new one may not be loaded yet — re-read
+            // readiness and clear any prior download progress/error for this section.
+            isReady = appState.parakeetEngine.isReady
+            downloadProgress = nil
+            downloadError = nil
         }
     }
 

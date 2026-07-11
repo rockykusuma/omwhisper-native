@@ -506,6 +506,24 @@ final class AppState {
         }
     }
 
+    /// Which Parakeet variant to load (only relevant when engineKind == .parakeet).
+    /// access/withMutation so the radio picker re-highlights; the setter also tells
+    /// the engine so isReady/downloads track the selected variant.
+    var parakeetModel: ParakeetModel {
+        get {
+            access(keyPath: \.parakeetModel)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.parakeetModel),
+                  let model = ParakeetModel(rawValue: raw) else { return .v3 }
+            return model
+        }
+        set {
+            withMutation(keyPath: \.parakeetModel) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.parakeetModel)
+            }
+            parakeetEngine.setModel(newValue)
+        }
+    }
+
     /// Which overlay presentation to use. Bound by the "Recording overlay" picker;
     /// read into sessionOverlayStyle at dictation start. access/withMutation so the
     /// picker re-highlights on change.
@@ -646,6 +664,7 @@ final class AppState {
             pushToTalk.start()
             smartDictationHotkey.start()
             polishSelectedTextHotkey.start()
+            parakeetEngine.setModel(parakeetModel)  // engine defaults to .v3; honor the persisted choice
             if meetingsEnabled { meetingsEnabled = true }  // re-runs the setter's wiring/start path
             if replyAssistEnabled { replyAssistEnabled = true }  // re-runs the setter's wiring/start path
             if memoryEnabled { memoryEnabled = true }  // re-runs the setter's wiring/start path
@@ -1281,5 +1300,6 @@ nonisolated enum SettingsKeys {
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
     static let mcpAccessEnabled = "mcpAccessEnabled"
     static let engineKind = "engineKind"
+    static let parakeetModel = "parakeetModel"
     static let overlayStyle = "overlayStyle"
 }
