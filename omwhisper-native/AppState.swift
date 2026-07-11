@@ -291,6 +291,8 @@ final class AppState {
                     Task {
                         do {
                             try self?.meetingRecorder.start(appName: appName)
+                            self?.meetingStartedAt = Date()
+                            self?.meetingAppName = appName
                         } catch {
                             log.error("meeting recording failed to start: \(error)")
                             self?.meetingWatcher.failedToStartRecording()
@@ -298,7 +300,10 @@ final class AppState {
                     }
                 }
                 meetingWatcher.onStopRecording = { [weak self] in
-                    Task { await self?.meetingRecorder.stop() }
+                    Task {
+                        await self?.meetingRecorder.stop()
+                        self?.recordFinishedMeeting()
+                    }
                 }
                 meetingWatcher.onShowConsentPanel = { [weak self] appName, respond in
                     self?.meetingConsentPanel.show(appName: appName, onDecision: respond)
@@ -308,6 +313,52 @@ final class AppState {
                 meetingWatcher.stop()
             }
         }
+    }
+
+    /// Called after meetingRecorder.stop() flushes me.caf/them.caf: insert a
+    /// "Recorded" row so the meeting shows immediately (transcript/summary filled
+    /// on demand by transcribeMeeting).
+    private func recordFinishedMeeting() {
+        guard let store = meetingStore, let dir = meetingRecorder.meetingDirectory else { return }
+        let iso = ISO8601DateFormatter()
+        let duration = MeetingTranscriber.audioDuration(dir.appendingPathComponent("me.caf"))
+        do {
+            _ = try store.insert(Meeting(
+                id: nil,
+                startedAt: iso.string(from: meetingStartedAt ?? Date()),
+                appName: meetingAppName ?? "Meeting",
+                directory: dir.path,
+                durationSeconds: duration,
+                transcript: nil, summary: nil,
+                createdAt: iso.string(from: Date())
+            ))
+        } catch {
+            log.error("recordFinishedMeeting — insert failed: \(error)")
+        }
+        meetingStartedAt = nil
+        meetingAppName = nil
+    }
+
+    /// The view's path: transcribe both tracks on-device (AppleEngine) and, if
+    /// Apple Intelligence is on, summarize (SystemLLM) -- never Cloud/Ollama,
+    /// regardless of the dictation/polish backend. Transcript is always saved;
+    /// summary is best-effort. Returns the updated meeting.
+    func transcribeMeeting(id: Int64) async throws -> Meeting {
+        guard let store = meetingStore, let meeting = try store.get(id: id) else {
+            throw MeetingStoreError.notFound
+        }
+        let transcript = try await MeetingTranscriber.transcribeMeeting(
+            directory: URL(fileURLWithPath: meeting.directory), engine: AppleEngine()
+        )
+        var summary: String?
+        if SystemLLM.isAvailable() {
+            summary = try? await MeetingSummarizer.generate(transcript: transcript, polish: systemLLM)
+        } else if !didNudgeFoundationModelsUnavailable {
+            didNudgeFoundationModelsUnavailable = true
+            errorMessage = "Apple Intelligence is off — enable it in Settings > AI to summarize meetings. Transcript saved without a summary."
+        }
+        try store.setTranscriptAndSummary(id: id, transcript: transcript, summary: summary)
+        return try store.get(id: id) ?? meeting
     }
 
     /// access(keyPath:)/withMutation(keyPath:) for the same reason as
@@ -463,6 +514,8 @@ final class AppState {
     @ObservationIgnored private let meetingWatcher = MeetingWatcher()
     @ObservationIgnored private let meetingRecorder = MeetingRecorder()
     @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
+    @ObservationIgnored private var meetingStartedAt: Date?
+    @ObservationIgnored private var meetingAppName: String?
     @ObservationIgnored private let replyAssistMonitor = ReplyAssistMonitor()
     @ObservationIgnored private let replyStreamTypist = ReplyStreamTypist()
     @ObservationIgnored private var isReplyAssistDrafting = false
@@ -515,6 +568,7 @@ final class AppState {
     /// nil if the DB failed to open — memory capture then becomes a silent
     /// no-op, matching historyStore's own principle.
     private(set) var memoryStore: MemoryStore?
+    private(set) var meetingStore: MeetingStore?
 
     var hasAccessibilityPermission: Bool {
         PasteService.hasAccessibilityPermission()
@@ -544,6 +598,7 @@ final class AppState {
         guard !isRunningUnderTests else {
             historyStore = nil
             memoryStore = nil
+            meetingStore = nil
             return
         }
 
@@ -572,6 +627,16 @@ final class AppState {
         } catch {
             log.error("init — MemoryStore failed to open: \(error)")
             memoryStore = nil
+        }
+
+        // Separate database from history/memory -- recorded meetings are their own
+        // sensitivity class, wiped independently. Opened independently.
+        do {
+            guard let appSupportDir else { throw CocoaError(.fileNoSuchFile) }
+            meetingStore = try .open(atPath: appSupportDir.appendingPathComponent("meetings.db").path)
+        } catch {
+            log.error("init — MeetingStore failed to open: \(error)")
+            meetingStore = nil
         }
     }
 
