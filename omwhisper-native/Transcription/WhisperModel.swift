@@ -26,16 +26,19 @@ nonisolated enum WhisperModel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .base: "~150 MB · fastest, lower accuracy"
         case .small: "~500 MB · balanced"
-        case .largeV3Turbo: "~1.5 GB · best accuracy, fast on Apple Silicon"
+        case .largeV3Turbo: "~630 MB · best accuracy, fast on Apple Silicon"
         }
     }
 
-    /// Exact `argmaxinc/whisperkit-coreml` variant folder name.
+    /// Exact `argmaxinc/whisperkit-coreml` variant folder name. For large-v3-turbo
+    /// use the device-blessed compressed build of the v20240930 (turbo) checkpoint —
+    /// the `_turbo`-suffixed variant is a separate extra-optimized build that isn't a
+    /// device default and produces empty output in WhisperKit 0.18.0.
     static func whisperKitModelID(for model: WhisperModel) -> String {
         switch model {
         case .base: "openai_whisper-base"
         case .small: "openai_whisper-small"
-        case .largeV3Turbo: "openai_whisper-large-v3-v20240930_turbo"
+        case .largeV3Turbo: "openai_whisper-large-v3-v20240930_626MB"
         }
     }
 

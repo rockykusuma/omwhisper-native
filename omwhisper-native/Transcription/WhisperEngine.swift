@@ -19,7 +19,6 @@
 //
 
 @preconcurrency import AVFoundation
-import CoreML
 import WhisperKit
 import os
 
@@ -98,22 +97,9 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
             folder = try await WhisperKit.download(variant: variant, progressCallback: progressHandler)
         }
         Self.log.info("loading whisper \(requested.rawValue, privacy: .public) from \(folder.path, privacy: .public)")
-        let config = WhisperKitConfig(modelFolder: folder.path, computeOptions: Self.computeOptions(for: requested))
-        let pipe = try await WhisperKit(config)
+        let pipe = try await WhisperKit(WhisperKitConfig(modelFolder: folder.path))
         Self.log.info("loaded whisper \(requested.rawValue, privacy: .public) — detected variant \(String(describing: pipe.modelVariant), privacy: .public)")
         state.withLockUnchecked { $0.pipe = pipe; $0.loadedModel = requested }
-    }
-
-    /// Per-model CoreML compute units. large-v3's audio encoder produces garbage on
-    /// the Neural Engine (WhisperKit's default) — the decoder then can't find coherent
-    /// tokens, burns its temperature fallbacks, and returns empty text. Running the
-    /// encoder on the GPU fixes it. base/small are fine (and faster) on the ANE, so
-    /// they keep the default (nil).
-    nonisolated private static func computeOptions(for model: WhisperModel) -> ModelComputeOptions? {
-        switch model {
-        case .largeV3Turbo: ModelComputeOptions(audioEncoderCompute: .cpuAndGPU)
-        case .base, .small: nil
-        }
     }
 
     nonisolated func transcribe(
