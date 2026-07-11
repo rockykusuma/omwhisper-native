@@ -79,6 +79,13 @@ final class AppState {
     /// demo never pastes into another app or pollutes history. Set by OnboardingView.
     var onboardingDemoActive = false
 
+    /// Overlay presentation for the CURRENT session — captured from `overlayStyle`
+    /// when the overlay is shown, so a mid-session settings change never reshapes a
+    /// live overlay (OVERLAY_SPEC §3: "applies next dictation only").
+    private(set) var sessionOverlayStyle: OverlayStyle = .full
+    /// Non-nil only while the settings "Preview" demo runs (see previewOverlay).
+    var overlayPreview: OverlayStyle?
+
     // MARK: Settings (persisted; keep keys stable — see SettingsKeys)
     var pasteAfterStop: Bool {
         get { UserDefaults.standard.object(forKey: SettingsKeys.pasteAfterStop) as? Bool ?? true }
@@ -489,6 +496,23 @@ final class AppState {
         }
     }
 
+    /// Which overlay presentation to use. Bound by the "Recording overlay" picker;
+    /// read into sessionOverlayStyle at dictation start. access/withMutation so the
+    /// picker re-highlights on change.
+    var overlayStyle: OverlayStyle {
+        get {
+            access(keyPath: \.overlayStyle)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.overlayStyle),
+                  let style = OverlayStyle(rawValue: raw) else { return .full }
+            return style
+        }
+        set {
+            withMutation(keyPath: \.overlayStyle) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.overlayStyle)
+            }
+        }
+    }
+
     // MARK: Core loop collaborators
     private let audioCapture = AudioCapture()
     private let appleEngine: TranscriptionEngine = AppleEngine()
@@ -711,6 +735,7 @@ final class AppState {
             pttPressedAt = nil   // toggle has no "hold" concept — never inherit a stale PTT timestamp
             isSmartDictationSession = smart
             dictation = .starting
+            sessionOverlayStyle = overlayStyle
             overlay.show(appState: self)   // instant — warming look, before any permission/capture work
             contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
             Task { await startDictation() }
@@ -730,6 +755,7 @@ final class AppState {
         stopRequestedWhilePTTStarting = false
         pttPressedAt = .now
         dictation = .starting
+        sessionOverlayStyle = overlayStyle
         overlay.show(appState: self)   // instant — warming look, before any permission/capture work
         contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
         Task { await startDictation() }
@@ -1193,4 +1219,5 @@ nonisolated enum SettingsKeys {
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
     static let mcpAccessEnabled = "mcpAccessEnabled"
     static let engineKind = "engineKind"
+    static let overlayStyle = "overlayStyle"
 }
