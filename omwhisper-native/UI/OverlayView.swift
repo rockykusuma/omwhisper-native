@@ -2,24 +2,13 @@
 //  OverlayView.swift
 //  OmWhisper
 //
-//  The Om Orb overlay content — see docs/OVERLAY_SPEC.md. This phase ships the
-//  static pill: correct palette/layout/label states, driven entirely by
-//  `AppState.dictation`/`overlayPhase`. The view is mounted ONCE for the
-//  panel's whole lifetime (see OverlayPanel — it caches one NSHostingView),
-//  so entrance/exit is animated via value-keyed `.animation`, never
-//  `.transition` (which only fires on insert/remove, and this view never
-//  unmounts).
-//
-//  ponytail: entrance spring-overshoot (§4) is a plain fade here, and the exit
-//  slide (§8) is a modest 14pt settle rather than the full +90pt — sliding that
-//  far inside a ~100pt panel clips at the edge unless the panel gets extra
-//  headroom, which is exactly the kind of thing to size by eye against the
-//  running app, not guess at here. True per-word entrance + common-prefix
-//  diffing (§7) would need a custom flowing-text layout (SwiftUI has no
-//  built-in per-run-animated wrapping text); the whole-block crossfade below
-//  gets most of the visual benefit (no hard-cut recolor) at a fraction of the
-//  engineering cost — upgrade to per-word only if the block-level crossfade
-//  reads as jittery once seen live.
+//  Router for the dictation HUD's three presentation styles (OVERLAY_SPEC §3):
+//  Full (pill + live words), Orb (orb only), Whisper line (micro-ॐ + bars). The
+//  view is mounted ONCE for the panel's whole lifetime (see OverlayPanel), so
+//  entrance/exit is animated via value-keyed `.animation`, never `.transition`.
+//  The active style is frozen per session (sessionOverlayStyle) or driven by the
+//  settings Preview (overlayPreview). Minimal styles morph to a labeled capsule
+//  on error so failures always surface (§3).
 //
 
 import SwiftUI
@@ -29,8 +18,69 @@ struct OverlayView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isVisible: Bool {
-        appState.dictation != .idle || appState.overlayPhase == .polishing
+        appState.dictation != .idle || appState.overlayPhase == .polishing || appState.overlayPreview != nil
     }
+
+    private var activeStyle: OverlayStyle {
+        appState.overlayPreview ?? appState.sessionOverlayStyle
+    }
+
+    /// Minimal styles surface errors as a transient labeled capsule; Full shows
+    /// the error inside its own pill.
+    private var showsErrorCapsule: Bool {
+        guard activeStyle != .full else { return false }
+        if case .error = appState.overlayPhase { return true }
+        return false
+    }
+
+    private var errorLabel: String {
+        if case .error(let label) = appState.overlayPhase { return label }
+        return ""
+    }
+
+    /// Small downward settle on a successful finalize (a modest stand-in for the
+    /// spec's full +90pt slide — see the note in OverlayPanel).
+    private var exitOffsetY: CGFloat {
+        guard case .pasting = appState.overlayPhase else { return 0 }
+        return 14
+    }
+
+    private var envelopeAnimation: Animation {
+        if reduceMotion { return .easeInOut(duration: 0.15) }
+        switch appState.overlayPhase {
+        case .cancelled: return .easeInOut(duration: 0.12)   // §4: 120ms fade, no translate
+        default: return .easeInOut(duration: 0.3)
+        }
+    }
+
+    var body: some View {
+        content
+            .offset(y: exitOffsetY)
+            .opacity(isVisible ? 1 : 0)
+            .animation(envelopeAnimation, value: isVisible)
+            .animation(envelopeAnimation, value: appState.overlayPhase)
+            .animation(envelopeAnimation, value: activeStyle)
+    }
+
+    @ViewBuilder private var content: some View {
+        if showsErrorCapsule {
+            ErrorCapsule(label: errorLabel)
+        } else {
+            switch activeStyle {
+            case .full:        FullStyleOverlay(appState: appState, isVisible: isVisible)
+            case .orb:         OrbStyleOverlay(appState: appState, isVisible: isVisible)
+            case .whisperLine: WhisperLineOverlay(appState: appState, isVisible: isVisible)
+            }
+        }
+    }
+}
+
+// MARK: - Full style (the default pill — behavior preserved verbatim)
+
+private struct FullStyleOverlay: View {
+    let appState: AppState
+    let isVisible: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var statusLabel: String {
         switch appState.overlayPhase {
@@ -60,38 +110,16 @@ struct OverlayView: View {
         }
     }
 
-    /// Border flashes omError during the error exit flourish (§4: "border +
-    /// label flash omError"); the resting brand border otherwise.
     private var borderColor: Color {
         if case .error = appState.overlayPhase { return .omError }
         return .omBorder
     }
 
-    /// Small downward settle on a successful finalize — see the ponytail note
-    /// above on why this isn't the spec's full +90pt slide.
-    private var exitOffsetY: CGFloat {
-        guard case .pasting = appState.overlayPhase else { return 0 }
-        return 14
-    }
-
-    private var pillAnimation: Animation {
-        if reduceMotion { return .easeInOut(duration: 0.15) }
-        switch appState.overlayPhase {
-        case .cancelled: return .easeInOut(duration: 0.12)   // §4: 120ms fade, no translate
-        default: return .easeInOut(duration: 0.3)
-        }
-    }
-
-    /// Finalized (solid core) + volatile (dimmed mint) as one AttributedString.
-    /// No italic (dropped `.emphasized` per §7 — color alone carries the meaning,
-    /// and italic + color double-encodes and jitters as words re-render).
     private var transcriptText: Text {
         var text = AttributedString(appState.finalizedTranscript)
         text.foregroundColor = .omGlyphCore
-
         var volatile = AttributedString(appState.volatileTranscript)
         volatile.foregroundColor = Color.omVolatile.opacity(0.5)
-
         text.append(volatile)
         return Text(text)
     }
@@ -112,28 +140,17 @@ struct OverlayView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        // Height must fit its own content: the 64pt orb zone + 12pt padding on
-        // each side needs 88pt minimum — the spec's own "~82pt" anatomy figure
-        // was 6pt short of that, which was starving the transcript column of
-        // its requested space and corrupting the 2-line clip/mask below.
         .frame(width: 480, height: 90, alignment: .leading)
         .background(Color.omBackground.opacity(0.92), in: RoundedRectangle(cornerRadius: 28))
         .overlay(
             RoundedRectangle(cornerRadius: 28)
                 .strokeBorder(borderColor.opacity(0.35), lineWidth: 1)
         )
-        .clipped()   // defensive: nothing (orb, text) can bleed past the pill's own bounds
-        .offset(y: exitOffsetY)
-        .opacity(isVisible ? 1 : 0)
-        .animation(pillAnimation, value: isVisible)
-        .animation(pillAnimation, value: appState.overlayPhase)
+        .clipped()
     }
 
     private var orbZone: some View {
         ZStack {
-            // Mount-gated on dictation != .idle (not merely hidden) so the
-            // TimelineView driving OmOrbView's Canvas doesn't tick at all while
-            // the panel is ordered out — see OVERLAY_SPEC.md §10.
             if isVisible {
                 OmOrbView(appState: appState)
             }
@@ -142,32 +159,29 @@ struct OverlayView: View {
     }
 
     private var transcriptZone: some View {
-        // No "Listening…"/"Finishing up…" placeholder here — the status label
-        // above already says LISTENING/FINALIZING; repeating it in the
-        // transcript zone too just says the same thing twice. Blank until real
-        // words arrive reads fine given the label + reactive orb are already
-        // communicating the state.
-        //
-        // ponytail: a manual .fixedSize + .frame(maxHeight:, alignment: .bottom)
-        // + .clipped() stack was tried here first (to hand-roll "grow to
-        // content, cap at 2 lines, bottom-anchored") and empirically did NOT
-        // shrink to 1-line content — the parent VStack kept expanding the
-        // flexible frame to the full 2-line cap regardless. .lineLimit(1...2)
-        // is Text's own native range-based sizing and does this correctly:
-        // natural height for 1 line, caps and truncates at 2. Trade-off: the
-        // spec's soft top-gradient-fade (for the ">2 lines" case) is dropped in
-        // favor of a plain "…" prefix — .truncationMode(.head) keeps the
-        // *newest* text visible when it truncates, which was the actual
-        // requirement; revisit the fade only if the plain ellipsis looks bad live.
-        return transcriptText
+        transcriptText
             .font(.system(size: 15))
             .multilineTextAlignment(.leading)
             .lineLimit(1...2)
             .truncationMode(.head)
-            // Whole-block crossfade on every transcript change — see the type's
-            // header comment on why this is block-level, not per-word.
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: appState.finalizedTranscript)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: appState.volatileTranscript)
+    }
+}
+
+// MARK: - Minimal-style error capsule
+
+private struct ErrorCapsule: View {
+    let label: String
+    var body: some View {
+        Text(label)
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(0.9)
+            .foregroundStyle(Color.omError)
+            .padding(.horizontal, 18)
+            .frame(minWidth: 180, minHeight: 38)
+            .background(Color.omBackground.opacity(0.92), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.omError.opacity(0.65), lineWidth: 1))
     }
 }
 
