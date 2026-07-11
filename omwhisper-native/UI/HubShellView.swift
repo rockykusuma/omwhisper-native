@@ -174,7 +174,7 @@ struct HubShellView: View {
         switch selection {
         case .home: HubHomeView()
         case .history: HistoryView()
-        case .meetings: MeetingsSettingsView()
+        case .meetings: HubMeetingsSectionView()
         case .vocabulary: VocabularySettingsView()
         case .aiPolish: AISettingsView()
         case .replyAssist: ReplyAssistSettingsView()
