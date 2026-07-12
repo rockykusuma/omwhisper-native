@@ -113,6 +113,25 @@ nonisolated enum Chronicler {
             chunkSummaries.append(summary)
         }
 
+        // Collapse until the summaries fit one reduce call. A busy day produces
+        // more chunk summaries than reduceCharLimit; the old code just did
+        // `prefix(reduceCharLimit)` here, which silently DROPPED everything past
+        // ~1,800 chars -- i.e. the whole afternoon/evening, since chunks are
+        // day-ordered. Instead, re-chunk-and-summarize the summaries (a second
+        // map-reduce level) until they fit, so late-day activity survives into
+        // the final chronicle. The `count` guard prevents a non-converging loop
+        // if a single summary is itself over the limit (degenerate; then the
+        // final prefix below is the last-resort cap).
+        while chunkSummaries.joined(separator: "\n").count > reduceCharLimit && chunkSummaries.count > 1 {
+            var collapsed: [String] = []
+            for group in chunk(chunkSummaries, limit: reduceCharLimit) {
+                let text = String(group.joined(separator: "\n\n").prefix(reduceCharLimit))
+                collapsed.append(try await polish.polish(text, style: chunkSummaryStyle, targetLanguage: nil))
+            }
+            if collapsed.count >= chunkSummaries.count { break }
+            chunkSummaries = collapsed
+        }
+
         let reduceInput = String(chunkSummaries.joined(separator: "\n").prefix(reduceCharLimit))
         let chronicle = try await polish.polish(reduceInput, style: chronicleWriteStyle, targetLanguage: nil)
         let trimmed = chronicle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -121,12 +140,22 @@ nonisolated enum Chronicler {
         return ChronicleResult(day: day, summary: trimmed, snapshotCount: snapshots.count)
     }
 
-    /// Local calendar date string, matching smriti's dayString(daysAgo:).
+    /// UTC date string. Snapshots are stored via `ISO8601DateFormatter()` (UTC)
+    /// and queried with SQLite `date()` (also UTC), so "yesterday"/"today" here
+    /// MUST be computed in UTC too -- the old `Calendar.current` (local) version
+    /// disagreed with the store near midnight and for users far from UTC,
+    /// chronicling the wrong day (or an empty one). Matches HistoryStore.homeStats,
+    /// which was pinned to UTC for the same reason. Trade-off: the day boundary is
+    /// UTC midnight, so a late evening can straddle two chronicles -- accepted for
+    /// consistency with the store, which is the actual correctness fix.
     static func dayString(daysAgo: Int = 0) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())!
+        formatter.timeZone = TimeZone(identifier: "UTC")!
+        let date = calendar.date(byAdding: .day, value: -daysAgo, to: Date())!
         return formatter.string(from: date)
     }
 }

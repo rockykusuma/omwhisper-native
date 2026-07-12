@@ -13,6 +13,7 @@ import SwiftUI
 
 struct HubMemorySectionView: View {
     @Environment(AppState.self) private var appState
+    @State private var showExcludedSites = false
 
     var body: some View {
         @Bindable var state = appState
@@ -25,6 +26,10 @@ struct HubMemorySectionView: View {
                 disabledEmptyState
             }
         }
+        .sheet(isPresented: $showExcludedSites) {
+            ExcludedDomainsEditor()
+                .environment(appState)
+        }
     }
 
     private var settingsBar: some View {
@@ -36,6 +41,8 @@ struct HubMemorySectionView: View {
                 Menu {
                     Toggle("Pause capture", isOn: $state.memoryPaused)
                     Stepper("Keep for \(state.memoryRetentionDays) days", value: $state.memoryRetentionDays, in: 1...365)
+                    Divider()
+                    Button("Excluded sites…") { showExcludedSites = true }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -58,6 +65,89 @@ struct HubMemorySectionView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Sheet editor for the domains never captured into memory. Add/remove rows,
+/// same idiom as VocabularySettingsView's word list. Input is normalized to a
+/// bare host (scheme/path/www stripped) via BrowserURL.domain, so pasting a
+/// full URL works.
+private struct ExcludedDomainsEditor: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    @State private var newDomain = ""
+
+    var body: some View {
+        @Bindable var state = appState
+        VStack(spacing: 0) {
+            HStack {
+                Text("Excluded sites")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.Porcelain.ink)
+                Spacer()
+                Button("Done") { dismiss() }
+            }
+            .padding(12)
+            Divider()
+            PorcelainPage {
+                PorcelainSection(eyebrow: "Never Captured") {
+                    Text("Pages on these sites are never saved to memory. Subdomains are covered too — excluding example.com also excludes docs.example.com. Only browser windows are matched.")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+                    ForEach(state.memoryExcludedDomains, id: \.self) { domain in
+                        HStack {
+                            Text(domain).foregroundStyle(Color.Porcelain.ink)
+                            Spacer()
+                            Button { remove(domain) } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(Color.Porcelain.dim)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Stop excluding \(domain)")
+                        }
+                    }
+                    if state.memoryExcludedDomains.isEmpty {
+                        Text("No sites excluded yet.")
+                            .font(.caption)
+                            .foregroundStyle(Color.Porcelain.dim)
+                    }
+                    HStack {
+                        TextField("example.com", text: $newDomain)
+                            .porcelainField()
+                            .onSubmit(add)
+                        Button("Add", action: add)
+                            .disabled(Self.normalizedDomain(newDomain).isEmpty)
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 400, minHeight: 340)
+    }
+
+    private func add() {
+        let domain = Self.normalizedDomain(newDomain)
+        guard !domain.isEmpty, !appState.memoryExcludedDomains.contains(domain) else { return }
+        appState.memoryExcludedDomains.append(domain)
+        newDomain = ""
+    }
+
+    private func remove(_ domain: String) {
+        appState.memoryExcludedDomains.removeAll { $0 == domain }
+    }
+
+    /// Bare lowercased host from freeform input ("https://www.example.com/x",
+    /// "www.example.com", "example.com" all -> "example.com"). Reuses
+    /// BrowserURL.domain(of:), which strips scheme/path and a leading "www.".
+    static func normalizedDomain(_ raw: String) -> String {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !s.isEmpty else { return "" }
+        let withScheme = s.contains("://") ? s : "https://" + s
+        if let host = BrowserURL.domain(of: withScheme) { return host }
+        // Fallback for inputs URL(string:) can't parse: take the first path
+        // segment and drop a leading www.
+        var host = s.split(separator: "/").first.map(String.init) ?? s
+        if host.hasPrefix("www.") { host = String(host.dropFirst(4)) }
+        return host
     }
 }
 

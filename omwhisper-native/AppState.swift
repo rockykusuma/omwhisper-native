@@ -520,6 +520,7 @@ final class AppState {
                 memoryCapture.isSuppressed = { [weak self] in self?.memoryPaused ?? false }
                 memoryCapture.captureIntervalSeconds = 5
                 memoryCapture.retentionDays = memoryRetentionDays
+                memoryCapture.excludedDomains = memoryExcludedDomains
                 memoryCapture.start()
                 chronicleScheduler.store = memoryStore
                 chronicleScheduler.polish = systemLLM
@@ -557,6 +558,23 @@ final class AppState {
                 UserDefaults.standard.set(newValue, forKey: SettingsKeys.memoryRetentionDays)
             }
             memoryCapture.retentionDays = newValue
+        }
+    }
+
+    /// Bare hostnames (e.g. "example.com") whose pages are never captured into
+    /// memory; subdomains are covered too (see BrowserURL.domain(_:matches:)).
+    /// Only affects browser windows -- a snapshot with no URL is never excluded
+    /// by domain. Empty by default.
+    var memoryExcludedDomains: [String] {
+        get {
+            access(keyPath: \.memoryExcludedDomains)
+            return UserDefaults.standard.stringArray(forKey: SettingsKeys.memoryExcludedDomains) ?? []
+        }
+        set {
+            withMutation(keyPath: \.memoryExcludedDomains) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.memoryExcludedDomains)
+            }
+            memoryCapture.excludedDomains = newValue
         }
     }
 
@@ -1279,27 +1297,38 @@ final class AppState {
     /// focus-restore workaround is needed.
     func beginReplyAssist() async {
         guard dictation == .idle else { return }  // ReplyAssistMonitor already suppresses this, but stay defensive
-        // A double-tap while a draft is already in flight cancels it instead
-        // of starting a second one -- same gesture starts and stops, no
-        // separate cancel UI needed now that there's no panel. Covers both
-        // the LLM-generation phase and mid-stream: replyStreamTypist.cancel()
-        // just sets a flag stream() checks every loop iteration, so canceling
-        // before typing has even started still lands as a clean no-op typing.
+        // A double-tap while a draft is already in flight cancels it instead of
+        // starting a second one. Claim the flag BEFORE the awaits below (field
+        // resolution can take ~1.6s for slow Electron trees): each trigger is
+        // its own unserialized Task, so if the flag were set only after those
+        // awaits, a fast second double-tap would slip past this guard and start
+        // a second concurrent draft that interleaves keystrokes with the first.
+        // `defer` clears it on every exit path.
         guard !isReplyAssistDrafting else {
             replyStreamTypist.cancel()
             return
         }
+        isReplyAssistDrafting = true
+        defer { isReplyAssistDrafting = false }
+
+        // Fire-and-forget: regenerate the writing-tone profile from recent
+        // dictation history (on-device only) so later drafts sound like the
+        // user. Self-skips when tone.md is fresh or Foundation Models is off;
+        // never blocks this draft.
+        refreshToneProfileIfStale()
+
+        // The app the user was in when they double-tapped -- the draft must land
+        // in THIS app, not wherever focus drifts during the multi-second draft.
+        let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         guard let context = await ReplyContextReader.currentContext() else {
             errorMessage = "Reply assist: couldn't read the focused field."
             return
         }
         let windowContext = ScreenContextReader.captureFrontmostWindowText()
-        isReplyAssistDrafting = true
-        await draftAndStream(mode: context.mode, intent: "", windowContext: windowContext)
-        isReplyAssistDrafting = false
+        await draftAndStream(mode: context.mode, intent: "", windowContext: windowContext, targetPID: targetPID)
     }
 
-    private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?) async {
+    private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?, targetPID: pid_t?) async {
         let tonePrefix = (try? String(contentsOf: ToneProfile.toneFileURL(), encoding: .utf8))
             .map { ToneProfile.promptPrefix(from: $0) }
         let style = Self.draftStyle(mode: mode, windowContext: windowContext, tonePrefix: tonePrefix)
@@ -1313,6 +1342,15 @@ final class AppState {
         } catch {
             log.error("draftAndStream — polish failed: \(error)")
             errorMessage = "Reply assist: draft failed (\(error.localizedDescription))."
+            return
+        }
+        // Focus may have moved during the (up to 5s/30s) draft. Only type if the
+        // app the user triggered from is still frontmost -- keystrokes post to
+        // whatever app is frontmost at type time, so a drifted focus would land
+        // the reply in the wrong field.
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID else {
+            log.warning("draftAndStream — frontmost app changed before typing; aborting")
+            errorMessage = "Reply assist: focus changed, nothing was typed."
             return
         }
         let result = await replyStreamTypist.stream(drafted)
@@ -1346,7 +1384,12 @@ final class AppState {
             instructions += "Rewrite this selected text, keeping its meaning:\n\(selection.prefix(fieldTextCap))\n"
         }
         if let windowContext {
-            instructions += "\nOn-screen context:\n\(windowContext.prefix(windowContextCap))\n"
+            // suffix, not prefix -- the window is scraped top-down, so in a chat
+            // the newest message (what you're replying to) is at the BOTTOM.
+            // Keeping the head fed the model the oldest/scrollback content and
+            // truncated away the live message. Tail is right for the dominant
+            // chat case; top-posted email threads are the minority we trade off.
+            instructions += "\nOn-screen context:\n\(windowContext.suffix(windowContextCap))\n"
         }
         if let tonePrefix { instructions += "\nWriting tone to match:\n\(tonePrefix)\n" }
         return PolishStyle(
@@ -1355,6 +1398,43 @@ final class AppState {
             prompt: instructions,
             isBuiltIn: true
         )
+    }
+
+    /// Fixed-UUID internal style for tone distillation -- never shown in the AI
+    /// tab picker, same hidden-style pattern as the reply-draft / chronicle styles.
+    private static let toneDistillStyle = PolishStyle(
+        id: UUID(uuidString: "7610B7A2-5DAA-4017-A135-45B67089A0FC")!,
+        name: "Tone Distillation",
+        prompt: ToneProfile.distillationPrompt,
+        isBuiltIn: true
+    )
+
+    /// Regenerates tone.md from recent dictation history when it's missing or
+    /// >7 days old, so Reply Assist drafts sound like the user (this was the
+    /// unimplemented "Task 6" -- until now tone.md was never written and every
+    /// draft came out in the model's generic voice). On-device ONLY: distillation
+    /// reads the user's whole recent history, so it always uses SystemLLM
+    /// regardless of the chosen polish backend -- history never egresses just to
+    /// build a tone profile. If Foundation Models is unavailable, drafts stay
+    /// generic (unchanged from before). Fire-and-forget; never blocks a draft.
+    func refreshToneProfileIfStale() {
+        guard SystemLLM.isAvailable(), let historyStore else { return }
+        if let url = try? ToneProfile.toneFileURL(),
+           let mod = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+           Date().timeIntervalSince(mod) < 7 * 86_400 {
+            return   // still fresh
+        }
+        guard let entries = try? historyStore.fetchPage(offset: 0, limit: ToneProfile.sampleCap),
+              !entries.isEmpty else { return }
+        let digest = ToneProfile.buildDigest(from: entries)
+        guard !digest.isEmpty else { return }
+        let llm = systemLLM
+        Task {
+            guard let tone = try? await llm.polish(digest, style: Self.toneDistillStyle, targetLanguage: nil),
+                  !tone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let url = try? ToneProfile.toneFileURL() else { return }
+            try? tone.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     /// Runs the active style through the current backend; returns `original`
@@ -1554,6 +1634,7 @@ nonisolated enum SettingsKeys {
     static let memoryEnabled = "memoryEnabled"
     static let memoryPaused = "memoryPaused"
     static let memoryRetentionDays = "memoryRetentionDays"
+    static let memoryExcludedDomains = "memoryExcludedDomains"
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
     static let mcpAccessEnabled = "mcpAccessEnabled"
     static let engineKind = "engineKind"
