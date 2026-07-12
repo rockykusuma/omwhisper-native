@@ -78,21 +78,46 @@ private struct MeetingConsentView: View {
     let onDecision: (Bool) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Record this \(appName) call?")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Circle().fill(Color.omEmerald).frame(width: 8, height: 8)
+                Text("Record this \(appName) call?")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.omGlyphCore)
+            }
             Text("No response in \(Int(MeetingWatcherTiming.consentTimeout.components.seconds))s = don't record. Stays on this Mac.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.omGlyphCore.opacity(0.55))
             HStack {
                 Button("Not now") { onDecision(false) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.omGlyphCore.opacity(0.55))
                 Spacer()
-                Button("Record (\(secondsRemaining))") { onDecision(true) }
-                    .keyboardShortcut(.defaultAction)
+                Button { onDecision(true) } label: {
+                    Text("Record (\(secondsRemaining))")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(white: 0.03))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule().fill(
+                                LinearGradient(colors: [Color.omEmerald, Color.omTeal],
+                                               startPoint: .leading, endPoint: .trailing)
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(16)
         .frame(width: 320)
+        .background(Color.omBackground, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.omBorder.opacity(0.35), lineWidth: 1)
+        )
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
             if secondsRemaining > 0 { secondsRemaining -= 1 }
         }
