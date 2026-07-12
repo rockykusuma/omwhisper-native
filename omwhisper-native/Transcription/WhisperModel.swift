@@ -18,7 +18,7 @@ nonisolated enum WhisperModel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .base: "Base"
         case .small: "Small"
-        case .largeV3Turbo: "Large v3 Turbo"
+        case .largeV3Turbo: "Large v3"
         }
     }
 
@@ -26,19 +26,21 @@ nonisolated enum WhisperModel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .base: "~150 MB · fastest, lower accuracy"
         case .small: "~500 MB · balanced"
-        case .largeV3Turbo: "~630 MB · best accuracy, fast on Apple Silicon"
+        case .largeV3Turbo: "~950 MB · most accurate, best multilingual"
         }
     }
 
-    /// Exact `argmaxinc/whisperkit-coreml` variant folder name. For large-v3-turbo
-    /// use the device-blessed compressed build of the v20240930 (turbo) checkpoint —
-    /// the `_turbo`-suffixed variant is a separate extra-optimized build that isn't a
-    /// device default and produces empty output in WhisperKit 0.18.0.
+    /// Exact `argmaxinc/whisperkit-coreml` variant folder name. The `.largeV3Turbo`
+    /// case points at the FULL large-v3 build (compressed `_947MB`), WhisperKit's
+    /// flagship — the v20240930 "turbo" checkpoint returns empty output in both
+    /// WhisperKit 0.18.0 and 1.0.0 (base/small work; every turbo build/compute/
+    /// prefill/version combo produced text=""). Case name kept to avoid churning the
+    /// persisted UserDefaults value; the user-facing label is just "Large v3".
     static func whisperKitModelID(for model: WhisperModel) -> String {
         switch model {
         case .base: "openai_whisper-base"
         case .small: "openai_whisper-small"
-        case .largeV3Turbo: "openai_whisper-large-v3-v20240930_626MB"
+        case .largeV3Turbo: "openai_whisper-large-v3_947MB"
         }
     }
 
