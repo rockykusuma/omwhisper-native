@@ -56,7 +56,6 @@ enum HubSection: String, CaseIterable, Identifiable {
 
 struct HubShellView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selection: HubSection = .home
 
@@ -74,17 +73,6 @@ struct HubShellView: View {
         .frame(minWidth: 760, minHeight: 560)
         .porcelainWindow(colorScheme: appState.appearancePreference.colorScheme)
         .preferredColorScheme(appState.appearancePreference.colorScheme)
-    }
-
-    /// The scheme actually in effect: the explicit preference, or the live
-    /// system scheme when the preference is `.system`. Used for the Canvas orb,
-    /// which isn't token-driven so can't read the adaptive palette itself.
-    private var effectiveScheme: ColorScheme {
-        switch appState.appearancePreference {
-        case .system: colorScheme
-        case .light: .light
-        case .dark: .dark
-        }
     }
 
     private var sidebar: some View {
@@ -149,9 +137,8 @@ struct HubShellView: View {
     }
 
     private var brandRow: some View {
-        HStack(spacing: 10) {
-            OmOrbView(appState: appState, palette: effectiveScheme == .dark ? .dark : .porcelain)
-                .frame(width: 34, height: 34)
+        HStack(spacing: 11) {
+            OmBrandJewel(appState: appState, size: 38)
             VStack(alignment: .leading, spacing: 1) {
                 Text("OmWhisper")
                     .font(.system(size: 15, weight: .semibold))

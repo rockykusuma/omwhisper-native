@@ -201,6 +201,32 @@ extension View {
     }
 }
 
+// MARK: - OmBrandJewel
+
+/// The brand mark: the dark additive-light orb in a green-black well. Used in
+/// the hub sidebar and the menu-bar mini-panel. The dark ground is what makes
+/// the orb's ambient drift/breath legible — the Porcelain washes were
+/// near-invisible on the light surface. Always `.dark` regardless of app theme;
+/// the well delimits it even in Dark Mode. See docs/sidebar-brand-ideas.html.
+struct OmBrandJewel: View {
+    let appState: AppState
+    var size: CGFloat = 38
+
+    private var radius: CGFloat { size * 0.29 }   // 38→11, 40→11.6: same rounding
+
+    var body: some View {
+        OmOrbView(appState: appState, palette: .dark)
+            .frame(width: size, height: size)
+            .background(Color.omBackground)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(Color.omBorder.opacity(0.35), lineWidth: 1)
+            )
+            .shadow(color: Color.omBackground.opacity(0.35), radius: 2, y: 1)
+    }
+}
+
 // MARK: - NavRow
 
 /// One sidebar navigation row. `isSelected` drives the accent-tint fill and

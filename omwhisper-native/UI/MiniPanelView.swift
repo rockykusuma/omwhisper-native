@@ -25,7 +25,6 @@ nonisolated func miniPanelStateLine(for dictation: DictationState) -> String {
 
 struct MiniPanelView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.colorScheme) private var colorScheme
     // Fast CoreAudio HAL enumeration; the popover is rebuilt on every open, so
     // this refreshes each time without a background task.
     @State private var devices = AudioCapture.availableInputDevices()
@@ -50,20 +49,9 @@ struct MiniPanelView: View {
         .preferredColorScheme(appState.appearancePreference.colorScheme)
     }
 
-    /// The scheme actually in effect (explicit preference, or live system when
-    /// `.system`) — for the Canvas orb, which can't read the adaptive palette.
-    private var effectiveScheme: ColorScheme {
-        switch appState.appearancePreference {
-        case .system: colorScheme
-        case .light: .light
-        case .dark: .dark
-        }
-    }
-
     private var header: some View {
         HStack(spacing: 10) {
-            OmOrbView(appState: appState, palette: effectiveScheme == .dark ? .dark : .porcelain)
-                .frame(width: 40, height: 40)
+            OmBrandJewel(appState: appState, size: 40)
             VStack(alignment: .leading, spacing: 1) {
                 Text("OmWhisper")
                     .font(.system(size: 13, weight: .semibold))
