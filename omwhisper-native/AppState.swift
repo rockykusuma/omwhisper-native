@@ -886,23 +886,6 @@ final class AppState {
     }
 
     init() {
-        if !isRunningUnderTests {
-            hotkey.start()
-            pushToTalk.start()
-            smartDictationHotkey.start()
-            brainDumpHotkey.start()
-            polishSelectedTextHotkey.start()
-            parakeetEngine.setModel(parakeetModel)  // engine defaults to .v3; honor the persisted choice
-            whisperEngine.setModel(whisperModel)     // engine defaults to turbo; honor the persisted choice
-            whisperEngine.setLanguage(whisperLanguage)
-            if meetingsEnabled { meetingsEnabled = true }  // re-runs the setter's wiring/start path
-            if replyAssistEnabled { replyAssistEnabled = true }  // re-runs the setter's wiring/start path
-            if memoryEnabled { memoryEnabled = true }  // re-runs the setter's wiring/start path
-            if !PasteService.hasAccessibilityPermission() {
-                PasteService.requestAccessibilityPrompt()
-            }
-        }
-
         guard !isRunningUnderTests else {
             historyStore = nil
             memoryStore = nil
@@ -910,6 +893,13 @@ final class AppState {
             return
         }
 
+        // Open the stores FIRST. The feature-enable wiring further down (the
+        // meetings / reply-assist / memory setters) assigns these stores into
+        // their collaborators -- e.g. `memoryCapture.store = memoryStore`. This
+        // used to run BEFORE the stores were opened, so it captured nil and the
+        // capture daemon silently never wrote anything: the real cause of
+        // "memory records nothing after launch". It only worked when the user
+        // toggled the feature on at runtime (store already open, post-init).
         let appSupportDir = AppSupportDirectory.resolve()
 
         do {
@@ -945,6 +935,23 @@ final class AppState {
         } catch {
             log.error("init — MeetingStore failed to open: \(error)")
             meetingStore = nil
+        }
+
+        // Stores are open now -- start input monitors and re-run the enable
+        // setters, which wire the (now non-nil) stores into their daemons.
+        hotkey.start()
+        pushToTalk.start()
+        smartDictationHotkey.start()
+        brainDumpHotkey.start()
+        polishSelectedTextHotkey.start()
+        parakeetEngine.setModel(parakeetModel)  // engine defaults to .v3; honor the persisted choice
+        whisperEngine.setModel(whisperModel)     // engine defaults to turbo; honor the persisted choice
+        whisperEngine.setLanguage(whisperLanguage)
+        if meetingsEnabled { meetingsEnabled = true }  // re-runs the setter's wiring/start path
+        if replyAssistEnabled { replyAssistEnabled = true }  // re-runs the setter's wiring/start path
+        if memoryEnabled { memoryEnabled = true }  // re-runs the setter's wiring/start path
+        if !PasteService.hasAccessibilityPermission() {
+            PasteService.requestAccessibilityPrompt()
         }
     }
 

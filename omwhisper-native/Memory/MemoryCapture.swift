@@ -65,8 +65,18 @@ final class MemoryCapture {
 
     private func tick() {
         guard !isSuppressed(), let store else { return }
-        guard let snapshot = WindowSnapshotReader.captureFrontmost() else { return }
-        guard !Self.isDomainExcluded(url: snapshot.url, excludedDomains: excludedDomains) else { return }
+        // Silent nil here is the #1 reason "nothing was captured" -- most often a
+        // missing Accessibility grant (captureFrontmost can't read other apps'
+        // AX trees), which produces no error, just nil. Log it so the daemon is
+        // observable (`log stream --predicate 'category == "MemoryCapture"'`).
+        guard let snapshot = WindowSnapshotReader.captureFrontmost() else {
+            memoryLog.debug("tick — no snapshot (no focused window, excluded, empty text, or missing Accessibility permission)")
+            return
+        }
+        guard !Self.isDomainExcluded(url: snapshot.url, excludedDomains: excludedDomains) else {
+            memoryLog.debug("tick — skipped excluded domain")
+            return
+        }
 
         let content = String(snapshot.content.prefix(Self.maxContentLength))
         do {
@@ -74,6 +84,7 @@ final class MemoryCapture {
                 appName: snapshot.appName, bundleID: snapshot.bundleID, windowTitle: snapshot.windowTitle,
                 content: content, url: snapshot.url ?? ""
             )
+            memoryLog.debug("tick — captured \(snapshot.appName, privacy: .public)")
         } catch {
             memoryLog.error("tick — upsert failed: \(error)")
         }

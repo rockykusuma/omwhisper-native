@@ -21,6 +21,10 @@ struct HubMemorySectionView: View {
             settingsBar
             Divider()
             if state.memoryEnabled {
+                if !state.hasAccessibilityPermission {
+                    accessibilityBanner
+                    Divider()
+                }
                 MemoryView()
             } else {
                 disabledEmptyState
@@ -52,6 +56,31 @@ struct HubMemorySectionView: View {
             }
         }
         .padding(10)
+    }
+
+    // Memory capture reads the frontmost window via Accessibility; without the
+    // grant, captureFrontmost() silently returns nil and nothing is ever stored
+    // (the exact "nothing was captured" failure). Surface it -- the app can't
+    // prompt for Accessibility, only point the user to Settings.
+    private var accessibilityBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.shield")
+                .foregroundStyle(Color.Porcelain.mint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Accessibility needed to capture")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Color.Porcelain.ink)
+                Text("Memory reads the frontmost window's text via Accessibility. Until it's granted, nothing new is captured. Grant it, then relaunch OmWhisper.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
+            Spacer()
+            Button("Open Settings") { PasteService.openAccessibilitySettings() }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.Porcelain.mint)
+        }
+        .padding(10)
+        .background(Color.Porcelain.panel2)
     }
 
     private var disabledEmptyState: some View {
