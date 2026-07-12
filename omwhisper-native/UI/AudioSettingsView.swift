@@ -11,7 +11,11 @@ import SwiftUI
 
 struct AudioSettingsView: View {
     @Environment(AppState.self) private var appState
-    @State private var devices: [AudioInputDevice] = []
+    // Populated synchronously at init (CoreAudio HAL enumeration is fast) so the
+    // Picker's options exist on the first frame — otherwise the current selection
+    // has no matching tag yet and SwiftUI logs an "invalid selection" warning. The
+    // .task below refreshes off-main to catch hot-plugged devices.
+    @State private var devices = AudioCapture.availableInputDevices()
 
     var body: some View {
         @Bindable var state = appState
