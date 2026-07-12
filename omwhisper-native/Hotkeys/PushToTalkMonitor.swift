@@ -33,11 +33,19 @@ final class PushToTalkMonitor {
 
     private var globalMonitor: Any?
     private var localMonitor: Any?
-    private var isFunctionKeyDown = false
+    private var isKeyDown = false
+    private var key: PTTKey
 
-    init(onStart: @escaping () -> Void, onEnd: @escaping () -> Void) {
+    init(key: PTTKey = .fn, onStart: @escaping () -> Void, onEnd: @escaping () -> Void) {
+        self.key = key
         self.onStart = onStart
         self.onEnd = onEnd
+    }
+
+    /// Swap the PTT key and restart (start() stops first, resetting isKeyDown).
+    func reconfigure(key: PTTKey) {
+        self.key = key
+        start()
     }
 
     func start() {
@@ -70,13 +78,13 @@ final class PushToTalkMonitor {
         }
         globalMonitor = nil
         localMonitor = nil
-        isFunctionKeyDown = false
+        isKeyDown = false
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        let isDown = event.modifierFlags.contains(.function)
-        guard isDown != isFunctionKeyDown else { return }
-        isFunctionKeyDown = isDown
+        guard let isDown = key.pressState(keyCode: event.keyCode, flags: event.modifierFlags) else { return }
+        guard isDown != isKeyDown else { return }
+        isKeyDown = isDown
         if isDown {
             onStart()
         } else {

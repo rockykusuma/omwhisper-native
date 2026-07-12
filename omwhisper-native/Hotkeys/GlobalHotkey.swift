@@ -20,8 +20,8 @@ final class GlobalHotkey {
     /// kVK_ANSI_V — same virtual keycode PasteService uses to synthesize Cmd+V.
     static let vKeyCode: UInt16 = 9
 
-    private let keyCode: UInt16
-    private let modifiers: NSEvent.ModifierFlags
+    private var keyCode: UInt16
+    private var modifiers: NSEvent.ModifierFlags
     private let action: () -> Void
 
     private var globalMonitor: Any?
@@ -69,6 +69,13 @@ final class GlobalHotkey {
         }
         globalMonitor = nil
         localMonitor = nil
+    }
+
+    /// Swap the binding and restart (start() stops first). Live shortcut changes.
+    func reconfigure(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+        start()
     }
 
     private func handleIfMatch(_ event: NSEvent) {
