@@ -145,4 +145,27 @@ struct CloudEngineTests {
         #expect(BatchCloudTranscriber.config(for: .assemblyAI) == nil)
         #expect(BatchCloudTranscriber.config(for: .deepgram) == nil)
     }
+
+    // MARK: Deepgram
+
+    @Test("Deepgram connectionURL has the right host/params; omits language when auto")
+    func deepgramURL() {
+        let url = DeepgramProvider.connectionURL(language: "auto")
+        #expect(url.host == "api.deepgram.com" && url.path == "/v1/listen")
+        let q = url.query ?? ""
+        #expect(q.contains("model=nova-3") && q.contains("encoding=linear16") && q.contains("sample_rate=16000"))
+        #expect(!q.contains("language="))
+        #expect(DeepgramProvider.connectionURL(language: "te").query?.contains("language=te") == true)
+    }
+
+    @Test("Deepgram parseResult maps is_final and skips empty/malformed")
+    func deepgramParse() {
+        let final = Data(#"{"channel":{"alternatives":[{"transcript":"hello"}]},"is_final":true}"#.utf8)
+        #expect(DeepgramProvider.parseResult(final) == .final("hello"))
+        let partial = Data(#"{"channel":{"alternatives":[{"transcript":"hel"}]},"is_final":false}"#.utf8)
+        #expect(DeepgramProvider.parseResult(partial) == .partial("hel"))
+        let empty = Data(#"{"channel":{"alternatives":[{"transcript":""}]},"is_final":true}"#.utf8)
+        #expect(DeepgramProvider.parseResult(empty) == nil)
+        #expect(DeepgramProvider.parseResult(Data("nope".utf8)) == nil)
+    }
 }
