@@ -41,20 +41,18 @@ struct HubMeetingsSectionView: View {
             .tint(Color.Porcelain.emerald)
             .foregroundStyle(Color.Porcelain.ink)
             Spacer()
-            if state.meetingsEnabled {
-                Button { state.toggleMeetingRecording() } label: {
-                    HStack(spacing: 6) {
-                        if state.isRecordingMeeting {
-                            Circle().fill(.red).frame(width: 8, height: 8)
-                            Text("Stop recording")
-                        } else {
-                            Image(systemName: "waveform")
-                            Text("Start recording")
-                        }
+            Button { state.toggleMeetingRecording() } label: {
+                HStack(spacing: 6) {
+                    if state.isRecordingMeeting {
+                        Circle().fill(.red).frame(width: 8, height: 8)
+                        Text("Stop recording")
+                    } else {
+                        Image(systemName: "waveform")
+                        Text("Start recording")
                     }
                 }
-                .tint(Color.Porcelain.emerald)
             }
+            .tint(Color.Porcelain.emerald)
         }
         .padding(12)
     }

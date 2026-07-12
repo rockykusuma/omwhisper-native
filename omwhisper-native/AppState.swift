@@ -120,8 +120,15 @@ final class AppState {
     /// nil = system default input. AVCaptureDevice.uniqueID, not a display name
     /// (the old app matched by name, which breaks for two identical mic models).
     var audioInputDeviceUID: String? {
-        get { UserDefaults.standard.string(forKey: SettingsKeys.audioInputDeviceUID) }
-        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.audioInputDeviceUID) }
+        get {
+            access(keyPath: \.audioInputDeviceUID)
+            return UserDefaults.standard.string(forKey: SettingsKeys.audioInputDeviceUID)
+        }
+        set {
+            withMutation(keyPath: \.audioInputDeviceUID) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.audioInputDeviceUID)
+            }
+        }
     }
     var customVocabulary: [String] {
         get {
@@ -331,7 +338,7 @@ final class AppState {
     /// showing .recording with no audio actually flowing.
     private func beginRecording(appName: String) {
         do {
-            try meetingRecorder.start(appName: appName)
+            try meetingRecorder.start(appName: appName, preferredMicUID: audioInputDeviceUID)
             meetingStartedAt = Date()
             meetingAppName = appName
             isRecordingMeeting = true
@@ -349,12 +356,12 @@ final class AppState {
         recordFinishedMeeting()
     }
 
-    /// User-initiated start/stop, available anytime meetingsEnabled is on
-    /// (records system audio + mic regardless of whether a call is detected).
-    /// Coordinates with the watcher so the 2s poll and this manual session don't
-    /// fight. Clicking record IS the consent — no consent panel here.
+    /// User-initiated start/stop, available anytime (records system audio + mic
+    /// on demand — independent of the meetingsEnabled auto-detect toggle, which
+    /// only governs automatic call detection + the consent prompt). The watcher-
+    /// coordination calls are harmless no-ops when the watcher isn't running.
+    /// Clicking record IS the consent — no consent panel here.
     func toggleMeetingRecording() {
-        guard meetingsEnabled else { return }
         if isRecordingMeeting {
             meetingWatcher.markDeclined()
             Task { await endRecording() }

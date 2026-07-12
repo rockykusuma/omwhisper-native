@@ -182,7 +182,7 @@ final class AudioCapture {
     // AudioUnit's kAudioOutputUnitProperty_CurrentDevice, set before the engine
     // starts (the node's format/channel count depend on the selected device).
 
-    nonisolated private static func coreAudioDeviceID(forUID uid: String) -> AudioDeviceID? {
+    nonisolated static func coreAudioDeviceID(forUID uid: String) -> AudioDeviceID? {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,

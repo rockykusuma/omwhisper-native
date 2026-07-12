@@ -96,10 +96,18 @@ final class MeetingRecorder: @unchecked Sendable {
         state.withLock { $0.meetingDirectory }
     }
 
-    nonisolated func start(appName: String) throws {
+    /// `preferredMicUID` — the app's selected input device (from the Audio settings
+    /// / menu-bar mic picker). Falls back to the system default when nil or the UID
+    /// no longer resolves (e.g. the device was unplugged).
+    nonisolated func start(appName: String, preferredMicUID: String? = nil) throws {
         let dir = try Self.makeMeetingDirectory(appName: appName)
 
-        let micDeviceID = try Self.defaultInputDeviceID()
+        let micDeviceID: AudioDeviceID
+        if let preferredMicUID, let resolved = AudioCapture.coreAudioDeviceID(forUID: preferredMicUID) {
+            micDeviceID = resolved
+        } else {
+            micDeviceID = try Self.defaultInputDeviceID()
+        }
         let micUID = try Self.deviceUID(of: micDeviceID)
 
         let ownProcessID = try Self.ownProcessObjectID()
