@@ -31,16 +31,18 @@ nonisolated enum WhisperModel: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Exact `argmaxinc/whisperkit-coreml` variant folder name. `.largeV3Turbo` uses
-    /// WhisperKit's OWN pruned turbo of large-v3 (`large-v3_turbo_954MB`) — faster
-    /// decoding than the full 32-layer large-v3, and, unlike OpenAI's v20240930 turbo
-    /// checkpoint (which returned empty output in every 0.18.0/1.0.0 config we tried),
-    /// it's a WhisperKit-built model. Case name kept so the persisted UserDefaults
-    /// selection isn't churned; the user-facing label is just "Large v3".
+    /// the FULL large-v3 build (`_947MB`), WhisperKit's flagship — chosen for
+    /// RELIABILITY. Two turbo builds were tried and rejected: OpenAI's v20240930
+    /// checkpoint returned empty output in every 0.18.0/1.0.0 config, and WhisperKit's
+    /// own pruned `large-v3_turbo` transcribed but inconsistently (pruning trades
+    /// robustness for speed — it drops some utterances). The full model is slower but
+    /// dependable, which matters more for dictation. Case name kept so the persisted
+    /// UserDefaults selection isn't churned; the user-facing label is just "Large v3".
     static func whisperKitModelID(for model: WhisperModel) -> String {
         switch model {
         case .base: "openai_whisper-base"
         case .small: "openai_whisper-small"
-        case .largeV3Turbo: "openai_whisper-large-v3_turbo_954MB"
+        case .largeV3Turbo: "openai_whisper-large-v3_947MB"
         }
     }
 
