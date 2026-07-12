@@ -49,18 +49,76 @@ final class AudioCapture {
 
     /// For the Audio settings picker — persistent UIDs, not just names (the old
     /// Tauri app matched on name alone, which breaks for two same-model mics).
+    /// Enumerate input devices via the CoreAudio HAL, NOT
+    /// AVCaptureDevice.DiscoverySession — the latter cold-starts AVFoundation's
+    /// whole capture stack (camera CMIO DAL included) on first use, a multi-second
+    /// stall on the Audio settings tab. The HAL touches only audio and is fast.
+    /// UIDs here match the CoreAudio UIDs `coreAudioDeviceID(forUID:)` resolves.
     nonisolated static func availableInputDevices() -> [AudioInputDevice] {
-        AVCaptureDevice.DiscoverySession(deviceTypes: [.microphone], mediaType: .audio, position: .unspecified)
-            .devices
-            .map { AudioInputDevice(uid: $0.uniqueID, name: $0.localizedName) }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize) == noErr else {
+            return []
+        }
+        let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize, &deviceIDs) == noErr else {
+            return []
+        }
+        return deviceIDs.compactMap { deviceID in
+            guard deviceHasInput(deviceID),
+                  let uid = stringProperty(deviceID, kAudioDevicePropertyDeviceUID),
+                  let name = stringProperty(deviceID, kAudioObjectPropertyName)
+            else { return nil }
+            return AudioInputDevice(uid: uid, name: name)
+        }
     }
 
-    /// Async wrapper so the first (slow) DiscoverySession call runs off MainActor —
-    /// AVFoundation's capture stack initializes lazily on first use and can block
-    /// for a second or more, freezing the Audio settings tab on open. `nonisolated
-    /// async` runs on the cooperative pool, not the caller's actor.
+    /// Async wrapper so enumeration runs off MainActor. `nonisolated async` runs on
+    /// the cooperative pool, not the caller's actor — keeps the settings tab from
+    /// stuttering even on a busy system.
     nonisolated static func loadInputDevices() async -> [AudioInputDevice] {
         availableInputDevices()
+    }
+
+    /// True if the device exposes at least one input channel (mic-capable).
+    nonisolated private static func deviceHasInput(_ deviceID: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr, size > 0 else {
+            return false
+        }
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { raw.deallocate() }
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, raw) == noErr else {
+            return false
+        }
+        let bufferList = UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
+        return bufferList.contains { $0.mNumberChannels > 0 }
+    }
+
+    /// Read a CFString device property (UID / name) via the HAL.
+    nonisolated private static func stringProperty(_ deviceID: AudioDeviceID, _ selector: AudioObjectPropertySelector) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = withUnsafeMutablePointer(to: &value) {
+            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, $0)
+        }
+        guard status == noErr, let value else { return nil }
+        return value.takeRetainedValue() as String
     }
 
     /// nil/not-found preferredDeviceUID falls back to the system default input —
