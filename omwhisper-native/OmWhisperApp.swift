@@ -179,16 +179,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateIcon() {
-        // TODO(M2): swap for the ॐ template icon. Deliberately NOT a mic glyph —
-        // indistinguishable from the system mic indicator in the menu bar.
-        let name: String = switch appState.dictation {
-        case .idle: "waveform"
-        case .starting, .recording: "waveform.circle.fill"
-        case .finalizing: "waveform.circle"
-        }
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: "OmWhisper")
-        image?.isTemplate = true
-        statusItem?.button?.image = image
+        // The committed ॐ vector (OmGlyph) — never the U+0950 font glyph, which
+        // renders differently per machine (design rule). Idle = template (adapts
+        // black/white to the menu bar); active = emerald, so recording/dictation
+        // is visible at a glance without opening the panel.
+        let active = appState.isRecordingMeeting || appState.dictation != .idle
+        statusItem?.button?.image = omStatusImage(active: active)
+    }
+
+    private func omStatusImage(active: Bool) -> NSImage? {
+        let pointSize: CGFloat = 18
+        let renderer = ImageRenderer(content:
+            OmGlyph()
+                .fill(active ? Color.omEmerald : Color.black)
+                .frame(width: pointSize, height: pointSize)
+        )
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        guard let image = renderer.nsImage else { return nil }
+        image.isTemplate = !active   // template only when monochrome; emerald stays emerald
+        return image
     }
 
     // MARK: Dev-tools menu (DEBUG only)
