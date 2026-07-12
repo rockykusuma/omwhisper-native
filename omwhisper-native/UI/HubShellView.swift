@@ -14,7 +14,7 @@
 import SwiftUI
 
 enum HubSection: String, CaseIterable, Identifiable {
-    case home, history, meetings, vocabulary, aiPolish, replyAssist, memory, settings
+    case home, history, meetings, vocabulary, aiPolish, brainDump, replyAssist, memory, settings
 
     var id: String { rawValue }
 
@@ -31,6 +31,7 @@ enum HubSection: String, CaseIterable, Identifiable {
         case .meetings: "Meetings"
         case .vocabulary: "Vocabulary"
         case .aiPolish: "AI Polish"
+        case .brainDump: "Brain-dump"
         case .replyAssist: "Reply Assist"
         case .memory: "Memory"
         case .settings: "Settings"
@@ -44,6 +45,7 @@ enum HubSection: String, CaseIterable, Identifiable {
         case .meetings: "person.2"
         case .vocabulary: "textformat.abc"
         case .aiPolish: "sparkles"
+        case .brainDump: "list.bullet.rectangle"
         case .replyAssist: "text.bubble"
         case .memory: "brain"
         case .settings: "gearshape"
@@ -172,6 +174,7 @@ struct HubShellView: View {
         case .meetings: HubMeetingsSectionView()
         case .vocabulary: VocabularySettingsView()
         case .aiPolish: AISettingsView()
+        case .brainDump: HubBrainDumpSectionView()
         case .replyAssist: ReplyAssistSettingsView()
         case .memory: HubMemorySectionView()
         case .settings: SettingsView()

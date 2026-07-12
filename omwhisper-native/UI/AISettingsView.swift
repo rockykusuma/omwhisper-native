@@ -18,8 +18,6 @@ struct AISettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var newStyleName = ""
     @State private var newStylePrompt = ""
-    @State private var newShapeName = ""
-    @State private var newShapePrompt = ""
     @State private var ollamaReachable: Bool?
     @State private var ollamaModels: [String] = []
     @State private var ollamaChecking = false
@@ -168,34 +166,6 @@ struct AISettingsView: View {
                         .disabled(trimmed(newStyleName).isEmpty || trimmed(newStylePrompt).isEmpty)
                 }
             }
-
-            PorcelainSection(eyebrow: "Brain-dump") {
-                Picker("Default shape", selection: $state.activeBrainDumpShapeID) {
-                    ForEach(BrainDumpShapes.all(customShapes: state.brainDumpShapes)) { shape in
-                        Text(shape.name).tag(shape.id)
-                    }
-                }
-                .tint(Color.Porcelain.emerald)
-                ForEach(state.brainDumpShapes) { shape in
-                    HStack {
-                        Text(shape.name).foregroundStyle(Color.Porcelain.ink)
-                        Spacer()
-                        Button { removeShape(shape) } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(Color.Porcelain.dim)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Delete \(shape.name)")
-                    }
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Shape name", text: $newShapeName).porcelainField()
-                    TextField("Prompt", text: $newShapePrompt, axis: .vertical)
-                        .porcelainField()
-                        .lineLimit(2...4)
-                    Button("Add Shape", action: addShape)
-                        .disabled(trimmed(newShapeName).isEmpty || trimmed(newShapePrompt).isEmpty)
-                }
-            }
         }
         .task { cloudHasSavedKey = Keychain.loadCloudLLMKey() != nil }
     }
@@ -257,23 +227,6 @@ struct AISettingsView: View {
         // activePolishStyleID would otherwise point at a style that no longer exists.
         if appState.activePolishStyleID == style.id {
             appState.activePolishStyleID = PolishStyles.builtIns[6].id
-        }
-    }
-
-    private func addShape() {
-        let name = trimmed(newShapeName)
-        let prompt = trimmed(newShapePrompt)
-        guard !name.isEmpty, !prompt.isEmpty else { return }
-        appState.brainDumpShapes.append(PolishStyle(id: UUID(), name: name, prompt: prompt, isBuiltIn: false))
-        newShapeName = ""
-        newShapePrompt = ""
-    }
-
-    private func removeShape(_ shape: PolishStyle) {
-        appState.brainDumpShapes.removeAll { $0.id == shape.id }
-        // Fall back to the first built-in if the removed shape was active.
-        if appState.activeBrainDumpShapeID == shape.id {
-            appState.activeBrainDumpShapeID = BrainDumpShapes.builtIns[0].id
         }
     }
 }
