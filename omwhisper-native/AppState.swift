@@ -787,7 +787,7 @@ final class AppState {
     /// Set right after audioCapture.start() succeeds; read at stop to compute the
     /// session duration recorded in history, and to time the start-to-first-partial
     /// latency log. Cleared at the end of every stopDictation().
-    private var recordingStartedAt: ContinuousClock.Instant?
+    private(set) var recordingStartedAt: ContinuousClock.Instant?
 
     /// Fired the instant dictation=.starting is claimed (S2 context-aware
     /// dictation), concurrently with permission checks/audioCapture.start() so

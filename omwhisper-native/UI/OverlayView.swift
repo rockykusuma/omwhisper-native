@@ -139,7 +139,11 @@ private struct FullStyleOverlay: View {
                         .tracking(0.9)
                         .foregroundStyle(labelColor)
                 }
-                transcriptZone
+                if appState.sessionMode == .brainDump, appState.dictation == .recording {
+                    brainDumpZone
+                } else {
+                    transcriptZone
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -171,6 +175,18 @@ private struct FullStyleOverlay: View {
             .truncationMode(.head)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: appState.finalizedTranscript)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: appState.volatileTranscript)
+    }
+
+    // Relaxed brain-dump readout — word count + elapsed, not a transcript to watch.
+    private var brainDumpZone: some View {
+        let words = (appState.finalizedTranscript + " " + appState.volatileTranscript)
+            .split(whereSeparator: { $0.isWhitespace }).count
+        return TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let secs = appState.recordingStartedAt.map { Int($0.duration(to: .now).components.seconds) } ?? 0
+            Text("\(words) words · \(secs / 60):\(String(format: "%02d", secs % 60))")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color.omGlyphCore)
+        }
     }
 }
 
