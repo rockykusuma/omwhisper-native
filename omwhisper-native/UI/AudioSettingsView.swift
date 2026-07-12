@@ -11,7 +11,7 @@ import SwiftUI
 
 struct AudioSettingsView: View {
     @Environment(AppState.self) private var appState
-    @State private var devices = AudioCapture.availableInputDevices()
+    @State private var devices: [AudioInputDevice] = []
 
     var body: some View {
         @Bindable var state = appState
@@ -43,7 +43,7 @@ struct AudioSettingsView: View {
                 .disabled(!state.soundEnabled)
             }
         }
-        .onAppear { devices = AudioCapture.availableInputDevices() }
+        .task { devices = await AudioCapture.loadInputDevices() }
     }
 }
 

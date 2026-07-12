@@ -55,6 +55,14 @@ final class AudioCapture {
             .map { AudioInputDevice(uid: $0.uniqueID, name: $0.localizedName) }
     }
 
+    /// Async wrapper so the first (slow) DiscoverySession call runs off MainActor —
+    /// AVFoundation's capture stack initializes lazily on first use and can block
+    /// for a second or more, freezing the Audio settings tab on open. `nonisolated
+    /// async` runs on the cooperative pool, not the caller's actor.
+    nonisolated static func loadInputDevices() async -> [AudioInputDevice] {
+        availableInputDevices()
+    }
+
     /// nil/not-found preferredDeviceUID falls back to the system default input —
     /// same semantics as the old app (`audio_input_device: None`).
     nonisolated func start(preferredDeviceUID: String? = nil) throws -> AsyncStream<AVAudioPCMBuffer> {
