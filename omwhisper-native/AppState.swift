@@ -62,6 +62,9 @@ nonisolated enum OverlayPhase: Equatable {
     case cancelled
 }
 
+/// What a dictation session does with its text on stop.
+nonisolated enum SessionMode { case normal, smart, brainDump }
+
 @MainActor
 @Observable
 final class AppState {
@@ -760,7 +763,9 @@ final class AppState {
     /// Set at the start of a session in beginSmartDictation()/toggleDictation(),
     /// read in stopDictation() to decide whether to run polish before pasting.
     /// Reset alongside the other per-session flags at the end of stopDictation().
-    private var isSmartDictationSession = false
+    /// The current dictation session's mode — drives what stopDictation does with
+    /// the text and what the overlay renders. private(set) so the overlay observes it.
+    private(set) var sessionMode: SessionMode = .normal
 
     /// Per-app-launch, not persisted — the Foundation-Models-unavailable nudge
     /// (errorMessage) only needs to fire once per run, not every polish attempt.
@@ -884,24 +889,24 @@ final class AppState {
     // MARK: Actions
 
     func toggleDictation() {
-        toggleOrStop(smart: false)
+        toggleOrStop(mode: .normal)
     }
 
     /// Cmd+Shift+B — identical to toggleDictation() except it flags the session
     /// as smart, so stopDictation() runs the active polish style before pasting.
     /// Toggle-style, like Cmd+Shift+V — no separate PTT variant for this one.
     func beginSmartDictation() {
-        toggleOrStop(smart: true)
+        toggleOrStop(mode: .smart)
     }
 
-    private func toggleOrStop(smart: Bool) {
+    private func toggleOrStop(mode: SessionMode) {
         switch dictation {
         case .idle:
             // Claim the state synchronously (before any await) so a second fast
             // toggle can't pass startDictation's guard and double-start.
             overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
             pttPressedAt = nil   // toggle has no "hold" concept — never inherit a stale PTT timestamp
-            isSmartDictationSession = smart
+            sessionMode = mode
             dictation = .starting
             sessionOverlayStyle = overlayStyle
             overlay.show(appState: self)   // instant — warming look, before any permission/capture work
@@ -923,6 +928,7 @@ final class AppState {
         overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
         stopRequestedWhilePTTStarting = false
         pttPressedAt = .now
+        sessionMode = .normal   // PTT is always normal dictation — never inherit a stale mode
         dictation = .starting
         sessionOverlayStyle = overlayStyle
         overlay.show(appState: self)   // instant — warming look, before any permission/capture work
@@ -1133,7 +1139,7 @@ final class AppState {
             SoundPlayer.play(.stop, volume: Float(soundVolume))
         }
 
-        if phase == .pasting, isSmartDictationSession, !Self.tooShortForPolish(text) {
+        if phase == .pasting, sessionMode == .smart, !Self.tooShortForPolish(text) {
             overlayPhase = .polishing
             text = await polishedText(for: text)
             overlayPhase = phase
@@ -1168,7 +1174,7 @@ final class AppState {
         pttPressedAt = nil
         recordingStartedAt = nil
         contextCaptureTask = nil
-        isSmartDictationSession = false
+        sessionMode = .normal
         onboardingDemoActive = false   // demo bracket ends with the session (set on .recording in TryItStep)
         await finishOverlayExit(exitDuration(for: phase))
     }
