@@ -128,14 +128,6 @@ nonisolated final class ParakeetEngine: TranscriptionEngine {
         return models
     }
 
-    /// Pure: FluidAudio's isConfirmed flag maps directly onto this app's
-    /// .final/.partial contract. Takes primitives, not the FluidAudio
-    /// SlidingWindowTranscriptionUpdate struct, so this stays testable without
-    /// linking FluidAudio into the test target (it's app-target-only).
-    static func mapUpdate(isConfirmed: Bool, text: String) -> TranscriptEvent {
-        isConfirmed ? .final(text) : .partial(text)
-    }
-
     // nonisolated: this does real ASR work and must not run pinned to MainActor,
     // matching AppleEngine's own isolation.
     nonisolated func transcribe(
@@ -170,10 +162,18 @@ nonisolated final class ParakeetEngine: TranscriptionEngine {
 
                 // Read transcriptionUpdates AFTER startStreaming (FluidAudio's own
                 // canonical order); no audio has been fed yet, so no update is missed.
+                //
+                // Every streaming update is yielded as a VOLATILE .partial (live
+                // display only). SlidingWindowAsrManager emits PER-WINDOW text over
+                // OVERLAPPING windows and de-overlaps them internally; the single
+                // authoritative, de-overlapped transcript is finish()'s return value.
+                // Mapping confirmed updates to .final (which AppState APPENDS) AND
+                // then appending finish()'s full text pasted the transcript twice
+                // (and would mis-join at window boundaries on longer dictations).
                 let updates = await manager.transcriptionUpdates
                 let updatesTask = Task {
                     for await update in updates {
-                        continuation.yield(Self.mapUpdate(isConfirmed: update.isConfirmed, text: update.text))
+                        continuation.yield(.partial(update.text))
                     }
                 }
 
