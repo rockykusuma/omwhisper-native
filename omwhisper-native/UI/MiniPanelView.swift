@@ -37,6 +37,7 @@ struct MiniPanelView: View {
             recordMeetingButton
             microphoneRow
             styleRow
+            brainDumpRow
             if !appState.hasAccessibilityPermission {
                 accessibilityRow
             }
@@ -121,6 +122,27 @@ struct MiniPanelView: View {
                 }
             }
             .font(.system(size: 11.5))
+        }
+    }
+
+    // Ramble → structured shape. The dropdown sets the active shape; Start begins
+    // a brain-dump (⌘⇧D does the same without opening the panel).
+    private var brainDumpRow: some View {
+        HStack {
+            Text("Brain-dump")
+                .font(.system(size: 11.5))
+                .foregroundStyle(Color.Porcelain.dim)
+            Menu(appState.activeBrainDumpShape?.name ?? "—") {
+                ForEach(BrainDumpShapes.all(customShapes: appState.brainDumpShapes)) { shape in
+                    Button(shape.name) { appState.activeBrainDumpShapeID = shape.id }
+                }
+            }
+            .font(.system(size: 11.5))
+            Spacer()
+            Button("Start") { appState.beginBrainDump() }
+                .font(.system(size: 11.5))
+                .foregroundStyle(Color.Porcelain.mint)
+                .buttonStyle(.plain)
         }
     }
 
