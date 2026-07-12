@@ -290,6 +290,38 @@ final class AppState {
             }
         }
     }
+
+    // MARK: Custom dictation triggers
+    var dictationShortcut: KeyCombo {
+        get {
+            access(keyPath: \.dictationShortcut)
+            guard let data = UserDefaults.standard.data(forKey: SettingsKeys.dictationShortcut),
+                  let combo = try? JSONDecoder().decode(KeyCombo.self, from: data) else {
+                return .defaultDictation
+            }
+            return combo
+        }
+        set {
+            withMutation(keyPath: \.dictationShortcut) {
+                UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.dictationShortcut)
+            }
+            hotkey.reconfigure(keyCode: newValue.keyCode, modifiers: newValue.flags)
+        }
+    }
+    var pttKey: PTTKey {
+        get {
+            access(keyPath: \.pttKey)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.pttKey),
+                  let k = PTTKey(rawValue: raw) else { return .fn }
+            return k
+        }
+        set {
+            withMutation(keyPath: \.pttKey) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.pttKey)
+            }
+            pushToTalk.reconfigure(key: newValue)
+        }
+    }
     /// Off by default — every Smriti-derived feature in this project ships off
     /// by default. Reads the frontmost window's visible text at dictation start
     /// to bias engine vocabulary; nothing is stored. See S2 design spec.
@@ -722,12 +754,13 @@ final class AppState {
     // @Observable can't instrument a `lazy` stored property (it rewrites stored
     // vars into computed ones). lazy is needed because the initializer captures self.
     @ObservationIgnored private lazy var hotkey = GlobalHotkey(
-        keyCode: GlobalHotkey.vKeyCode,
-        modifiers: [.command, .shift]
+        keyCode: dictationShortcut.keyCode,
+        modifiers: dictationShortcut.flags
     ) { [weak self] in
         self?.toggleDictation()
     }
     @ObservationIgnored private lazy var pushToTalk = PushToTalkMonitor(
+        key: pttKey,
         onStart: { [weak self] in self?.beginPushToTalk() },
         onEnd: { [weak self] in self?.endPushToTalk() }
     )
@@ -1505,6 +1538,8 @@ nonisolated enum SettingsKeys {
     static let customPolishStyles = "customPolishStyles"
     static let activeBrainDumpShapeID = "activeBrainDumpShapeID"
     static let brainDumpShapes = "brainDumpShapes"
+    static let dictationShortcut = "dictationShortcut"
+    static let pttKey = "pttKey"
     static let soundEnabled = "soundEnabled"
     static let soundVolume = "soundVolume"
     static let audioInputDeviceUID = "audioInputDeviceUID"
