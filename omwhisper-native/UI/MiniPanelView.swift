@@ -7,7 +7,8 @@
 //  See docs/DESIGN_DIRECTION.md §3 and docs/hub-concept.html's minipanel
 //  mockup. Rebuilt fresh on every open (AppDelegate.togglePopover) so it
 //  always reflects current state -- same principle menuNeedsUpdate already
-//  uses for the traditional menu.
+//  uses for the traditional menu. The panel is meeting-recording-first: the
+//  primary action records a meeting; dictation is driven by the hotkey/PTT.
 //
 
 import SwiftUI
@@ -25,21 +26,17 @@ nonisolated func miniPanelStateLine(for dictation: DictationState) -> String {
 struct MiniPanelView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.colorScheme) private var colorScheme
-    @State private var lastEntry: TranscriptionEntry?
-    @State private var copied = false
+    // Fast CoreAudio HAL enumeration; the popover is rebuilt on every open, so
+    // this refreshes each time without a background task.
+    @State private var devices = AudioCapture.availableInputDevices()
     let onOpenHub: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
-            startStopButton
+            recordMeetingButton
+            microphoneRow
             styleRow
-            if appState.meetingsEnabled {
-                meetingRecordRow
-            }
-            if let lastEntry {
-                lastTranscriptionCard(lastEntry)
-            }
             if !appState.hasAccessibilityPermission {
                 accessibilityRow
             }
@@ -50,7 +47,6 @@ struct MiniPanelView: View {
         .frame(width: 270)
         .background(Color.Porcelain.bg)
         .preferredColorScheme(appState.appearancePreference.colorScheme)
-        .task { load() }
     }
 
     /// The scheme actually in effect (explicit preference, or live system when
@@ -71,21 +67,35 @@ struct MiniPanelView: View {
                 Text("OmWhisper")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.Porcelain.ink)
-                Text(miniPanelStateLine(for: appState.dictation))
+                Text(statusLine)
                     .font(.system(size: 10.5))
                     .foregroundStyle(Color.Porcelain.dim)
             }
         }
     }
 
-    private var startStopButton: some View {
+    // Meeting recording is the panel's primary action, so it leads the status
+    // line; otherwise reflect dictation state (driven by the hotkey/PTT).
+    private var statusLine: String {
+        appState.isRecordingMeeting ? "Recording meeting…" : miniPanelStateLine(for: appState.dictation)
+    }
+
+    private var recordMeetingButton: some View {
         Button {
-            appState.toggleDictation()
+            appState.toggleMeetingRecording()
         } label: {
-            Text(appState.dictation == .idle ? "Start Dictating" : "Stop")
-                .font(.system(size: 13.5, weight: .semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+            HStack(spacing: 8) {
+                if appState.isRecordingMeeting {
+                    Circle().fill(.white).frame(width: 8, height: 8)
+                    Text("Stop recording")
+                } else {
+                    Image(systemName: "waveform")
+                    Text("Record meeting")
+                }
+            }
+            .font(.system(size: 13.5, weight: .semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)
@@ -93,6 +103,30 @@ struct MiniPanelView: View {
             LinearGradient(colors: [Color.Porcelain.emerald, Color.Porcelain.teal], startPoint: .leading, endPoint: .trailing)
         )
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    // Quick mic override, in case the right device isn't auto-selected. Bound to
+    // the same audioInputDeviceUID the Audio settings tab uses — applies to both
+    // dictation and meeting recording. "System Default" clears the override.
+    private var microphoneRow: some View {
+        HStack {
+            Text("Microphone")
+                .font(.system(size: 11.5))
+                .foregroundStyle(Color.Porcelain.dim)
+            Spacer()
+            Menu(selectedMicName) {
+                Button("System Default") { appState.audioInputDeviceUID = nil }
+                ForEach(devices) { device in
+                    Button(device.name) { appState.audioInputDeviceUID = device.uid }
+                }
+            }
+            .font(.system(size: 11.5))
+        }
+    }
+
+    private var selectedMicName: String {
+        guard let uid = appState.audioInputDeviceUID else { return "System Default" }
+        return devices.first(where: { $0.uid == uid })?.name ?? "System Default"
     }
 
     // ponytail: DESIGN_DIRECTION.md §3 specs "click = cycle, right-click =
@@ -114,46 +148,6 @@ struct MiniPanelView: View {
             }
             .font(.system(size: 11.5))
         }
-    }
-
-    // Distinct from the big "Start Dictating" gradient button above — dictation
-    // and meeting recording are different actions. A ghost row, shown only when
-    // meeting detection is enabled.
-    private var meetingRecordRow: some View {
-        Button { appState.toggleMeetingRecording() } label: {
-            HStack(spacing: 6) {
-                if appState.isRecordingMeeting {
-                    Circle().fill(.red).frame(width: 7, height: 7)
-                    Text("Stop recording")
-                } else {
-                    Image(systemName: "waveform").font(.system(size: 11))
-                    Text("Record meeting")
-                }
-                Spacer()
-            }
-            .font(.system(size: 12))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(appState.isRecordingMeeting ? Color.Porcelain.ink : Color.Porcelain.dim)
-    }
-
-    private func lastTranscriptionCard(_ entry: TranscriptionEntry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(entry.text)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.Porcelain.ink)
-                .lineLimit(2)
-            Button(copied ? "Copied" : "Copy") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(entry.text, forType: .string)
-                copied = true
-            }
-            .font(.system(size: 10.5))
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.Porcelain.mint)
-        }
-        .padding(10)
-        .omCard()
     }
 
     // Shown only while Accessibility is missing (so auto-paste can't work). This
@@ -192,10 +186,6 @@ struct MiniPanelView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Color.Porcelain.dim)
         }
-    }
-
-    private func load() {
-        lastEntry = try? appState.historyStore?.fetchPage(offset: 0, limit: 1).first
     }
 }
 
