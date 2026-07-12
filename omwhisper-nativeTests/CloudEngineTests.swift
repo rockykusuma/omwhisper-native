@@ -100,4 +100,49 @@ struct CloudEngineTests {
         #expect(CloudProviderKind.assemblyAI.isStreaming)
         #expect(!CloudProviderKind.groq.isStreaming)
     }
+
+    // MARK: Batch transcriber
+
+    @Test("pcmToWav emits a valid 44-byte WAV header + payload")
+    func wavHeader() {
+        let wav = BatchCloudTranscriber.pcmToWav(int16: [1, -1, 100], sampleRate: 16000)
+        #expect(wav.count == 44 + 3 * 2)                       // header + 3 samples
+        #expect(wav.prefix(4) == Data("RIFF".utf8))
+        #expect(wav[8..<12] == Data("WAVE".utf8))
+        #expect(wav[36..<40] == Data("data".utf8))
+    }
+
+    @Test("multipartBody carries model field, language, and the file part")
+    func multipart() {
+        let cfg = BatchCloudTranscriber.groq()
+        let body = BatchCloudTranscriber.multipartBody(wav: Data([0, 0]), config: cfg, language: "te", boundary: "B")
+        let s = String(decoding: body, as: UTF8.self)
+        #expect(s.contains("name=\"model\"") && s.contains("whisper-large-v3-turbo"))
+        #expect(s.contains("name=\"language\"") && s.contains("te"))
+        #expect(s.contains("filename=\"audio.wav\""))
+        #expect(s.hasSuffix("--B--\r\n"))
+    }
+
+    @Test("multipartBody omits language when auto")
+    func multipartAutoLanguage() {
+        let cfg = BatchCloudTranscriber.openAI()
+        let body = BatchCloudTranscriber.multipartBody(wav: Data(), config: cfg, language: "auto", boundary: "B")
+        #expect(!String(decoding: body, as: UTF8.self).contains("name=\"language\""))
+    }
+
+    @Test("parseText extracts the response text field")
+    func parseText() {
+        let data = Data(#"{"text":"  hello world  ","language_code":"en"}"#.utf8)
+        #expect(BatchCloudTranscriber.parseText(data, key: "text") == "hello world")
+        #expect(BatchCloudTranscriber.parseText(Data("nope".utf8), key: "text") == nil)
+    }
+
+    @Test("config(for:) picks the batch providers and skips the streaming ones")
+    func batchConfig() {
+        #expect(BatchCloudTranscriber.config(for: .openAI)?.model == "gpt-4o-transcribe")
+        #expect(BatchCloudTranscriber.config(for: .elevenLabs)?.modelField == "model_id")
+        #expect(BatchCloudTranscriber.config(for: .elevenLabs)?.authHeader == "xi-api-key")
+        #expect(BatchCloudTranscriber.config(for: .assemblyAI) == nil)
+        #expect(BatchCloudTranscriber.config(for: .deepgram) == nil)
+    }
 }
