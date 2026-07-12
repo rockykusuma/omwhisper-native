@@ -34,6 +34,9 @@ struct MiniPanelView: View {
             header
             startStopButton
             styleRow
+            if appState.meetingsEnabled {
+                meetingRecordRow
+            }
             if let lastEntry {
                 lastTranscriptionCard(lastEntry)
             }
@@ -111,6 +114,27 @@ struct MiniPanelView: View {
             }
             .font(.system(size: 11.5))
         }
+    }
+
+    // Distinct from the big "Start Dictating" gradient button above — dictation
+    // and meeting recording are different actions. A ghost row, shown only when
+    // meeting detection is enabled.
+    private var meetingRecordRow: some View {
+        Button { appState.toggleMeetingRecording() } label: {
+            HStack(spacing: 6) {
+                if appState.isRecordingMeeting {
+                    Circle().fill(.red).frame(width: 7, height: 7)
+                    Text("Stop recording")
+                } else {
+                    Image(systemName: "record.circle").font(.system(size: 11))
+                    Text("Record meeting")
+                }
+                Spacer()
+            }
+            .font(.system(size: 12))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(appState.isRecordingMeeting ? Color.Porcelain.ink : Color.Porcelain.dim)
     }
 
     private func lastTranscriptionCard(_ entry: TranscriptionEntry) -> some View {
