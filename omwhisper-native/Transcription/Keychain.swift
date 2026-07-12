@@ -17,9 +17,11 @@ nonisolated enum Keychain {
 
     enum KeychainError: Error, LocalizedError {
         case unhandled(OSStatus)
+        case notPersisted
         var errorDescription: String? {
             switch self {
             case .unhandled(let status): return "Couldn't access the Keychain (status \(status))."
+            case .notPersisted: return "The key didn't persist to the Keychain — please try saving again."
             }
         }
     }
@@ -62,15 +64,21 @@ nonisolated enum Keychain {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        if load(account: account) != nil {
-            let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-            guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
-        } else {
-            var attributes = query
-            attributes[kSecValueData as String] = data
-            let status = SecItemAdd(attributes as CFDictionary, nil)
-            guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
-        }
+        // Delete-then-add, NOT add-vs-update keyed on load(). The real AssemblyAI
+        // bug: a leftover item from a differently-signed earlier build (dev
+        // rebuilds re-sign) is unreadable by the current build — load() returns
+        // nil ("No key saved yet") — yet still blocks a plain SecItemAdd with
+        // errSecDuplicateItem, and SecItemUpdate can be ACL-blocked too. Delete
+        // matches by attributes only (no read/ACL needed), clearing the leftover;
+        // then add a fresh item this build owns.
+        SecItemDelete(query as CFDictionary)   // errSecItemNotFound is fine — ignore
+        var attributes = query
+        attributes[kSecValueData as String] = data
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
+        // Verify it actually landed — turns any silent write oddity into a clear
+        // error instead of a UI that claims "saved" over an unreadable item.
+        guard load(account: account) == key else { throw KeychainError.notPersisted }
     }
 
     private static func delete(account: String) throws {

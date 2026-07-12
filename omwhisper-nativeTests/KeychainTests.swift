@@ -1,10 +1,32 @@
 import Testing
+import Foundation
+import Security
 @testable import OmWhisper
 
 @Suite("Keychain", .serialized)
 struct KeychainTests {
     init() throws {
         try? Keychain.deleteAssemblyAIKey()
+    }
+
+    @Test("save recovers over a pre-existing leftover item at the account")
+    func recoversOverExistingItem() throws {
+        // A leftover item already occupies the account (the field bug was an
+        // unreadable one from a differently-signed build; the portable stand-in
+        // here is a data-less item). Delete-then-add must clear it and write fresh.
+        let service = Bundle.main.bundleIdentifier ?? "com.omwhisper.mac"
+        let account = "assemblyai-api-key"
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(base as CFDictionary)
+        #expect(SecItemAdd(base as CFDictionary, nil) == errSecSuccess)  // leftover exists
+
+        try Keychain.saveAssemblyAIKey("recovered-key")                  // must not choke on it
+        #expect(Keychain.loadAssemblyAIKey() == "recovered-key")
+        try Keychain.deleteAssemblyAIKey()
     }
 
     @Test("round-trips a saved key")
