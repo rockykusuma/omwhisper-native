@@ -97,15 +97,23 @@ struct AISettingsView: View {
                         .foregroundStyle(Color.Porcelain.dim)
                     TextField("API URL", text: $state.cloudAPIURL).porcelainField()
                     TextField("Model", text: $state.cloudModel).porcelainField()
-                    SecureField("API key", text: $cloudKeyInput).porcelainField()
+                    if cloudHasSavedKey {
+                        Label("API key saved to your Keychain", systemImage: "checkmark.seal.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color.Porcelain.emerald)
+                    }
+                    SecureField(cloudHasSavedKey ? "Enter a new key to replace the saved one" : "API key", text: $cloudKeyInput)
+                        .porcelainField()
                     HStack {
-                        Button("Save", action: saveCloudKey).disabled(cloudKeyInput.isEmpty)
+                        Button(cloudHasSavedKey ? "Replace" : "Save", action: saveCloudKey).disabled(cloudKeyInput.isEmpty)
                         Button("Clear", action: clearCloudKey).disabled(!cloudHasSavedKey)
                         Button(cloudTesting ? "Testing…" : "Test Connection", action: testCloud)
                             .disabled(cloudTesting || !cloudHasSavedKey)
                     }
-                    Text(cloudHasSavedKey ? "Key saved." : "No key saved yet.")
-                        .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                    if !cloudHasSavedKey {
+                        Text("No key saved yet.")
+                            .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                    }
                     if let cloudTestResult {
                         Text(cloudTestResult)
                             .font(.caption)
