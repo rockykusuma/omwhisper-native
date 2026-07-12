@@ -16,7 +16,7 @@ struct WhisperEngineTests {
     func modelID() {
         #expect(WhisperModel.whisperKitModelID(for: .base) == "openai_whisper-base")
         #expect(WhisperModel.whisperKitModelID(for: .small) == "openai_whisper-small")
-        #expect(WhisperModel.whisperKitModelID(for: .largeV3Turbo) == "openai_whisper-large-v3_947MB")
+        #expect(WhisperModel.whisperKitModelID(for: .largeV3Turbo) == "openai_whisper-large-v3_turbo_954MB")
     }
 
     @Test("decodeLanguage maps auto to nil, else the code")

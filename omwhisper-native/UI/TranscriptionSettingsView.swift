@@ -87,6 +87,12 @@ struct TranscriptionSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(Color.Porcelain.dim)
 
+                    if state.whisperModel == .largeV3Turbo {
+                        Label("Large models can be slow depending on your Mac — if dictation lags, use Base or Small for faster everyday use.", systemImage: "clock")
+                            .font(.caption)
+                            .foregroundStyle(Color.Porcelain.dim)
+                    }
+
                     Picker("Language", selection: $state.whisperLanguage) {
                         Text("Auto-detect").tag("auto")
                         ForEach(whisperLanguageOptions, id: \.code) { opt in
