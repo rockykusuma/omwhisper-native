@@ -54,6 +54,32 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(Color.Porcelain.ink)
             }
 
+            PorcelainSection(eyebrow: "Shortcuts") {
+                HStack {
+                    Text("Toggle dictation").foregroundStyle(Color.Porcelain.ink)
+                    Spacer()
+                    KeyRecorderView(combo: $state.dictationShortcut)
+                }
+                HStack {
+                    Text("Push-to-talk").foregroundStyle(Color.Porcelain.ink)
+                    Spacer()
+                    Picker("", selection: $state.pttKey) {
+                        ForEach(PTTKey.allCases) { Text($0.display).tag($0) }
+                    }
+                    .labelsHidden()
+                    .tint(Color.Porcelain.emerald)
+                }
+                if state.pttKey == .rightOption {
+                    Text("Right ⌥ is also Reply Assist's double-tap gesture — they may interfere.")
+                        .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                }
+                Button("Reset to defaults") {
+                    state.dictationShortcut = .defaultDictation
+                    state.pttKey = .fn
+                }
+                .tint(Color.Porcelain.emerald)
+            }
+
             Text("OmWhisper 2.0 — native rewrite in progress. See NATIVE_MIGRATION_PLAN.md.")
                 .font(.caption)
                 .foregroundStyle(Color.Porcelain.dim)
