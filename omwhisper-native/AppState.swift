@@ -260,6 +260,36 @@ final class AppState {
             }
         }
     }
+
+    // MARK: Brain-dump (F5)
+    var activeBrainDumpShapeID: UUID {
+        get {
+            access(keyPath: \.activeBrainDumpShapeID)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.activeBrainDumpShapeID),
+                  let id = UUID(uuidString: raw) else { return BrainDumpShapes.builtIns[0].id }
+            return id
+        }
+        set {
+            withMutation(keyPath: \.activeBrainDumpShapeID) {
+                UserDefaults.standard.set(newValue.uuidString, forKey: SettingsKeys.activeBrainDumpShapeID)
+            }
+        }
+    }
+    var activeBrainDumpShape: PolishStyle? {
+        BrainDumpShapes.shape(id: activeBrainDumpShapeID, customShapes: brainDumpShapes)
+    }
+    var brainDumpShapes: [PolishStyle] {
+        get {
+            access(keyPath: \.brainDumpShapes)
+            guard let data = UserDefaults.standard.data(forKey: SettingsKeys.brainDumpShapes) else { return [] }
+            return (try? JSONDecoder().decode([PolishStyle].self, from: data)) ?? []
+        }
+        set {
+            withMutation(keyPath: \.brainDumpShapes) {
+                UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.brainDumpShapes)
+            }
+        }
+    }
     /// Off by default — every Smriti-derived feature in this project ships off
     /// by default. Reads the frontmost window's visible text at dictation start
     /// to bias engine vocabulary; nothing is stored. See S2 design spec.
@@ -717,6 +747,13 @@ final class AppState {
     ) { [weak self] in
         self?.beginPolishSelectedText()
     }
+    /// kVK_ANSI_D — Brain-dump mode: ramble, then structure into the active shape.
+    @ObservationIgnored private lazy var brainDumpHotkey = GlobalHotkey(
+        keyCode: 2,
+        modifiers: [.command, .shift]
+    ) { [weak self] in
+        self?.beginBrainDump()
+    }
     @ObservationIgnored private let meetingWatcher = MeetingWatcher()
     @ObservationIgnored private let meetingRecorder = MeetingRecorder()
     @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
@@ -766,6 +803,9 @@ final class AppState {
     /// The current dictation session's mode — drives what stopDictation does with
     /// the text and what the overlay renders. private(set) so the overlay observes it.
     private(set) var sessionMode: SessionMode = .normal
+    /// S2 salient screen terms captured at session start, reused by brain-dump's
+    /// structuring prompt (they already bias the engine at capture time).
+    private var sessionScreenTerms: [String] = []
 
     /// Per-app-launch, not persisted — the Foundation-Models-unavailable nudge
     /// (errorMessage) only needs to fire once per run, not every polish attempt.
@@ -799,6 +839,7 @@ final class AppState {
             hotkey.start()
             pushToTalk.start()
             smartDictationHotkey.start()
+            brainDumpHotkey.start()
             polishSelectedTextHotkey.start()
             parakeetEngine.setModel(parakeetModel)  // engine defaults to .v3; honor the persisted choice
             whisperEngine.setModel(whisperModel)     // engine defaults to turbo; honor the persisted choice
@@ -897,6 +938,12 @@ final class AppState {
     /// Toggle-style, like Cmd+Shift+V — no separate PTT variant for this one.
     func beginSmartDictation() {
         toggleOrStop(mode: .smart)
+    }
+
+    /// ⌘⇧D — capture a long ramble, then structure it into the active brain-dump
+    /// shape on stop. Toggle-style, like ⌘⇧V/⌘⇧B.
+    func beginBrainDump() {
+        toggleOrStop(mode: .brainDump)
     }
 
     private func toggleOrStop(mode: SessionMode) {
@@ -1059,6 +1106,7 @@ final class AppState {
             // risk profile than soft engine biasing. Cloud excludes screen
             // terms entirely -- see mergeEngineVocabulary.
             let screenTerms = await contextCaptureTask?.value ?? []
+            sessionScreenTerms = screenTerms
             let engineVocabulary = mergeEngineVocabulary(
                 customTerms: vocabSnapshot,
                 screenTerms: screenTerms,
@@ -1139,10 +1187,19 @@ final class AppState {
             SoundPlayer.play(.stop, volume: Float(soundVolume))
         }
 
-        if phase == .pasting, sessionMode == .smart, !Self.tooShortForPolish(text) {
-            overlayPhase = .polishing
-            text = await polishedText(for: text)
-            overlayPhase = phase
+        if phase == .pasting {
+            switch sessionMode {
+            case .smart where !Self.tooShortForPolish(text):
+                overlayPhase = .polishing
+                text = await polishedText(for: text)
+                overlayPhase = phase
+            case .brainDump:
+                overlayPhase = .polishing
+                text = await brainDumpStructured(for: text)
+                overlayPhase = phase
+            default:
+                break
+            }
         }
 
         if phase == .pasting, pasteAfterStop, !onboardingDemoActive {
@@ -1307,6 +1364,30 @@ final class AppState {
         }
     }
 
+    /// Structure a brain-dump ramble into the active shape via the active backend,
+    /// grounded in the target app + captured screen terms. Any failure returns the
+    /// raw ramble — words are never dropped (same rule as polishedText).
+    private func brainDumpStructured(for original: String) async -> String {
+        if polishBackend == .system, !SystemLLM.isAvailable() {
+            if !didNudgeFoundationModelsUnavailable {
+                didNudgeFoundationModelsUnavailable = true
+                errorMessage = "Apple Intelligence is off — enable it in Settings > AI to structure brain-dumps, or pasted raw text for now."
+            }
+            return original
+        }
+        guard let backend = activePolishBackend(), let shape = activeBrainDumpShape else { return original }
+        var parts: [String] = []
+        if let app = NSWorkspace.shared.frontmostApplication?.localizedName { parts.append("Target app: \(app)") }
+        if !sessionScreenTerms.isEmpty { parts.append("On-screen terms: \(sessionScreenTerms.prefix(20).joined(separator: ", "))") }
+        let context = parts.isEmpty ? nil : parts.joined(separator: ". ")
+        do {
+            return try await BrainDumpStructurer.structure(transcript: original, shape: shape, context: context, polish: backend)
+        } catch {
+            log.error("brainDumpStructured — failed: \(error)")
+            return original
+        }
+    }
+
     /// Re-runs a past history entry's text through the current polish
     /// backend/style. Callers copy the result to the clipboard -- this never
     /// pastes into the frontmost app the way live dictation's stop-and-paste
@@ -1422,6 +1503,8 @@ nonisolated enum SettingsKeys {
     static let activePolishStyleID = "activePolishStyleID"
     static let translateTargetLanguage = "translateTargetLanguage"
     static let customPolishStyles = "customPolishStyles"
+    static let activeBrainDumpShapeID = "activeBrainDumpShapeID"
+    static let brainDumpShapes = "brainDumpShapes"
     static let soundEnabled = "soundEnabled"
     static let soundVolume = "soundVolume"
     static let audioInputDeviceUID = "audioInputDeviceUID"
