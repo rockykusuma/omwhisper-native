@@ -542,6 +542,23 @@ final class AppState {
         }
     }
 
+    /// Which cloud transcription provider (only relevant when engineKind == .cloud).
+    /// Read by activeEngine to build CloudEngine(provider:). access/withMutation so
+    /// the provider picker re-highlights on change.
+    var cloudProvider: CloudProviderKind {
+        get {
+            access(keyPath: \.cloudProvider)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.cloudProvider),
+                  let p = CloudProviderKind(rawValue: raw) else { return .assemblyAI }
+            return p
+        }
+        set {
+            withMutation(keyPath: \.cloudProvider) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.cloudProvider)
+            }
+        }
+    }
+
     /// Whisper spoken-language code ("auto" = detect). Changing it needs no reload.
     var whisperLanguage: String {
         get {
@@ -578,12 +595,11 @@ final class AppState {
     private let appleEngine: TranscriptionEngine = AppleEngine()
     let parakeetEngine = ParakeetEngine()
     let whisperEngine = WhisperEngine()
-    private let cloudEngine: TranscriptionEngine = CloudEngine()
     private var activeEngine: TranscriptionEngine {
         switch engineKind {
         case .apple: appleEngine
         case .parakeet: parakeetEngine
-        case .cloud: cloudEngine
+        case .cloud: CloudEngine(provider: cloudProvider)   // stateless; built per session
         case .whisper: whisperEngine
         }
     }
@@ -1382,5 +1398,6 @@ nonisolated enum SettingsKeys {
     static let parakeetModel = "parakeetModel"
     static let whisperModel = "whisperModel"
     static let whisperLanguage = "whisperLanguage"
+    static let cloudProvider = "cloudProvider"
     static let overlayStyle = "overlayStyle"
 }

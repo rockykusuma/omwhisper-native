@@ -11,7 +11,6 @@
 //  2026-07-12 — see the spec.
 //
 
-@preconcurrency import AVFoundation
 import Foundation
 
 nonisolated struct BatchCloudTranscriber {
@@ -106,21 +105,11 @@ nonisolated struct BatchCloudTranscriber {
 
     // MARK: Effectful
 
-    static func transcribe(
-        audio: sending AsyncStream<AVAudioPCMBuffer>,
-        config: Config, apiKey: String, language: String?
+    /// POSTs the accumulated 16 kHz mono Int16 samples (CloudEngine owns the audio
+    /// loop and hands them here) as a WAV multipart upload; returns the transcript.
+    static func post(
+        samples: [Int16], config: Config, apiKey: String, language: String?
     ) async throws -> String {
-        guard let pcmFormat = AVAudioFormat(
-            commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true
-        ) else { throw BatchError.audioFormat }
-
-        let converter = BufferConverter()
-        var samples: [Int16] = []
-        for await buffer in audio {
-            guard let converted = try? converter.convertBuffer(buffer, to: pcmFormat),
-                  let ch = converted.int16ChannelData else { continue }
-            samples.append(contentsOf: UnsafeBufferPointer(start: ch[0], count: Int(converted.frameLength)))
-        }
         guard !samples.isEmpty else { return "" }
 
         let wav = pcmToWav(int16: samples, sampleRate: 16000)

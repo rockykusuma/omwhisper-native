@@ -9,13 +9,9 @@
 //  channel.alternatives[0].transcript + is_final, close with {"type":"CloseStream"}.
 //
 
-@preconcurrency import AVFoundation
 import Foundation
 
 nonisolated struct DeepgramProvider {
-
-    enum ProviderError: Error { case audioFormat }
-
     private static let sampleRate = 16000
 
     // MARK: Pure helpers
@@ -50,50 +46,11 @@ nonisolated struct DeepgramProvider {
         return (r.isFinal ?? false) ? .final(transcript) : .partial(transcript)
     }
 
-    // MARK: Effectful — yields into the CloudEngine's shared continuation.
-
-    static func run(
-        audio: sending AsyncStream<AVAudioPCMBuffer>,
-        apiKey: String, language: String,
-        into continuation: AsyncThrowingStream<TranscriptEvent, Error>.Continuation
-    ) async throws {
-        guard let pcmFormat = AVAudioFormat(
-            commonFormat: .pcmFormatInt16, sampleRate: Double(sampleRate), channels: 1, interleaved: true
-        ) else { throw ProviderError.audioFormat }
-
+    /// The WebSocket upgrade request. CloudEngine runs the socket loop + CloseStream.
+    nonisolated static func request(apiKey: String, language: String) -> URLRequest {
         var request = URLRequest(url: connectionURL(language: language))
         request.setValue("Token \(apiKey)", forHTTPHeaderField: "Authorization")
-        let socket = URLSession(configuration: .default).webSocketTask(with: request)
-        socket.resume()
-
-        let receiveTask = Task {
-            while true {
-                guard let message = try? await socket.receive() else { return }
-                let data: Data? = switch message {
-                case .data(let d): d
-                case .string(let s): s.data(using: .utf8)
-                @unknown default: nil
-                }
-                if let data, let event = parseResult(data) { continuation.yield(event) }
-            }
-        }
-
-        let converter = BufferConverter()
-        for await buffer in audio {
-            guard let converted = try? converter.convertBuffer(buffer, to: pcmFormat),
-                  let ch = converted.int16ChannelData else { continue }
-            let bytes = Data(bytes: ch[0], count: Int(converted.frameLength) * MemoryLayout<Int16>.size)
-            try? await socket.send(.data(bytes))
-        }
-
-        // Flush: CloseStream tells Deepgram to finish pending audio + return the
-        // final results before closing.
-        try? await socket.send(.string(#"{"type":"CloseStream"}"#))
-        // ponytail: fixed 1s drain (matches the AssemblyAI path) rather than awaiting
-        // a specific close message — revisit if live testing clips the last words.
-        try? await Task.sleep(for: .seconds(1))
-        receiveTask.cancel()
-        socket.cancel(with: .normalClosure, reason: nil)
+        return request
     }
 
     /// Validates the key against Deepgram's projects endpoint (needs a valid key).

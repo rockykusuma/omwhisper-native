@@ -124,11 +124,27 @@ struct TranscriptionSettingsView: View {
             }
 
             if state.engineKind == .cloud {
-                PorcelainSection(eyebrow: "AssemblyAI API Key") {
-                    Text("Streams your voice live to AssemblyAI (a third-party service) while dictating. Requires your own API key — get one at assemblyai.com.")
+                PorcelainSection(eyebrow: "Cloud Provider") {
+                    Picker("Provider", selection: $state.cloudProvider) {
+                        ForEach(CloudProviderKind.allCases) { p in
+                            Text(p.displayName).tag(p)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+
+                    Text(state.cloudProvider.privacyNote)
                         .font(.caption)
                         .foregroundStyle(Color.Porcelain.dim)
+                    Text(state.cloudProvider.isStreaming
+                         ? "Live — words appear as you speak."
+                         : "Batch — words appear when you release the key.")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+                }
 
+                PorcelainSection(eyebrow: "\(state.cloudProvider.displayName) API Key") {
                     if hasSavedKey {
                         Label("API key saved to your Keychain", systemImage: "checkmark.seal.fill")
                             .font(.system(size: 13, weight: .semibold))
@@ -167,7 +183,14 @@ struct TranscriptionSettingsView: View {
             }
         }
         .task {
-            hasSavedKey = Keychain.loadAssemblyAIKey() != nil
+            hasSavedKey = Keychain.loadSTTKey(appState.cloudProvider) != nil
+        }
+        .onChange(of: appState.cloudProvider) {
+            // Each provider has its own key — re-read status and clear per-provider input.
+            hasSavedKey = Keychain.loadSTTKey(appState.cloudProvider) != nil
+            apiKeyInput = ""
+            testResult = nil
+            keychainError = nil
         }
     }
 
@@ -182,7 +205,7 @@ struct TranscriptionSettingsView: View {
         keychainError = nil
         testResult = nil   // the saved key changed — any prior test result is stale
         do {
-            try Keychain.saveAssemblyAIKey(apiKeyInput)
+            try Keychain.saveSTTKey(apiKeyInput, provider: appState.cloudProvider)
             apiKeyInput = ""
             hasSavedKey = true
         } catch {
@@ -194,7 +217,7 @@ struct TranscriptionSettingsView: View {
         keychainError = nil
         testResult = nil
         do {
-            try Keychain.deleteAssemblyAIKey()
+            try Keychain.deleteSTTKey(appState.cloudProvider)
             hasSavedKey = false
         } catch {
             keychainError = error.localizedDescription
@@ -202,11 +225,12 @@ struct TranscriptionSettingsView: View {
     }
 
     private func testConnection() {
-        guard let key = Keychain.loadAssemblyAIKey() else { return }
+        let provider = appState.cloudProvider
+        guard let key = Keychain.loadSTTKey(provider) else { return }
         testing = true
         testResult = nil
         Task {
-            let error = await CloudEngine.testConnection(apiKey: key)
+            let error = await CloudEngine.testConnection(provider: provider, apiKey: key)
             await MainActor.run {
                 testing = false
                 testResult = error == nil
