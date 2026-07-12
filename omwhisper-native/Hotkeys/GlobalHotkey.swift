@@ -75,7 +75,12 @@ final class GlobalHotkey {
     func reconfigure(keyCode: UInt16, modifiers: NSEvent.ModifierFlags) {
         self.keyCode = keyCode
         self.modifiers = modifiers
-        start()
+        // The KeyRecorder captures the new combo from inside a local keyDown
+        // monitor callback, so this runs mid-dispatch of that event. start()'s
+        // stop() would removeMonitor a monitor AppKit is still iterating —
+        // a use-after-free crash (worst when the new combo == the current one).
+        // Defer the rebuild one runloop turn so the current event finishes first.
+        DispatchQueue.main.async { [weak self] in self?.start() }
     }
 
     private func handleIfMatch(_ event: NSEvent) {
