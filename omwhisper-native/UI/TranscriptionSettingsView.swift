@@ -16,6 +16,9 @@ import WhisperKit
 struct TranscriptionSettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var apiKeyInput = ""
+    /// Typed-but-unsaved key per provider — so switching the provider radio
+    /// doesn't silently discard a key you entered but hadn't saved yet.
+    @State private var drafts: [CloudProviderKind: String] = [:]
     @State private var hasSavedKey = false
     @State private var keychainError: String?
     @State private var testing = false
@@ -185,10 +188,13 @@ struct TranscriptionSettingsView: View {
         .task {
             hasSavedKey = Keychain.loadSTTKey(appState.cloudProvider) != nil
         }
-        .onChange(of: appState.cloudProvider) {
-            // Each provider has its own key — re-read status and clear per-provider input.
-            hasSavedKey = Keychain.loadSTTKey(appState.cloudProvider) != nil
-            apiKeyInput = ""
+        .onChange(of: appState.cloudProvider) { oldProvider, newProvider in
+            // Each provider has its own key. Stash the current typed-but-unsaved
+            // input under the old provider and restore the new provider's draft,
+            // so switching to compare providers never loses an unsaved key.
+            drafts[oldProvider] = apiKeyInput
+            apiKeyInput = drafts[newProvider] ?? ""
+            hasSavedKey = Keychain.loadSTTKey(newProvider) != nil
             testResult = nil
             keychainError = nil
         }
@@ -207,6 +213,7 @@ struct TranscriptionSettingsView: View {
         do {
             try Keychain.saveSTTKey(apiKeyInput, provider: appState.cloudProvider)
             apiKeyInput = ""
+            drafts[appState.cloudProvider] = nil   // it's saved now, not a pending draft
             hasSavedKey = true
         } catch {
             keychainError = error.localizedDescription
