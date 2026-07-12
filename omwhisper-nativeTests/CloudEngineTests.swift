@@ -89,4 +89,15 @@ struct CloudEngineTests {
         let data = Data("not json".utf8)
         #expect(CloudEngine.parseServerMessage(data) == nil)
     }
+
+    @Test("CloudProviderKind rawValues round-trip and Keychain accounts are unique")
+    func providerKinds() {
+        #expect(CloudProviderKind(rawValue: "deepgram") == .deepgram)
+        #expect(CloudProviderKind.allCases.count == 5)
+        let accounts = Set(CloudProviderKind.allCases.map(\.keychainAccount))
+        #expect(accounts.count == 5)   // no account collisions across providers
+        #expect(CloudProviderKind.assemblyAI.keychainAccount == "assemblyai-api-key")  // M4.2 back-compat
+        #expect(CloudProviderKind.assemblyAI.isStreaming)
+        #expect(!CloudProviderKind.groq.isStreaming)
+    }
 }

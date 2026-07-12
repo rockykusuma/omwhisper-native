@@ -34,6 +34,11 @@ nonisolated enum Keychain {
     static func saveCloudLLMKey(_ key: String) throws { try save(key, account: cloudLLMAccount) }
     static func deleteCloudLLMKey() throws { try delete(account: cloudLLMAccount) }
 
+    // MARK: Cloud transcription providers (multi-provider) — one account per provider.
+    static func loadSTTKey(_ provider: CloudProviderKind) -> String? { load(account: provider.keychainAccount) }
+    static func saveSTTKey(_ key: String, provider: CloudProviderKind) throws { try save(key, account: provider.keychainAccount) }
+    static func deleteSTTKey(_ provider: CloudProviderKind) throws { try delete(account: provider.keychainAccount) }
+
     // MARK: Generic core
 
     private static func load(account: String) -> String? {
