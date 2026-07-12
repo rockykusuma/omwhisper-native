@@ -9,8 +9,10 @@
 
 import Foundation
 import Security
+import os
 
 nonisolated enum Keychain {
+    private static let log = Logger(subsystem: "com.omwhisper.mac", category: "Keychain")
     private static let service = Bundle.main.bundleIdentifier ?? "com.omwhisper.mac"
     private static let assemblyAIAccount = "assemblyai-api-key"
     private static let cloudLLMAccount = "cloud-llm-api-key"
@@ -53,6 +55,12 @@ nonisolated enum Keychain {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // A non-success, non-notFound status means the item exists but this build
+        // can't read it (e.g. ACL from a differently-signed build) — logged so a
+        // "No key saved yet" that's actually an access failure is diagnosable.
+        if status != errSecSuccess, status != errSecItemNotFound {
+            log.error("load[\(account, privacy: .public)]: read failed status=\(status, privacy: .public)")
+        }
         guard status == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
@@ -64,21 +72,26 @@ nonisolated enum Keychain {
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
-        // Delete-then-add, NOT add-vs-update keyed on load(). The real AssemblyAI
-        // bug: a leftover item from a differently-signed earlier build (dev
-        // rebuilds re-sign) is unreadable by the current build — load() returns
-        // nil ("No key saved yet") — yet still blocks a plain SecItemAdd with
-        // errSecDuplicateItem, and SecItemUpdate can be ACL-blocked too. Delete
-        // matches by attributes only (no read/ACL needed), clearing the leftover;
-        // then add a fresh item this build owns.
-        SecItemDelete(query as CFDictionary)   // errSecItemNotFound is fine — ignore
+        // Add-first, update-on-duplicate — NEVER delete-first. An earlier
+        // delete-then-add could leave the item deleted-with-nothing-added if the
+        // add failed or its keychain auth prompt was dismissed, so re-saving kept
+        // making the key vanish. Add-first can't destroy an existing key on failure.
         var attributes = query
         attributes[kSecValueData as String] = data
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
+        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+        if addStatus == errSecDuplicateItem {
+            let updateStatus = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            log.info("save[\(account, privacy: .public)]: add=duplicate update=\(updateStatus, privacy: .public)")
+            guard updateStatus == errSecSuccess else { throw KeychainError.unhandled(updateStatus) }
+        } else {
+            log.info("save[\(account, privacy: .public)]: add=\(addStatus, privacy: .public)")
+            guard addStatus == errSecSuccess else { throw KeychainError.unhandled(addStatus) }
+        }
         // Verify it actually landed — turns any silent write oddity into a clear
         // error instead of a UI that claims "saved" over an unreadable item.
-        guard load(account: account) == key else { throw KeychainError.notPersisted }
+        let persisted = load(account: account) == key
+        log.info("save[\(account, privacy: .public)]: verify=\(persisted, privacy: .public)")
+        guard persisted else { throw KeychainError.notPersisted }
     }
 
     private static func delete(account: String) throws {
