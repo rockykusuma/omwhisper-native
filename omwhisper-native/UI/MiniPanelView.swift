@@ -126,7 +126,7 @@ struct MiniPanelView: View {
                     Circle().fill(.red).frame(width: 7, height: 7)
                     Text("Stop recording")
                 } else {
-                    Image(systemName: "record.circle").font(.system(size: 11))
+                    Image(systemName: "waveform").font(.system(size: 11))
                     Text("Record meeting")
                 }
                 Spacer()

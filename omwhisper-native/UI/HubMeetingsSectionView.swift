@@ -48,7 +48,7 @@ struct HubMeetingsSectionView: View {
                             Circle().fill(.red).frame(width: 8, height: 8)
                             Text("Stop recording")
                         } else {
-                            Image(systemName: "record.circle")
+                            Image(systemName: "waveform")
                             Text("Start recording")
                         }
                     }
