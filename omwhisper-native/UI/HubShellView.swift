@@ -50,11 +50,6 @@ enum HubSection: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Matches hub-concept.html's "soon" badge -- Meetings' browse UI (S3
-    /// sub-project 2) hasn't shipped yet, so this section is toggle-only today.
-    var badge: String? {
-        self == .meetings ? "S3" : nil
-    }
 }
 
 struct HubShellView: View {
@@ -97,7 +92,7 @@ struct HubShellView: View {
                 Button {
                     selection = section
                 } label: {
-                    NavRow(icon: section.icon, title: section.title, isSelected: selection == section, badge: section.badge)
+                    NavRow(icon: section.icon, title: section.title, isSelected: selection == section)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
