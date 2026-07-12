@@ -311,22 +311,10 @@ final class AppState {
             if newValue {
                 meetingWatcher.isSuppressed = { [weak self] in self?.dictation != .idle }
                 meetingWatcher.onStartRecording = { [weak self] appName in
-                    Task {
-                        do {
-                            try self?.meetingRecorder.start(appName: appName)
-                            self?.meetingStartedAt = Date()
-                            self?.meetingAppName = appName
-                        } catch {
-                            log.error("meeting recording failed to start: \(error)")
-                            self?.meetingWatcher.failedToStartRecording()
-                        }
-                    }
+                    self?.beginRecording(appName: appName)
                 }
                 meetingWatcher.onStopRecording = { [weak self] in
-                    Task {
-                        await self?.meetingRecorder.stop()
-                        self?.recordFinishedMeeting()
-                    }
+                    Task { await self?.endRecording() }
                 }
                 meetingWatcher.onShowConsentPanel = { [weak self] appName, respond in
                     self?.meetingConsentPanel.show(appName: appName, onDecision: respond)
@@ -335,6 +323,45 @@ final class AppState {
             } else {
                 meetingWatcher.stop()
             }
+        }
+    }
+
+    /// Start the recorder and mark recording. Shared by the auto-detect closure
+    /// and the manual toggle. On failure, resets the watcher so it isn't stuck
+    /// showing .recording with no audio actually flowing.
+    private func beginRecording(appName: String) {
+        do {
+            try meetingRecorder.start(appName: appName)
+            meetingStartedAt = Date()
+            meetingAppName = appName
+            isRecordingMeeting = true
+        } catch {
+            log.error("meeting recording failed to start: \(error)")
+            meetingWatcher.failedToStartRecording()
+            isRecordingMeeting = false
+        }
+    }
+
+    /// Stop the recorder, clear the flag, and persist the finished-meeting row.
+    private func endRecording() async {
+        await meetingRecorder.stop()
+        isRecordingMeeting = false
+        recordFinishedMeeting()
+    }
+
+    /// User-initiated start/stop, available anytime meetingsEnabled is on
+    /// (records system audio + mic regardless of whether a call is detected).
+    /// Coordinates with the watcher so the 2s poll and this manual session don't
+    /// fight. Clicking record IS the consent — no consent panel here.
+    func toggleMeetingRecording() {
+        guard meetingsEnabled else { return }
+        if isRecordingMeeting {
+            meetingWatcher.markDeclined()
+            Task { await endRecording() }
+        } else {
+            let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Recording"
+            meetingWatcher.enterRecording(appName: appName)
+            beginRecording(appName: appName)
         }
     }
 
@@ -685,6 +712,10 @@ final class AppState {
     @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
     @ObservationIgnored private var meetingStartedAt: Date?
     @ObservationIgnored private var meetingAppName: String?
+    /// True whenever a meeting is being recorded — auto-detected OR manual.
+    /// Observable (not @ObservationIgnored) so the hub button and mini-panel row
+    /// reflect it. Flipped only in beginRecording/endRecording.
+    private(set) var isRecordingMeeting = false
     @ObservationIgnored private let replyAssistMonitor = ReplyAssistMonitor()
     @ObservationIgnored private let replyStreamTypist = ReplyStreamTypist()
     @ObservationIgnored private var isReplyAssistDrafting = false

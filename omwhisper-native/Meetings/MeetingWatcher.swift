@@ -97,6 +97,20 @@ final class MeetingWatcher {
         state = .idle
     }
 
+    /// Manual start: treat as an ongoing recording so the auto-detect poll won't
+    /// re-prompt, and still auto-stops it 8s after the mic goes idle (backup to
+    /// the explicit Stop button). Paired with AppState.beginRecording.
+    func enterRecording(appName: String) {
+        state = .recording(appName: appName)
+    }
+
+    /// Manual stop: mark declined so the poll won't immediately re-prompt while
+    /// the same call's mic is still live. Resets to .idle on its own once the
+    /// mic idles (see nextState's .declined case).
+    func markDeclined() {
+        state = .declined
+    }
+
     private func tick() {
         guard !isSuppressed() else { return }
         let micActive = Self.microphoneInUse()
