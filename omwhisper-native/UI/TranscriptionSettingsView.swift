@@ -30,8 +30,8 @@ struct TranscriptionSettingsView: View {
                 Picker("Transcription engine", selection: $state.engineKind) {
                     Text("Apple (on-device, default)").tag(EngineKind.apple)
                     Text("Parakeet (local CoreML)").tag(EngineKind.parakeet)
-                    Text("Cloud (online)").tag(EngineKind.cloud)
                     Text("Whisper (local CoreML)").tag(EngineKind.whisper)
+                    Text("Cloud (online)").tag(EngineKind.cloud)
                 }
                 .pickerStyle(.radioGroup)
                 .tint(Color.Porcelain.emerald)
