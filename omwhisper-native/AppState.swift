@@ -690,6 +690,26 @@ final class AppState {
         }
     }
 
+    /// When on, normal dictation transcribes via Whisper in `whisperLanguage` and
+    /// pastes polished English (translate + normalize + your active style, one
+    /// backend pass). Off by default. See the F4 design spec.
+    var crossLingualEnabled: Bool {
+        get {
+            access(keyPath: \.crossLingualEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.crossLingualEnabled) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.crossLingualEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.crossLingualEnabled)
+            }
+        }
+    }
+
+    /// Human-readable name of the spoken language, for the cross-lingual prompt.
+    private var spokenLanguageName: String {
+        WhisperEngine.languageName(forCode: whisperLanguage)
+    }
+
     /// Which overlay presentation to use. Bound by the "Recording overlay" picker;
     /// read into sessionOverlayStyle at dictation start. access/withMutation so the
     /// picker re-highlights on change.
@@ -713,7 +733,7 @@ final class AppState {
     let parakeetEngine = ParakeetEngine()
     let whisperEngine = WhisperEngine()
     private var activeEngine: TranscriptionEngine {
-        switch engineKind {
+        switch CrossLingual.engineKind(base: engineKind, crossLingual: crossLingualEnabled) {
         case .apple: appleEngine
         case .parakeet: parakeetEngine
         case .cloud: CloudEngine(provider: cloudProvider)   // stateless; built per session
@@ -861,6 +881,7 @@ final class AppState {
     /// Per-app-launch, not persisted — the Foundation-Models-unavailable nudge
     /// (errorMessage) only needs to fire once per run, not every polish attempt.
     private var didNudgeFoundationModelsUnavailable = false
+    private var didNudgeCrossLingualEngine = false
 
     /// nil if the DB failed to open — history then becomes a silent no-op rather
     /// than crashing the app (matches the project's "engine error -> toast, not
@@ -1165,14 +1186,24 @@ final class AppState {
             // terms entirely -- see mergeEngineVocabulary.
             let screenTerms = await contextCaptureTask?.value ?? []
             sessionScreenTerms = screenTerms
+            let effectiveEngineKind = CrossLingual.engineKind(base: engineKind, crossLingual: crossLingualEnabled)
             let engineVocabulary = mergeEngineVocabulary(
                 customTerms: vocabSnapshot,
                 screenTerms: screenTerms,
-                engineKind: engineKind
+                engineKind: effectiveEngineKind
             )
-            if engineKind == .cloud, !screenTerms.isEmpty {
+            if effectiveEngineKind == .cloud, !screenTerms.isEmpty {
                 log.debug("cloud engine active: excluding \(screenTerms.count) screen term(s) from vocabulary")
             }
+            // Cross-lingual: nudge once if we're overriding the user's engine, and
+            // pick Whisper's in-engine translate only when there's no polish backend.
+            if crossLingualEnabled, engineKind != .whisper, !didNudgeCrossLingualEngine {
+                didNudgeCrossLingualEngine = true
+                errorMessage = "Cross-lingual dictation uses the Whisper engine."
+            }
+            whisperEngine.setTranslateToEnglish(
+                CrossLingual.whisperTranslatesInEngine(crossLingual: crossLingualEnabled, hasBackend: activePolishBackend() != nil)
+            )
 
             let events = activeEngine.transcribe(audioStream, vocabulary: engineVocabulary)
             transcriptionTask = Task { [weak self] in
@@ -1474,9 +1505,21 @@ final class AppState {
             }
             return original
         }
-        guard let backend = activePolishBackend(), let style = activePolishStyle else { return original }
+        guard let backend = activePolishBackend() else { return original }
+        let style: PolishStyle
+        let target: String?
+        if crossLingualEnabled {
+            // original is the source-language transcript (backend present → we run
+            // the LLM translate here) — or already English if Whisper's .translate
+            // fallback ran, in which case a second polish pass is harmless cleanup.
+            style = CrossLingual.style(spokenLanguage: spokenLanguageName, activeStyle: activePolishStyle)
+            target = nil
+        } else {
+            guard let active = activePolishStyle else { return original }
+            style = active
+            target = active.requiresTargetLanguage ? translateTargetLanguage : nil
+        }
         do {
-            let target = style.requiresTargetLanguage ? translateTargetLanguage : nil
             return try await backend.polish(original, style: style, targetLanguage: target)
         } catch {
             log.error("polishedText — polish failed: \(error)")
@@ -1648,6 +1691,7 @@ nonisolated enum SettingsKeys {
     static let parakeetModel = "parakeetModel"
     static let whisperModel = "whisperModel"
     static let whisperLanguage = "whisperLanguage"
+    static let crossLingualEnabled = "crossLingualEnabled"
     static let cloudProvider = "cloudProvider"
     static let overlayStyle = "overlayStyle"
 }
