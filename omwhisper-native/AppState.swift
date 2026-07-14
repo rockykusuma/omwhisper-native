@@ -733,7 +733,11 @@ final class AppState {
     let parakeetEngine = ParakeetEngine()
     let whisperEngine = WhisperEngine()
     private var activeEngine: TranscriptionEngine {
-        switch CrossLingual.engineKind(base: engineKind, crossLingual: crossLingualEnabled) {
+        // Cross-lingual + a Sarvam key → Saaras does speech→English directly.
+        if crossLingualEnabled, Keychain.loadSarvamKey() != nil {
+            return SarvamEngine()
+        }
+        return switch CrossLingual.engineKind(base: engineKind, crossLingual: crossLingualEnabled) {
         case .apple: appleEngine
         case .parakeet: parakeetEngine
         case .cloud: CloudEngine(provider: cloudProvider)   // stateless; built per session
@@ -1496,6 +1500,9 @@ final class AppState {
     }
 
     private func polishedText(for original: String) async -> String {
+        // Sarvam already produced English (cross-lingual + key) — paste as-is; never
+        // run the translate/polish prompt on it, and no polish backend is required.
+        if crossLingualEnabled, Keychain.loadSarvamKey() != nil { return original }
         // The one-time nudge fires only when System is selected but off — not for
         // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
         if polishBackend == .system, !SystemLLM.isAvailable() {
