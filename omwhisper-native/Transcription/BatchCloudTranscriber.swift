@@ -34,7 +34,8 @@ nonisolated struct BatchCloudTranscriber {
         let modelField: String   // "model" (OpenAI/Groq) or "model_id" (ElevenLabs)
         let model: String
         let languageField: String?  // "language" / "language_code" / nil
-        let responseKey: String  // "text"
+        let responseKey: String  // "text" / "transcript"
+        var extraFields: [String: String] = [:]  // provider-specific form fields (e.g. Sarvam's mode=translate)
 
         func authValue(_ key: String) -> String { authBearer ? "Bearer \(key)" : key }
     }
@@ -56,6 +57,15 @@ nonisolated struct BatchCloudTranscriber {
                authHeader: "xi-api-key", authBearer: false,
                modelField: "model_id", model: "scribe_v1",
                languageField: "language_code", responseKey: "text")
+    }
+    /// Sarvam Saaras speech-to-text in translate mode (Indic speech → English).
+    /// API shape confirmed against a live key 2026-07-14 (response field `transcript`).
+    static func sarvam() -> Config {
+        Config(url: URL(string: "https://api.sarvam.ai/speech-to-text")!,
+               authHeader: "api-subscription-key", authBearer: false,
+               modelField: "model", model: "saaras:v3",
+               languageField: "language_code", responseKey: "transcript",
+               extraFields: ["mode": "translate"])
     }
 
     /// nil for the streaming providers (they don't use this path).
@@ -91,6 +101,7 @@ nonisolated struct BatchCloudTranscriber {
             d.append(contentsOf: "--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8)
         }
         field(config.modelField, config.model)
+        for (name, value) in config.extraFields.sorted(by: { $0.key < $1.key }) { field(name, value) }
         if let lf = config.languageField, let language, language != "auto" { field(lf, language) }
         d.append(contentsOf: "--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8)
         d.append(wav)

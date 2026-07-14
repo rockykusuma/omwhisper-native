@@ -10,6 +10,27 @@ struct CloudEngineTests {
         #expect(AssemblyAIProvider.cappedKeyterms(vocabulary).count == 100)
     }
 
+    @Test func sarvamConfigShape() {
+        let c = BatchCloudTranscriber.sarvam()
+        #expect(c.url.absoluteString == "https://api.sarvam.ai/speech-to-text")
+        #expect(c.authHeader == "api-subscription-key")
+        #expect(c.authBearer == false)
+        #expect(c.model == "saaras:v3")
+        #expect(c.extraFields["mode"] == "translate")
+        #expect(c.responseKey == "transcript")
+    }
+
+    @Test func multipartEmitsExtraFields() {
+        let wav = BatchCloudTranscriber.pcmToWav(int16: [0, 0, 0], sampleRate: 16000)
+        let body = BatchCloudTranscriber.multipartBody(
+            wav: wav, config: BatchCloudTranscriber.sarvam(), language: nil, boundary: "B")
+        let s = String(decoding: body, as: UTF8.self)
+        #expect(s.contains("name=\"model\""))
+        #expect(s.contains("saaras:v3"))
+        #expect(s.contains("name=\"mode\""))
+        #expect(s.contains("translate"))
+    }
+
     @Test("truncates a term longer than 50 characters")
     func truncatesLongTerm() {
         let longTerm = String(repeating: "a", count: 80)
