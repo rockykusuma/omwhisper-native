@@ -16,6 +16,7 @@ nonisolated enum Keychain {
     private static let service = Bundle.main.bundleIdentifier ?? "com.omwhisper.mac"
     private static let assemblyAIAccount = "assemblyai-api-key"
     private static let cloudLLMAccount = "cloud-llm-api-key"
+    private static let sarvamAccount = "sarvam-api-key"
 
     enum KeychainError: Error, LocalizedError {
         case unhandled(OSStatus)
@@ -37,6 +38,10 @@ nonisolated enum Keychain {
     static func loadCloudLLMKey() -> String? { load(account: cloudLLMAccount) }
     static func saveCloudLLMKey(_ key: String) throws { try save(key, account: cloudLLMAccount) }
     static func deleteCloudLLMKey() throws { try delete(account: cloudLLMAccount) }
+
+    static func loadSarvamKey() -> String? { load(account: sarvamAccount) }
+    static func saveSarvamKey(_ key: String) throws { try save(key, account: sarvamAccount) }
+    static func deleteSarvamKey() throws { try delete(account: sarvamAccount) }
 
     // MARK: Cloud transcription providers (multi-provider) — one account per provider.
     static func loadSTTKey(_ provider: CloudProviderKind) -> String? { load(account: provider.keychainAccount) }

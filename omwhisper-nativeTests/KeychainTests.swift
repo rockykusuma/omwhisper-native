@@ -9,6 +9,15 @@ struct KeychainTests {
         try? Keychain.deleteAssemblyAIKey()
     }
 
+    @Test func sarvamKeyRoundTrip() throws {
+        try? Keychain.deleteSarvamKey()
+        #expect(Keychain.loadSarvamKey() == nil)
+        try Keychain.saveSarvamKey("sarvam-test-123")
+        #expect(Keychain.loadSarvamKey() == "sarvam-test-123")
+        try Keychain.deleteSarvamKey()
+        #expect(Keychain.loadSarvamKey() == nil)
+    }
+
     @Test("save recovers over a pre-existing leftover item at the account")
     func recoversOverExistingItem() throws {
         // A leftover item already occupies the account (the field bug was an
