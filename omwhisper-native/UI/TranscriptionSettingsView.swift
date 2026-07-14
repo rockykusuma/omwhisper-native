@@ -16,6 +16,9 @@ import WhisperKit
 struct TranscriptionSettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var apiKeyInput = ""
+    @State private var sarvamKeyInput = ""
+    @State private var sarvamKeySaved = Keychain.loadSarvamKey() != nil
+    @State private var sarvamKeyError: String?
     /// Typed-but-unsaved key per provider — so switching the provider radio
     /// doesn't silently discard a key you entered but hadn't saved yet.
     @State private var drafts: [CloudProviderKind: String] = [:]
@@ -53,7 +56,42 @@ struct TranscriptionSettingsView: View {
                         }
                     }
                 }
-                Text("Dictate in your language; polished English comes out. Uses the Whisper engine — download it below if you haven't.")
+                Text("Dictate in your language; polished English comes out.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+
+                Divider().padding(.vertical, 2)
+
+                if sarvamKeySaved {
+                    Label("Sarvam key saved — using Sarvam (Saaras) for translation",
+                          systemImage: "checkmark.seal.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.Porcelain.emerald)
+                    Button("Clear Sarvam key") {
+                        try? Keychain.deleteSarvamKey(); sarvamKeySaved = false; sarvamKeyInput = ""
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.mint)
+                } else {
+                    Text("Best for Indic languages (Telugu, Hindi, …): add a Sarvam key and speech goes straight to English via Sarvam — no Whisper model or polish backend needed. Without a key, cross-lingual uses on-device Whisper + your polish backend.")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+                    HStack {
+                        SecureField("Sarvam API key", text: $sarvamKeyInput)
+                            .porcelainField()
+                        Button("Save") {
+                            do {
+                                try Keychain.saveSarvamKey(sarvamKeyInput.trimmingCharacters(in: .whitespacesAndNewlines))
+                                sarvamKeySaved = true; sarvamKeyInput = ""; sarvamKeyError = nil
+                            } catch { sarvamKeyError = "Couldn't save to Keychain." }
+                        }
+                        .disabled(sarvamKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    if let sarvamKeyError {
+                        Text(sarvamKeyError).font(.caption).foregroundStyle(.red)
+                    }
+                }
+                Text("Your dictation audio is sent to Sarvam (sarvam.ai) to transcribe-and-translate. Recorded meetings stay on this Mac.")
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)
             }
