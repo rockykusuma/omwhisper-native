@@ -37,6 +37,7 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
         var loadedModel: WhisperModel?
         var requestedModel: WhisperModel = .largeV3Turbo
         var requestedLanguage: String = "auto"
+        var translateToEnglish: Bool = false
     }
 
     // uncheckedState (not initialState): State holds the non-Sendable WhisperKit
@@ -80,6 +81,20 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
     /// Language code, or "auto". Changing it needs no reload (it's a decode option).
     func setLanguage(_ code: String) {
         state.withLockUnchecked { $0.requestedLanguage = code }
+    }
+
+    /// When true, transcribe() runs Whisper's built-in translate task (any
+    /// language → English) instead of transcribing the source. Used only as the
+    /// no-polish-backend fallback for cross-lingual dictation.
+    func setTranslateToEnglish(_ on: Bool) {
+        state.withLockUnchecked { $0.translateToEnglish = on }
+    }
+
+    /// Human-readable name for a WhisperKit language code ("te" → "Telugu");
+    /// "" for auto/unknown. Reverse of Constants.languages ([name: code]).
+    nonisolated static func languageName(forCode code: String) -> String {
+        guard code != "auto" else { return "" }
+        return Constants.languages.first { $0.value == code }?.key.capitalized ?? ""
     }
 
     /// Downloads (with progress) + loads the requested model's pipeline if not
@@ -137,11 +152,11 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
                     guard Self.isDownloaded(requested) else { throw EngineError.modelNotDownloaded }
                     try await ensureModelLoaded()
                 }
-                let snapshot = state.withLockUnchecked { st -> (WhisperKit, String)? in
+                let snapshot = state.withLockUnchecked { st -> (WhisperKit, String, Bool)? in
                     guard let p = st.pipe, st.loadedModel == st.requestedModel else { return nil }
-                    return (p, st.requestedLanguage)
+                    return (p, st.requestedLanguage, st.translateToEnglish)
                 }
-                guard let (pipe, language) = snapshot else {
+                guard let (pipe, language, translate) = snapshot else {
                     throw EngineError.modelNotDownloaded
                 }
 
@@ -168,7 +183,7 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
                 // strips special tokens from promptTokens itself.
                 let promptTokens = prompt.isEmpty ? nil : pipe.tokenizer?.encode(text: " " + prompt)
                 let options = DecodingOptions(
-                    task: .transcribe,
+                    task: translate ? .translate : .transcribe,
                     language: WhisperModel.decodeLanguage(language),
                     promptTokens: promptTokens
                 )

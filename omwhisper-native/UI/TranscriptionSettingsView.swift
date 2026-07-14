@@ -41,6 +41,23 @@ struct TranscriptionSettingsView: View {
                 .foregroundStyle(Color.Porcelain.ink)
             }
 
+            PorcelainSection(eyebrow: "Cross-Lingual") {
+                Toggle("Speak another language, write English", isOn: $state.crossLingualEnabled)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                if state.crossLingualEnabled {
+                    Picker("I speak", selection: $state.whisperLanguage) {
+                        Text("Auto-detect").tag("auto")
+                        ForEach(whisperLanguageOptions, id: \.code) { opt in
+                            Text(opt.name).tag(opt.code)
+                        }
+                    }
+                }
+                Text("Dictate in your language; polished English comes out. Uses the Whisper engine — download it below if you haven't.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
+
             if state.engineKind == .parakeet {
                 PorcelainSection(eyebrow: "Parakeet Model") {
                     Picker("Model", selection: $state.parakeetModel) {
