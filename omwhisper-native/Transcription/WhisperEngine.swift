@@ -102,6 +102,23 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
         state.withLockUnchecked { $0.pipe = pipe; $0.loadedModel = requested }
     }
 
+    /// Batch-transcribe a 16 kHz mono Float sample array into timestamped
+    /// segments (for meeting diarization — the streaming transcribe() drops
+    /// timestamps). Loads the requested model from disk if needed; throws
+    /// modelNotDownloaded if it isn't downloaded.
+    func transcribeSegments(samples: [Float]) async throws -> [(text: String, start: Double, end: Double)] {
+        let requested = state.withLockUnchecked { $0.requestedModel }
+        if !state.withLockUnchecked({ $0.pipe != nil && $0.loadedModel == requested }) {
+            guard Self.isDownloaded(requested) else { throw EngineError.modelNotDownloaded }
+            try await ensureModelLoaded()
+        }
+        guard let pipe = state.withLockUnchecked({ $0.pipe }) else { throw EngineError.modelNotDownloaded }
+        let results = try await pipe.transcribe(audioArray: samples, decodeOptions: DecodingOptions(task: .transcribe))
+        return results.flatMap { $0.segments }.map {
+            (text: $0.text.trimmingCharacters(in: .whitespacesAndNewlines), start: Double($0.start), end: Double($0.end))
+        }
+    }
+
     nonisolated func transcribe(
         _ audio: sending AsyncStream<AVAudioPCMBuffer>,
         vocabulary: [String]
