@@ -10,6 +10,8 @@
 //  essentially only mic-active during a real call (Zoom, FaceTime) don't.
 //
 
+import AppKit
+import ApplicationServices
 import Foundation
 
 nonisolated enum CallDetection {
@@ -51,5 +53,39 @@ nonisolated enum CallDetection {
     static func hasCallLikeTitle(_ title: String) -> Bool {
         guard !title.isEmpty else { return false }
         return callLikeWords.contains { title.localizedCaseInsensitiveContains($0) }
+    }
+
+    /// True if the app with this pid currently has any window whose title looks
+    /// like a call (reuses hasCallLikeTitle). Frontmost- and display-independent:
+    /// AXWindows lists every window on every monitor regardless of focus — the
+    /// key property for multi-monitor call detection. Called on the main actor
+    /// by MeetingWatcher.
+    static func hasActiveCallWindow(pid: pid_t) -> Bool {
+        let app = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement] else { return false }
+        for window in windows {
+            var titleRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
+               let title = titleRef as? String, hasCallLikeTitle(title) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The first running recognized call app that appears to be in a call, as
+    /// (name, pid). Non-verification apps (Zoom/FaceTime) count on being run
+    /// while the mic is active (the watcher only calls this when the mic is on);
+    /// verification apps (Teams/Slack/…) additionally require a call-like window.
+    static func activeCall() -> (name: String, pid: pid_t)? {
+        for app in NSWorkspace.shared.runningApplications {
+            guard let bundleID = app.bundleIdentifier, let caller = callerApps[bundleID] else { continue }
+            let pid = app.processIdentifier
+            if !caller.needsVerification { return (caller.name, pid) }
+            if hasActiveCallWindow(pid: pid) { return (caller.name, pid) }
+        }
+        return nil
     }
 }
