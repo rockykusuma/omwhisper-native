@@ -745,6 +745,19 @@ final class AppState {
         }
     }
 
+    /// True when cross-lingual dictation is actually going through Sarvam (audio
+    /// to the cloud) rather than the on-device Whisper fallback.
+    var crossLingualUsesSarvam: Bool {
+        crossLingualEnabled && Keychain.loadSarvamKey() != nil
+    }
+
+    /// Any active path that sends data off this Mac — drives the honest privacy
+    /// status line. Cross-lingual+Sarvam is the easy one to miss: it overrides
+    /// the engine picker without changing `engineKind`.
+    var usesCloud: Bool {
+        engineKind == .cloud || crossLingualUsesSarvam || polishBackend == .cloud
+    }
+
     // Model-download UI state. Stored (so @Observable tracks them) and owned by
     // AppState, NOT the transient Settings view — so progress survives the view
     // being recreated when the user navigates between hub sections mid-download,

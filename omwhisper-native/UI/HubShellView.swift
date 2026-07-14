@@ -126,9 +126,9 @@ struct HubShellView: View {
     private var privacyStatusLine: some View {
         HStack(spacing: 7) {
             Circle()
-                .fill(appState.engineKind == .cloud ? Color.Porcelain.dim : Color.Porcelain.emerald)
+                .fill(appState.usesCloud ? Color.Porcelain.dim : Color.Porcelain.emerald)
                 .frame(width: 6, height: 6)
-            Text(appState.engineKind == .cloud ? "Cloud transcription active — audio leaves this Mac" : "All processing on this Mac")
+            Text(appState.usesCloud ? "Cloud active — data leaves this Mac" : "All processing on this Mac")
                 .font(.system(size: 10.5))
                 .foregroundStyle(Color.Porcelain.dim)
         }

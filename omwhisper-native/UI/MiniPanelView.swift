@@ -36,6 +36,7 @@ struct MiniPanelView: View {
             recordMeetingButton
             microphoneRow
             styleRow
+            crossLingualRow
             brainDumpRow
             if !appState.hasAccessibilityPermission {
                 accessibilityRow
@@ -157,6 +158,26 @@ struct MiniPanelView: View {
                 }
             }
             .font(.system(size: 11.5))
+        }
+    }
+
+    // Quick flip before speaking another language — saves opening Settings.
+    // Subtitle names the actual path so it's clear whether audio leaves the Mac.
+    private var crossLingualRow: some View {
+        @Bindable var state = appState
+        return VStack(alignment: .leading, spacing: 1) {
+            Toggle(isOn: $state.crossLingualEnabled) {
+                Text("Cross-lingual → English")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.Porcelain.ink)
+            }
+            .toggleStyle(.switch)
+            .tint(Color.Porcelain.emerald)
+            if state.crossLingualEnabled {
+                Text(appState.crossLingualUsesSarvam ? "via Sarvam — audio to cloud" : "via on-device Whisper")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
         }
     }
 
