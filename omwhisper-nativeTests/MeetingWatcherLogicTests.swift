@@ -2,72 +2,62 @@ import Testing
 @testable import OmWhisper
 
 struct MeetingWatcherLogicTests {
+    let start = MeetingWatcherTiming.startDebounce
+    let end = MeetingWatcherTiming.endDebounce
+
+    @Test func idleToMicActiveOnMic() {
+        #expect(MeetingWatcher.nextState(current: .idle, micActive: true, activeDuration: .zero,
+            detectedCall: nil, recordingCallGone: false, callGoneDuration: .zero) == .micActive)
+    }
+
     @Test func idleStaysIdleWithoutMic() {
-        let next = MeetingWatcher.nextState(current: .idle, micActive: false, activeDuration: .zero, idleDuration: .zero, detectedCall: nil)
-        #expect(next == .idle)
+        #expect(MeetingWatcher.nextState(current: .idle, micActive: false, activeDuration: .zero,
+            detectedCall: nil, recordingCallGone: false, callGoneDuration: .zero) == .idle)
     }
 
-    @Test func idleTransitionsToMicActiveWhenMicTurnsOn() {
-        let next = MeetingWatcher.nextState(current: .idle, micActive: true, activeDuration: .zero, idleDuration: .zero, detectedCall: nil)
-        #expect(next == .micActive)
+    @Test func micActivePromptsOnCallAfterDebounce() {
+        #expect(MeetingWatcher.nextState(current: .micActive, micActive: true, activeDuration: start,
+            detectedCall: "Teams", recordingCallGone: false, callGoneDuration: .zero) == .prompting(appName: "Teams"))
     }
 
-    @Test func micActiveStaysUntilThreeSecondDebounce() {
-        let next = MeetingWatcher.nextState(current: .micActive, micActive: true, activeDuration: .seconds(1), idleDuration: .zero, detectedCall: "Zoom")
-        #expect(next == .micActive)
+    @Test func micActiveWaitsForDebounce() {
+        #expect(MeetingWatcher.nextState(current: .micActive, micActive: true, activeDuration: .seconds(1),
+            detectedCall: "Teams", recordingCallGone: false, callGoneDuration: .zero) == .micActive)
     }
 
-    @Test func micActivePromptsAfterDebounceWithRecognizedCall() {
-        let next = MeetingWatcher.nextState(current: .micActive, micActive: true, activeDuration: .seconds(3), idleDuration: .zero, detectedCall: "Zoom")
-        #expect(next == .prompting(appName: "Zoom"))
+    @Test func micActiveDeclinesWhenNoCall() {
+        #expect(MeetingWatcher.nextState(current: .micActive, micActive: true, activeDuration: start,
+            detectedCall: nil, recordingCallGone: false, callGoneDuration: .zero) == .declined)
     }
 
-    @Test func micActiveDeclinesAfterDebounceWithNoRecognizedCall() {
-        // Own dictation or an unrelated app -- never prompt.
-        let next = MeetingWatcher.nextState(current: .micActive, micActive: true, activeDuration: .seconds(3), idleDuration: .zero, detectedCall: nil)
-        #expect(next == .declined)
+    @Test func micActiveGoesIdleIfMicOffBeforeDebounce() {
+        #expect(MeetingWatcher.nextState(current: .micActive, micActive: false, activeDuration: .seconds(1),
+            detectedCall: nil, recordingCallGone: false, callGoneDuration: .zero) == .idle)
     }
 
-    @Test func micActiveGoesIdleIfMicTurnsOffBeforeDebounce() {
-        let next = MeetingWatcher.nextState(current: .micActive, micActive: false, activeDuration: .seconds(1), idleDuration: .zero, detectedCall: nil)
-        #expect(next == .idle)
+    @Test func recordingStaysWhileCallWindowPresent() {
+        // Window never gone → keeps recording even though the mic (held by us) reads active.
+        #expect(MeetingWatcher.nextState(current: .recording(appName: "Teams"), micActive: true, activeDuration: .zero,
+            detectedCall: nil, recordingCallGone: false, callGoneDuration: end) == .recording(appName: "Teams"))
     }
 
-    @Test func promptingResetsToIdleIfMicGoesOff() {
-        let next = MeetingWatcher.nextState(current: .prompting(appName: "Zoom"), micActive: false, activeDuration: .zero, idleDuration: .zero, detectedCall: nil)
-        #expect(next == .idle)
+    @Test func recordingStopsWhenCallWindowGonePastDebounce() {
+        #expect(MeetingWatcher.nextState(current: .recording(appName: "Teams"), micActive: true, activeDuration: .zero,
+            detectedCall: nil, recordingCallGone: true, callGoneDuration: end) == .idle)
     }
 
-    @Test func promptingStaysUntilExternalConsentDecision() {
-        // The consent panel's own accept/decline/timeout drives the real
-        // transition out of .prompting -- this function alone just holds while
-        // the mic is still active.
-        let next = MeetingWatcher.nextState(current: .prompting(appName: "Zoom"), micActive: true, activeDuration: .zero, idleDuration: .zero, detectedCall: "Zoom")
-        #expect(next == .prompting(appName: "Zoom"))
+    @Test func recordingHoldsBeforeDebounce() {
+        #expect(MeetingWatcher.nextState(current: .recording(appName: "Teams"), micActive: true, activeDuration: .zero,
+            detectedCall: nil, recordingCallGone: true, callGoneDuration: .seconds(1)) == .recording(appName: "Teams"))
     }
 
-    @Test func recordingStaysWhileMicActive() {
-        let next = MeetingWatcher.nextState(current: .recording(appName: "Zoom"), micActive: true, activeDuration: .zero, idleDuration: .zero, detectedCall: "Zoom")
-        #expect(next == .recording(appName: "Zoom"))
-    }
-
-    @Test func recordingStaysUntilEightSecondIdleDebounce() {
-        let next = MeetingWatcher.nextState(current: .recording(appName: "Zoom"), micActive: false, activeDuration: .zero, idleDuration: .seconds(3), detectedCall: nil)
-        #expect(next == .recording(appName: "Zoom"))
-    }
-
-    @Test func recordingFinalizesAfterEightSecondIdleDebounce() {
-        let next = MeetingWatcher.nextState(current: .recording(appName: "Zoom"), micActive: false, activeDuration: .zero, idleDuration: .seconds(8), detectedCall: nil)
-        #expect(next == .idle)
-    }
-
-    @Test func declinedStaysUntilMicGoesIdle() {
-        let next = MeetingWatcher.nextState(current: .declined, micActive: true, activeDuration: .zero, idleDuration: .zero, detectedCall: "Zoom")
-        #expect(next == .declined)
+    @Test func promptingCancelsWhenMicStops() {
+        #expect(MeetingWatcher.nextState(current: .prompting(appName: "Teams"), micActive: false, activeDuration: .zero,
+            detectedCall: nil, recordingCallGone: false, callGoneDuration: .zero) == .idle)
     }
 
     @Test func declinedRearmsWhenMicGoesIdle() {
-        let next = MeetingWatcher.nextState(current: .declined, micActive: false, activeDuration: .zero, idleDuration: .zero, detectedCall: nil)
-        #expect(next == .idle)
+        #expect(MeetingWatcher.nextState(current: .declined, micActive: false, activeDuration: .zero,
+            detectedCall: nil, recordingCallGone: false, callGoneDuration: .zero) == .idle)
     }
 }

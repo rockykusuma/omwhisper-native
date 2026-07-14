@@ -34,7 +34,14 @@ final class MeetingWatcher {
     private(set) var state: MeetingWatcherState = .idle
     private var pollTimer: Timer?
     private var activeSince: ContinuousClock.Instant?
-    private var idleSince: ContinuousClock.Instant?
+    /// The pid of the app whose call we're recording — for the AX window auto-stop.
+    private var recordingPID: pid_t?
+    /// pid captured at prompt time, promoted to recordingPID if consent is accepted.
+    private var pendingCallPID: pid_t?
+    /// True once we've observed the recorded call's window during this recording.
+    private var sawCallWindow = false
+    /// When the recorded call window first went missing after having been seen.
+    private var callGoneSince: ContinuousClock.Instant?
 
     /// Injected so this can be constructed and unit-exercised without the real
     /// recorder/panel (Tasks 3-4) -- Task 5 wires these to MeetingRecorder/
@@ -55,8 +62,9 @@ final class MeetingWatcher {
         current: MeetingWatcherState,
         micActive: Bool,
         activeDuration: Duration,
-        idleDuration: Duration,
-        detectedCall: String?
+        detectedCall: String?,
+        recordingCallGone: Bool,
+        callGoneDuration: Duration
     ) -> MeetingWatcherState {
         switch current {
         case .idle:
@@ -69,8 +77,13 @@ final class MeetingWatcher {
         case .prompting:
             return micActive ? current : .idle
         case .recording:
-            guard !micActive else { return current }
-            return idleDuration >= MeetingWatcherTiming.endDebounce ? .idle : current
+            // Stop path uses ONLY the recorded call's window going away — never
+            // the mic, which our own recorder holds open the whole time.
+            // `recordingCallGone` is true only once we've actually seen the call
+            // window and it then disappeared, so an app that never exposes a
+            // call-like title simply never auto-stops (manual Stop still works)
+            // rather than false-stopping mid-call.
+            return (recordingCallGone && callGoneDuration >= MeetingWatcherTiming.endDebounce) ? .idle : current
         case .declined:
             return micActive ? current : .idle
         }
@@ -101,6 +114,9 @@ final class MeetingWatcher {
     /// re-prompt, and still auto-stops it 8s after the mic goes idle (backup to
     /// the explicit Stop button). Paired with AppState.beginRecording.
     func enterRecording(appName: String) {
+        recordingPID = CallDetection.activeCall()?.pid
+        sawCallWindow = false
+        callGoneSince = nil
         state = .recording(appName: appName)
     }
 
@@ -115,32 +131,41 @@ final class MeetingWatcher {
         guard !isSuppressed() else { return }
         let micActive = Self.microphoneInUse()
         let now = ContinuousClock.now
+        if micActive { if activeSince == nil { activeSince = now } } else { activeSince = nil }
+        let activeDuration = activeSince.map { now - $0 } ?? .zero
 
-        if micActive {
-            if activeSince == nil { activeSince = now }
-            idleSince = nil
-        } else {
-            if idleSince == nil { idleSince = now }
-            activeSince = nil
+        // Frontmost-independent call detection for the start path.
+        let detected = micActive ? CallDetection.activeCall() : nil
+
+        // Recorded-call window tracking for the stop path.
+        var recordingCallGone = false
+        var callGoneDuration: Duration = .zero
+        if case .recording = state, let pid = recordingPID {
+            let hasWindow = CallDetection.hasActiveCallWindow(pid: pid)
+            if hasWindow {
+                sawCallWindow = true
+                callGoneSince = nil
+            } else if sawCallWindow, callGoneSince == nil {
+                callGoneSince = now
+            }
+            recordingCallGone = sawCallWindow && !hasWindow
+            callGoneDuration = callGoneSince.map { now - $0 } ?? .zero
         }
 
-        let activeDuration = activeSince.map { now - $0 } ?? .zero
-        let idleDuration = idleSince.map { now - $0 } ?? .zero
-        let detectedCall = micActive ? CallDetection.recognizedApp(
-            bundleID: NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "",
-            isFrontmost: true,
-            hasCallLikeWindowTitle: false
-        ) : nil
-
         let previous = state
-        state = Self.nextState(current: previous, micActive: micActive, activeDuration: activeDuration, idleDuration: idleDuration, detectedCall: detectedCall)
+        state = Self.nextState(current: previous, micActive: micActive, activeDuration: activeDuration,
+                               detectedCall: detected?.name, recordingCallGone: recordingCallGone, callGoneDuration: callGoneDuration)
 
         guard state != previous else { return }
         switch state {
         case .prompting(let appName):
+            pendingCallPID = detected?.pid
             onShowConsentPanel(appName) { [weak self] accepted in
                 guard let self else { return }
                 if accepted {
+                    self.recordingPID = self.pendingCallPID
+                    self.sawCallWindow = false
+                    self.callGoneSince = nil
                     self.state = .recording(appName: appName)
                     self.onStartRecording(appName)
                 } else {
@@ -148,6 +173,7 @@ final class MeetingWatcher {
                 }
             }
         case .idle where previous.isRecording:
+            recordingPID = nil
             onStopRecording()
         default:
             break
