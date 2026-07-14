@@ -28,8 +28,17 @@ nonisolated enum MeetingTranscriber {
         return parts.joined(separator: "\n\n")
     }
 
-    /// Transcribe me.caf (you) + them.caf (others) sequentially → labeled transcript.
-    static func transcribeMeeting(directory: URL, engine: TranscriptionEngine) async throws -> String {
+    /// Diarized interleaved transcript when a Whisper model is available and
+    /// diarization finds speakers; otherwise the legacy on-device You/Others
+    /// transcript. Never throws for the "no Whisper / no speakers" case — it
+    /// falls back so a meeting always transcribes.
+    static func transcribeMeeting(directory: URL, engine: TranscriptionEngine, whisper: WhisperEngine) async throws -> String {
+        if whisper.isReady {
+            if let diarized = try? await diarizedTranscript(directory: directory, whisper: whisper),
+               !diarized.isEmpty {
+                return diarized
+            }
+        }
         let you = try await transcribeFile(directory.appendingPathComponent("me.caf"), engine: engine)
         let others = try await transcribeFile(directory.appendingPathComponent("them.caf"), engine: engine)
         return labeledTranscript(you: you, others: others)
@@ -76,5 +85,50 @@ nonisolated enum MeetingTranscriber {
     static func audioDuration(_ url: URL) -> Double {
         guard let file = try? AVAudioFile(forReading: url) else { return 0 }
         return Double(file.length) / file.processingFormat.sampleRate
+    }
+
+    enum MeetingTranscriberError: Error { case noSpeakers }
+
+    /// Read a .caf into a 16 kHz mono Float array (what WhisperKit/FluidAudio want).
+    static func read16kMono(_ url: URL) -> [Float] {
+        guard let file = try? AVAudioFile(forReading: url), file.length > 0,
+              let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)
+        else { return [] }
+        let converter = BufferConverter()
+        var samples: [Float] = []
+        let chunk: AVAudioFrameCount = 8192
+        var remaining = file.length
+        while remaining > 0 {
+            let n = AVAudioFrameCount(min(Int64(chunk), remaining))
+            guard let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: n),
+                  (try? file.read(into: buf, frameCount: n)) != nil, buf.frameLength > 0,
+                  let converted = try? converter.convertBuffer(buf, to: target),
+                  let ch = converted.floatChannelData else { break }
+            samples.append(contentsOf: UnsafeBufferPointer(start: ch[0], count: Int(converted.frameLength)))
+            remaining -= Int64(buf.frameLength)
+        }
+        return samples
+    }
+
+    /// Diarized interleaved transcript. Throws to let the caller fall back.
+    static func diarizedTranscript(directory: URL, whisper: WhisperEngine) async throws -> String {
+        let youSamples = read16kMono(directory.appendingPathComponent("me.caf"))
+        let themSamples = read16kMono(directory.appendingPathComponent("them.caf"))
+
+        let youTexts = youSamples.isEmpty ? [] : try await whisper.transcribeSegments(samples: youSamples)
+        let youSegs = youTexts.map { TranscriptSegment(text: $0.text, start: $0.start, end: $0.end, speaker: "You") }
+
+        var themSegs: [TranscriptSegment] = []
+        if !themSamples.isEmpty {
+            let themTexts = try await whisper.transcribeSegments(samples: themSamples)
+            let speakers = try await MeetingDiarizer.diarize(samples: themSamples)
+            guard !speakers.isEmpty else { throw MeetingTranscriberError.noSpeakers }
+            themSegs = MeetingDiarization.alignSpeakers(texts: themTexts, speakers: speakers)
+        }
+
+        let merged = MeetingDiarization.mergeByTime(youSegs + themSegs)
+        let relabeled = MeetingDiarization.relabelOthers(merged)
+        let turns = MeetingDiarization.collapseTurns(relabeled)
+        return MeetingDiarization.renderInterleaved(turns)
     }
 }

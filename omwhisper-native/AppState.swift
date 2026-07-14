@@ -470,7 +470,7 @@ final class AppState {
             throw MeetingStoreError.notFound
         }
         let transcript = try await MeetingTranscriber.transcribeMeeting(
-            directory: URL(fileURLWithPath: meeting.directory), engine: AppleEngine()
+            directory: URL(fileURLWithPath: meeting.directory), engine: AppleEngine(), whisper: whisperEngine
         )
         var summary: String?
         if SystemLLM.isAvailable() {
