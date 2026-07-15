@@ -109,7 +109,9 @@ struct ChroniclerTests {
     func generateStoresChronicle() async throws {
         let store = try MemoryStore(DatabaseQueue())
         try store.upsert(appName: "Xcode", bundleID: "com.apple.dt.Xcode", windowTitle: "AppState.swift", content: "editing code", url: "")
-        let day = String(ISO8601DateFormatter().string(from: Date()).prefix(10))
+        // dayString (local), not the UTC ISO8601 prefix — snapshotsForDay matches
+        // on the local day, and the two disagree between midnight and UTC offset.
+        let day = Chronicler.dayString()
         let result = try await Chronicler.generate(day: day, store: store, polish: StubPolishBackend())
         #expect(result.day == day)
         #expect(result.snapshotCount == 1)

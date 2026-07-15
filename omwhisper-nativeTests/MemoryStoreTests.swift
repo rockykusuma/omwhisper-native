@@ -173,20 +173,33 @@ struct MemoryStoreTests {
         #expect(days == ["2026-07-08", "2026-07-07", "2026-07-06"])
     }
 
+    /// Queries by Chronicler.dayString — the LOCAL day — deliberately, not by
+    /// slicing the UTC ISO8601 string. The two must agree; when they didn't, a
+    /// chronicle generated between midnight and UTC-offset (00:00–05:30 IST) asked
+    /// for yesterday's date and got yesterday's snapshots. Using the real
+    /// dayString here is what pins them together.
     @Test("snapshotsForDay returns only that day's snapshots, oldest first")
     func snapshotsForDayFiltersByDate() throws {
         let store = try makeStore()
         try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "Today", content: "today content", url: "")
-        let today = ISO8601DateFormatter().string(from: Date())
         let yesterday = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86_400))
         try store.dbQueue.write { db in
             try MemorySnapshot.filter(Column("windowTitle") == "Today")
                 .updateAll(db, Column("capturedAt").set(to: yesterday), Column("lastSeenAt").set(to: yesterday))
         }
         try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "TodayReal", content: "real today", url: "")
-        let todayDay = String(today.prefix(10))
-        let results = try store.snapshotsForDay(todayDay)
+        let results = try store.snapshotsForDay(Chronicler.dayString())
         #expect(results.map(\.windowTitle) == ["TodayReal"])
+    }
+
+    /// The regression directly: a snapshot captured just after local midnight
+    /// belongs to today, even while UTC still says yesterday.
+    @Test("a snapshot taken now is found under today's local day")
+    func snapshotsForDayUsesLocalDay() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Notes", bundleID: "com.apple.Notes", windowTitle: "Now", content: "just captured", url: "")
+        #expect(try store.snapshotsForDay(Chronicler.dayString()).map(\.windowTitle) == ["Now"])
+        #expect(try store.snapshotsForDay(Chronicler.dayString(daysAgo: 1)).isEmpty)
     }
 
     @Test("recent returns snapshots seen within the window, newest first")

@@ -165,6 +165,13 @@ struct HubMeetingsSectionView: View {
         do {
             let trimmed = searchText.trimmingCharacters(in: .whitespaces)
             meetings = trimmed.isEmpty ? try store.fetchPage(offset: 0, limit: 100) : try store.search(trimmed, limit: 100)
+            // Land on the newest meeting rather than an empty pane. Also covers the
+            // selection falling out of the list — deleted, or filtered out by a
+            // search — which would otherwise strand "Select a meeting" next to
+            // results that are right there.
+            if selectedID == nil || !meetings.contains(where: { $0.id == selectedID }) {
+                selectedID = meetings.first?.id
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

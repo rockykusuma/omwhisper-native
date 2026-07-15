@@ -148,14 +148,19 @@ nonisolated enum Chronicler {
     /// which was pinned to UTC for the same reason. Trade-off: the day boundary is
     /// UTC midnight, so a late evening can straddle two chronicles -- accepted for
     /// consistency with the store, which is the actual correctness fix.
+    /// The user's LOCAL calendar day — "today" means their today, not UTC's.
+    ///
+    /// This was briefly pinned to UTC to match MemoryStore's `date(lastSeenAt)`,
+    /// which reads the stored `…Z` timestamps as UTC. That fixed the mismatch from
+    /// the wrong end: it moved the label instead of the query. East of UTC it made
+    /// every chronicle span 05:30→05:30 local, and between midnight and 05:30 IST
+    /// "today" resolved to yesterday's date over yesterday's snapshots.
+    /// snapshotsForDay now compares in localtime, so the two agree on the user's day.
     static func dayString(daysAgo: Int = 0) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "UTC")!
-        let date = calendar.date(byAdding: .day, value: -daysAgo, to: Date())!
+        let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())!
         return formatter.string(from: date)
     }
 }

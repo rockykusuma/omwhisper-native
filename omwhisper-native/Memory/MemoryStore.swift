@@ -205,11 +205,15 @@ nonisolated final class MemoryStore: Sendable {
         }
     }
 
+    /// `day` is a LOCAL calendar day (Chronicler.dayString). Timestamps are stored
+    /// as UTC ISO8601 ("…Z"), so the comparison needs 'localtime' to convert them
+    /// — without it a chronicle's day runs UTC-midnight to UTC-midnight, which for
+    /// anyone not on UTC is neither of their days.
     func snapshotsForDay(_ day: String) throws -> [MemorySnapshot] {
         try dbQueue.read { db in
             try MemorySnapshot.fetchAll(db, sql: """
                 SELECT * FROM snapshots
-                WHERE date(lastSeenAt) = ? OR date(capturedAt) = ?
+                WHERE date(lastSeenAt, 'localtime') = ? OR date(capturedAt, 'localtime') = ?
                 ORDER BY lastSeenAt ASC
                 """, arguments: [day, day])
         }
