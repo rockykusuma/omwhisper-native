@@ -444,6 +444,25 @@ final class AppState {
         guard let store = meetingStore, let dir = meetingRecorder.meetingDirectory else { return }
         let iso = ISO8601DateFormatter()
         let duration = MeetingTranscriber.audioDuration(dir.appendingPathComponent("me.caf"))
+
+        // No (meaningful) audio captured — almost always the System Audio Recording
+        // permission being denied for this build: the CoreAudio process tap's IO
+        // callback silently never fires, so both tracks are empty. Don't leave the
+        // user a blank recording they'll wonder about later — save the meeting with
+        // a clear explanation AS its transcript, so it surfaces exactly where they
+        // look. (Rebuilding the dev app re-signs the binary and resets this grant.)
+        var transcript: String?
+        if duration < 1.0 {
+            log.warning("recordFinishedMeeting — captured no audio (\(duration)s); saving a permission note")
+            transcript = """
+                ⚠️ No audio was captured for this recording.
+
+                OmWhisper records calls via a system-audio tap, which needs the \
+                “System Audio Recording” permission. Grant it in System Settings › \
+                Privacy & Security › System Audio Recording, then record again.
+                """
+            errorMessage = "Recording captured no audio — grant “System Audio Recording” in System Settings."
+        }
         do {
             _ = try store.insert(Meeting(
                 id: nil,
@@ -451,7 +470,7 @@ final class AppState {
                 appName: meetingAppName ?? "Meeting",
                 directory: dir.path,
                 durationSeconds: duration,
-                transcript: nil, summary: nil,
+                transcript: transcript, summary: nil,
                 createdAt: iso.string(from: Date())
             ))
         } catch {
