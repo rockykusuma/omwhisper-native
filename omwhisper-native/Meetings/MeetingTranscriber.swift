@@ -15,8 +15,11 @@
 
 @preconcurrency import AVFoundation
 import Foundation
+import os
 
 nonisolated enum MeetingTranscriber {
+    static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OmWhisper", category: "MeetingTranscriber")
+
     /// Pure: markdown transcript with speaker labels; a track that's empty/whitespace
     /// is omitted; both empty → "".
     static func labeledTranscript(you: String, others: String) -> String {
@@ -34,10 +37,19 @@ nonisolated enum MeetingTranscriber {
     /// falls back so a meeting always transcribes.
     static func transcribeMeeting(directory: URL, engine: TranscriptionEngine, whisper: WhisperEngine) async throws -> String {
         if whisper.isReady {
-            if let diarized = try? await diarizedTranscript(directory: directory, whisper: whisper),
-               !diarized.isEmpty {
-                return diarized
+            // Never silently swallow this: a bare `try?` here hid a real failure
+            // (FluidAudio's speaker models download lazily on the first-ever
+            // transcribe; when that hadn't happened the meeting quietly came back
+            // in the old You/Others shape with no hint diarization was even tried).
+            do {
+                let diarized = try await diarizedTranscript(directory: directory, whisper: whisper)
+                if !diarized.isEmpty { return diarized }
+                log.error("diarizedTranscript produced no text — falling back to You/Others")
+            } catch {
+                log.error("diarizedTranscript failed (\(String(describing: error), privacy: .public)) — falling back to You/Others")
             }
+        } else {
+            log.error("whisper model not downloaded — meeting falls back to You/Others (no diarization)")
         }
         let you = try await transcribeFile(directory.appendingPathComponent("me.caf"), engine: engine)
         let others = try await transcribeFile(directory.appendingPathComponent("them.caf"), engine: engine)
@@ -126,7 +138,10 @@ nonisolated enum MeetingTranscriber {
             themSegs = MeetingDiarization.alignSpeakers(texts: themTexts, speakers: speakers)
         }
 
-        let merged = MeetingDiarization.mergeByTime(youSegs + themSegs)
+        // Drop what the mic only heard because it was coming out of the speakers,
+        // so a sentence the other side said isn't also attributed to "You".
+        let youOwn = MeetingDiarization.dropEchoed(you: youSegs, others: themSegs)
+        let merged = MeetingDiarization.mergeByTime(youOwn + themSegs)
         let relabeled = MeetingDiarization.relabelOthers(merged)
         let turns = MeetingDiarization.collapseTurns(relabeled)
         return MeetingDiarization.renderInterleaved(turns)

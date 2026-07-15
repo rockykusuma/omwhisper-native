@@ -129,9 +129,9 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
         }
         guard let pipe = state.withLockUnchecked({ $0.pipe }) else { throw EngineError.modelNotDownloaded }
         let results = try await pipe.transcribe(audioArray: samples, decodeOptions: DecodingOptions(task: .transcribe))
-        return results.flatMap { $0.segments }.map {
-            (text: $0.text.trimmingCharacters(in: .whitespacesAndNewlines), start: Double($0.start), end: Double($0.end))
-        }
+        return results.flatMap { $0.segments }
+            .map { (text: WhisperModel.stripSpecialTokens($0.text), start: Double($0.start), end: Double($0.end)) }
+            .filter { !$0.text.isEmpty }
     }
 
     nonisolated func transcribe(

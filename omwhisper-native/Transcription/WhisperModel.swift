@@ -56,4 +56,16 @@ nonisolated enum WhisperModel: String, CaseIterable, Identifiable, Sendable {
     static func vocabularyPrompt(_ terms: [String]) -> String {
         terms.joined(separator: ", ")
     }
+
+    /// Strip Whisper's special tokens from segment text.
+    /// TranscriptionResult.text is already clean, but TranscriptionSegment.text —
+    /// what transcribeSegments must use, since only segments carry timestamps —
+    /// comes back raw, e.g.
+    /// "<|startoftranscript|><|en|><|transcribe|><|0.00|> hello<|3.44|>".
+    /// Collapses the whitespace the removed tokens leave behind.
+    static func stripSpecialTokens(_ text: String) -> String {
+        text.replacingOccurrences(of: "<\\|[^|]*\\|>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

@@ -11,6 +11,14 @@
 import Foundation
 import SwiftUI
 
+#if DEBUG
+if let flag = CommandLine.arguments.firstIndex(of: "--diagnose-meeting"),
+   flag + 1 < CommandLine.arguments.count {
+    await MeetingDiagnostics.run(directory: URL(fileURLWithPath: CommandLine.arguments[flag + 1]))
+    exit(0)
+}
+#endif
+
 if CommandLine.arguments.contains("--mcp") {
     MCPLauncher.run()
 } else {

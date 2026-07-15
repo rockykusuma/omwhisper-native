@@ -46,6 +46,50 @@ nonisolated enum MeetingDiarization {
         }
     }
 
+    /// Words, lowercased, punctuation-stripped — the unit echo matching compares.
+    static func words(_ text: String) -> [String] {
+        text.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+    }
+
+    /// How much two texts say the same thing: shared distinct words over the
+    /// shorter one's distinct-word count. 1 = one is a subset of the other.
+    /// Deliberately word-set based, not edit distance: the two tracks are
+    /// transcribed independently, so an echo comes back with different word
+    /// errors ("For the Internet" vs "or the internet") but nearly the same words.
+    static func similarity(_ a: String, _ b: String) -> Double {
+        let x = Set(words(a)), y = Set(words(b))
+        guard !x.isEmpty, !y.isEmpty else { return 0 }
+        return Double(x.intersection(y).count) / Double(min(x.count, y.count))
+    }
+
+    /// Remove mic-track segments that are just the speakers bleeding back into
+    /// the mic. When the user is on laptop speakers, me.caf picks up whatever
+    /// them.caf is playing, so the same sentence lands on both tracks and the
+    /// transcript says it twice — once as "You", once as the real speaker.
+    ///
+    /// A "You" segment is echo when it overlaps a system-track segment in time
+    /// AND says nearly the same thing. The user's own speech is never on the
+    /// system track (the tap captures output only), so real speech can't match
+    /// and is never dropped — headphones simply mean nothing matches at all.
+    ///
+    /// ponytail: a genuinely simultaneous identical short utterance (both sides
+    /// say "yeah" at once) is credited to the speaker, not you. Needs the audio
+    /// itself (echo is a delayed, attenuated copy) to do better — not worth it.
+    static func dropEchoed(
+        you: [TranscriptSegment],
+        others: [TranscriptSegment],
+        minSimilarity: Double = 0.6
+    ) -> [TranscriptSegment] {
+        you.filter { mine in
+            !others.contains { theirs in
+                overlap(mine.start, mine.end, theirs.start, theirs.end) > 0
+                    && similarity(mine.text, theirs.text) >= minSimilarity
+            }
+        }
+    }
+
     /// Map raw diarization speaker ids (any strings) to "Speaker 1", "Speaker 2", …
     /// in order of first appearance. "You" is left untouched.
     static func relabelOthers(_ segments: [TranscriptSegment]) -> [TranscriptSegment] {

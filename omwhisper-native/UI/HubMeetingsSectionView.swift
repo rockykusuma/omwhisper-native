@@ -31,6 +31,9 @@ struct HubMeetingsSectionView: View {
         }
         .background(Color.Porcelain.bg)
         .task(id: searchText) { await reload() }
+        // A recording that finished while this view is open transcribes in the
+        // background; picking up its transcript needs a reload once it lands.
+        .task(id: appState.transcribingMeetingIDs) { await reload() }
     }
 
     private func settingsBar(state: AppState) -> some View {
@@ -129,6 +132,7 @@ struct HubMeetingsSectionView: View {
     }
 
     private func status(_ meeting: Meeting) -> String {
+        if let id = meeting.id, appState.transcribingMeetingIDs.contains(id) { return "Transcribing…" }
         if meeting.summary != nil { return "Summarized" }
         if meeting.transcript != nil { return "Transcribed" }
         return "Recorded"
@@ -154,6 +158,12 @@ private struct MeetingDetailView: View {
     @State private var working = false
     @State private var errorMessage: String?
 
+    /// Busy for either reason: this view kicked off a transcribe, or the meeting
+    /// is still being auto-transcribed from when its recording stopped.
+    private var busy: Bool {
+        working || (meeting.id.map { appState.transcribingMeetingIDs.contains($0) } ?? false)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -162,12 +172,12 @@ private struct MeetingDetailView: View {
                     .foregroundStyle(Color.Porcelain.ink)
 
                 HStack(spacing: 10) {
-                    Button(working ? "Working…" : (meeting.transcript == nil ? "Transcribe & Summarize" : "Re-transcribe")) {
+                    Button(busy ? "Working…" : (meeting.transcript == nil ? "Transcribe & Summarize" : "Re-transcribe")) {
                         run()
                     }
-                    .disabled(working)
-                    Button("Delete", role: .destructive) { delete() }.disabled(working)
-                    if working { ProgressView().controlSize(.small) }
+                    .disabled(busy)
+                    Button("Delete", role: .destructive) { delete() }.disabled(busy)
+                    if busy { ProgressView().controlSize(.small) }
                 }
 
                 if let summary = meeting.summary, !summary.isEmpty {
@@ -175,7 +185,7 @@ private struct MeetingDetailView: View {
                 }
                 if let transcript = meeting.transcript, !transcript.isEmpty {
                     section("Transcript", markdown: transcript)
-                } else if !working {
+                } else if !busy {
                     Text("Not transcribed yet — tap Transcribe & Summarize.")
                         .font(.caption).foregroundStyle(Color.Porcelain.dim)
                 }

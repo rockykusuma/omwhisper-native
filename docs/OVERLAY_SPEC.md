@@ -344,3 +344,7 @@ Add to the M1/M2 sign-off list:
   into the existing start/stop sounds — or is the stop sound already that?
 - Smart dictation (M3): violet accent variant of the palette for
   polish-in-progress, or same emerald with a different label?
+- Overlay placement setting: bottom-center (default) vs. under-notch
+  (FluidVoice ships notch-aware placement — glanceable without leaving your
+  text; see `COMPETITOR_FLUIDVOICE.md` §adopt). Orb/Whisper-line styles fit
+  the notch area naturally; Full pill likely bottom-only.

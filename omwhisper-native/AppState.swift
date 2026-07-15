@@ -464,7 +464,7 @@ final class AppState {
             errorMessage = "Recording captured no audio — grant “System Audio Recording” in System Settings."
         }
         do {
-            _ = try store.insert(Meeting(
+            let id = try store.insert(Meeting(
                 id: nil,
                 startedAt: iso.string(from: meetingStartedAt ?? Date()),
                 appName: meetingAppName ?? "Meeting",
@@ -473,11 +473,37 @@ final class AppState {
                 transcript: transcript, summary: nil,
                 createdAt: iso.string(from: Date())
             ))
+            // Transcribe straight away rather than waiting for the user to open the
+            // meeting and press a button. Skipped when `transcript` is already set —
+            // that's the no-audio permission note, which has nothing to transcribe.
+            if transcript == nil {
+                autoTranscribe(id: id)
+            }
         } catch {
             log.error("recordFinishedMeeting — insert failed: \(error)")
         }
         meetingStartedAt = nil
         meetingAppName = nil
+    }
+
+    /// Meetings currently being transcribed. Drives the list's "Transcribing…"
+    /// status, and its emptying is what tells the open Meetings view to reload —
+    /// a background transcribe has no other way to reach a view that already
+    /// loaded its rows.
+    var transcribingMeetingIDs: Set<Int64> = []
+
+    /// Fire-and-forget transcription of a just-finished recording. Errors are
+    /// logged, not surfaced: the row is already saved and the user can always
+    /// press Re-transcribe, so a failure here must never interrupt them.
+    /// The heavy work is nonisolated (WhisperEngine/MeetingDiarizer), so this
+    /// hops off MainActor and leaves the UI responsive.
+    func autoTranscribe(id: Int64) {
+        transcribingMeetingIDs.insert(id)
+        Task { [weak self] in
+            defer { self?.transcribingMeetingIDs.remove(id) }
+            do { _ = try await self?.transcribeMeeting(id: id) }
+            catch { log.error("autoTranscribe(\(id)) failed: \(error)") }
+        }
     }
 
     /// The view's path: transcribe both tracks on-device (AppleEngine) and, if
