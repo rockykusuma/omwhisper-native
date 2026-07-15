@@ -174,9 +174,23 @@ struct MiniPanelView: View {
             .toggleStyle(.switch)
             .tint(Color.Porcelain.emerald)
             if state.crossLingualEnabled {
-                Text(appState.crossLingualUsesSarvam ? "via Sarvam — audio to cloud" : "via on-device Whisper")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Color.Porcelain.dim)
+                if Keychain.loadSarvamKey() != nil {
+                    Toggle(isOn: $state.crossLingualUseSarvam) {
+                        Text("Use Sarvam (cloud)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.Porcelain.dim)
+                    }
+                    .toggleStyle(.switch)
+                    .tint(Color.Porcelain.emerald)
+                    .controlSize(.mini)
+                    Text(appState.crossLingualUsesSarvam ? "audio to cloud" : "on-device Whisper")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.Porcelain.dim)
+                } else {
+                    Text("via on-device Whisper")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.Porcelain.dim)
+                }
             }
         }
     }

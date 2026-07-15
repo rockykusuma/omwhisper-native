@@ -63,10 +63,14 @@ struct TranscriptionSettingsView: View {
                 Divider().padding(.vertical, 2)
 
                 if sarvamKeySaved {
-                    Label("Sarvam key saved — using Sarvam (Saaras) for translation",
-                          systemImage: "checkmark.seal.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.Porcelain.emerald)
+                    Toggle("Use Sarvam (cloud) for translation", isOn: $state.crossLingualUseSarvam)
+                        .tint(Color.Porcelain.emerald)
+                        .foregroundStyle(Color.Porcelain.ink)
+                    Text(state.crossLingualUseSarvam
+                         ? "Sarvam key saved — speech goes straight to English via Sarvam."
+                         : "Sarvam key saved, but off — cross-lingual uses on-device Whisper + your polish backend.")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
                     Button("Clear Sarvam key") {
                         try? Keychain.deleteSarvamKey(); sarvamKeySaved = false; sarvamKeyInput = ""
                     }

@@ -705,6 +705,23 @@ final class AppState {
         }
     }
 
+    /// When cross-lingual is on AND a Sarvam key is saved, whether to actually
+    /// route through Sarvam (cloud) vs. the on-device Whisper path. Default true
+    /// (a saved key implies intent to use it), but decoupled from key presence so
+    /// the user can flip to on-device — for privacy, offline, or cost — without
+    /// deleting their key.
+    var crossLingualUseSarvam: Bool {
+        get {
+            access(keyPath: \.crossLingualUseSarvam)
+            return UserDefaults.standard.object(forKey: SettingsKeys.crossLingualUseSarvam) as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.crossLingualUseSarvam) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.crossLingualUseSarvam)
+            }
+        }
+    }
+
     /// Human-readable name of the spoken language, for the cross-lingual prompt.
     private var spokenLanguageName: String {
         WhisperEngine.languageName(forCode: whisperLanguage)
@@ -733,8 +750,8 @@ final class AppState {
     let parakeetEngine = ParakeetEngine()
     let whisperEngine = WhisperEngine()
     private var activeEngine: TranscriptionEngine {
-        // Cross-lingual + a Sarvam key → Saaras does speech→English directly.
-        if crossLingualEnabled, Keychain.loadSarvamKey() != nil {
+        // Cross-lingual + a Sarvam key + Use-Sarvam on → Saaras does speech→English.
+        if crossLingualUsesSarvam {
             return SarvamEngine()
         }
         return switch CrossLingual.engineKind(base: engineKind, crossLingual: crossLingualEnabled) {
@@ -746,9 +763,10 @@ final class AppState {
     }
 
     /// True when cross-lingual dictation is actually going through Sarvam (audio
-    /// to the cloud) rather than the on-device Whisper fallback.
+    /// to the cloud) rather than the on-device Whisper path — the single source of
+    /// truth for engine selection, the polish skip, and the cloud privacy line.
     var crossLingualUsesSarvam: Bool {
-        crossLingualEnabled && Keychain.loadSarvamKey() != nil
+        crossLingualEnabled && crossLingualUseSarvam && Keychain.loadSarvamKey() != nil
     }
 
     /// Any active path that sends data off this Mac — drives the honest privacy
@@ -1513,9 +1531,9 @@ final class AppState {
     }
 
     private func polishedText(for original: String) async -> String {
-        // Sarvam already produced English (cross-lingual + key) — paste as-is; never
-        // run the translate/polish prompt on it, and no polish backend is required.
-        if crossLingualEnabled, Keychain.loadSarvamKey() != nil { return original }
+        // Sarvam already produced English — paste as-is; never run the
+        // translate/polish prompt on it, and no polish backend is required.
+        if crossLingualUsesSarvam { return original }
         // The one-time nudge fires only when System is selected but off — not for
         // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
         if polishBackend == .system, !SystemLLM.isAvailable() {
@@ -1712,6 +1730,7 @@ nonisolated enum SettingsKeys {
     static let whisperModel = "whisperModel"
     static let whisperLanguage = "whisperLanguage"
     static let crossLingualEnabled = "crossLingualEnabled"
+    static let crossLingualUseSarvam = "crossLingualUseSarvam"
     static let cloudProvider = "cloudProvider"
     static let overlayStyle = "overlayStyle"
 }
