@@ -33,6 +33,9 @@ struct MiniPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            Label("Hold Fn to dictate · ⌘⇧V to toggle", systemImage: "mic.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.Porcelain.dim)
             recordMeetingButton
             microphoneRow
             styleRow
@@ -128,10 +131,10 @@ struct MiniPanelView: View {
             }
             .font(.system(size: 11.5))
             Spacer()
-            Button("Start") { appState.beginBrainDump() }
-                .font(.system(size: 11.5))
-                .foregroundStyle(Color.Porcelain.mint)
-                .buttonStyle(.plain)
+            Text("⌘⇧D")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(Color.Porcelain.dim)
+                .help("Pick a shape, then press ⌘⇧D to brain-dump")
         }
     }
 

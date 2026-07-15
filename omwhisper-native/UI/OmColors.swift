@@ -28,7 +28,11 @@ private extension Color {
 }
 
 private extension NSColor {
-    convenience init(hex: UInt32) {
+    // nonisolated: called from porcelainAdaptive's dynamic-color closure, which
+    // AppKit/SwiftUI invoke OFF the main thread during color resolution. Without
+    // this the project's MainActor-by-default isolation makes the closure assert
+    // the main queue and SIGTRAP (Swift 6 isolation check). Pure math — thread-safe.
+    nonisolated convenience init(hex: UInt32) {
         self.init(
             srgbRed: CGFloat((hex >> 16) & 0xFF) / 255,
             green: CGFloat((hex >> 8) & 0xFF) / 255,
@@ -42,7 +46,7 @@ private extension NSColor {
 /// following the host window's effective appearance. Bridged through a dynamic
 /// `NSColor` so it re-resolves live when the system theme flips — the whole
 /// Porcelain palette is built on this so the hub tracks system dark mode.
-private func porcelainAdaptive(light: UInt32, dark: UInt32) -> Color {
+private nonisolated func porcelainAdaptive(light: UInt32, dark: UInt32) -> Color {
     Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             ? NSColor(hex: dark)
