@@ -52,6 +52,8 @@ private struct MemorySnapshotsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            PorcelainSearchField(text: $searchText, prompt: "Search captured memory")
+                .padding(11)
             if entries.isEmpty {
                 emptyState
             } else {
@@ -60,12 +62,7 @@ private struct MemorySnapshotsView: View {
             Divider()
             footer
         }
-        .searchable(text: $searchText, prompt: "Search captured memory")
-        .toolbar {
-            ToolbarItemGroup {
-                Button("Clear All", role: .destructive) { showClearConfirmation = true }
-            }
-        }
+        .background(Color.Porcelain.bg)
         .task(id: searchText) { await reload() }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK") { errorMessage = nil }
@@ -107,16 +104,24 @@ private struct MemorySnapshotsView: View {
         .background(Color.Porcelain.bg)
     }
 
+    /// Clear All sits here, next to the count it wipes — it was a `.toolbar` item,
+    /// which put a destructive Memory-only action in the hub's *window* toolbar,
+    /// where it read as global and stayed visible with the section's data offscreen.
     private var footer: some View {
         HStack {
             if let storageInfo {
                 Text("\(storageInfo.count) snapshot\(storageInfo.count == 1 ? "" : "s") · \(formatBytes(storageInfo.bytes))")
-                    .font(.caption)
+                    .font(.system(size: 11.5))
                     .foregroundStyle(Color.Porcelain.dim)
             }
             Spacer()
+            if !entries.isEmpty {
+                Button("Clear All", role: .destructive) { showClearConfirmation = true }
+                    .font(.system(size: 11.5))
+            }
         }
-        .padding(8)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
         .background(Color.Porcelain.bg)
     }
 

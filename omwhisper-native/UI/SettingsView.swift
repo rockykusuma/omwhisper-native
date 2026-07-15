@@ -13,7 +13,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    private enum Tab: String, CaseIterable, Identifiable {
+    enum Tab: String, CaseIterable, Identifiable {
         case general, audio, transcription, mcp, about
         var id: String { rawValue }
 
@@ -38,6 +38,10 @@ struct SettingsView: View {
         }
     }
 
+    /// Which tab to open on. Lets the hub deep-link straight to Transcription
+    /// from the sidebar's engine line, instead of landing on General and making
+    /// the user hunt for the setting they clicked to reach.
+    var initialTab: Tab = .general
     @State private var tab: Tab = .general
 
     var body: some View {
@@ -61,6 +65,7 @@ struct SettingsView: View {
             }
         }
         .background(Color.Porcelain.bg)
+        .onAppear { tab = initialTab }
     }
 }
 

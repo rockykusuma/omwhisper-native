@@ -18,60 +18,15 @@ struct MemoryChroniclesView: View {
     @State private var isRegenerating = false
     @State private var errorMessage: String?
 
+    /// A plain HStack, deliberately NOT a NavigationSplitView — the same fix as
+    /// Meetings: this already sits inside HubShellView's NavigationSplitView, and
+    /// macOS reads the nested pair as a three-column layout, reserving a dead band
+    /// between the day list and the chronicle.
     var body: some View {
-        NavigationSplitView {
-            ScrollView {
-                LazyVStack(spacing: 6) {
-                    ForEach(chronicles) { chronicle in
-                        Button {
-                            selectedDay = chronicle.day
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(chronicle.day)
-                                    .fontWeight(.medium)
-                                    .foregroundStyle(Color.Porcelain.ink)
-                                Text("\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.Porcelain.dim)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 9)
-                                    .fill(selectedDay == chronicle.day ? Color.Porcelain.accentTint2 : Color.clear)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(chronicle.day), \(chronicle.snapshotCount) snapshots")
-                        .accessibilityAddTraits(selectedDay == chronicle.day ? .isSelected : [])
-                    }
-                }
-                .padding(10)
-            }
-            .background(Color.Porcelain.bg)
-            .navigationSplitViewColumnWidth(min: 160, ideal: 200)
-        } detail: {
+        HStack(spacing: 0) {
+            dayList
+            Divider()
             detail
-        }
-        // Always visible (not just when a chronicle is selected) -- with
-        // zero chronicles generated yet (the normal first-run state), this
-        // is the only way to ever produce the first one. Also doubles as
-        // "regenerate today" since Chronicler.generate always overwrites.
-        // ponytail: only regenerates today, not an arbitrary past day --
-        // add a per-day action if users need to fix an older chronicle.
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    generateTodaysChronicle()
-                } label: {
-                    if isRegenerating {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text("Generate Today's Chronicle")
-                    }
-                }
-                .disabled(isRegenerating)
-            }
         }
         .task { load() }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -81,17 +36,86 @@ struct MemoryChroniclesView: View {
         }
     }
 
+    private var dayList: some View {
+        VStack(spacing: 0) {
+            // Always visible (not just when a chronicle is selected) -- with zero
+            // chronicles generated yet (the normal first-run state), this is the
+            // only way to ever produce the first one. Also doubles as "regenerate
+            // today" since Chronicler.generate always overwrites.
+            // ponytail: only regenerates today, not an arbitrary past day --
+            // add a per-day action if users need to fix an older chronicle.
+            Button {
+                generateTodaysChronicle()
+            } label: {
+                HStack(spacing: 6) {
+                    if isRegenerating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "sparkles").font(.system(size: 11))
+                    }
+                    Text(isRegenerating ? "Generating…" : "Generate today")
+                        .font(.system(size: 12))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .disabled(isRegenerating)
+            .padding(11)
+
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(chronicles) { chronicle in
+                        Button { selectedDay = chronicle.day } label: {
+                            chronicleRow(chronicle)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(chronicle.day), \(chronicle.snapshotCount) snapshots")
+                        .accessibilityAddTraits(selectedDay == chronicle.day ? [.isButton, .isSelected] : .isButton)
+                    }
+                }
+                .padding(9)
+            }
+        }
+        .frame(width: 200)
+        .background(Color.Porcelain.bg)
+    }
+
+    private func chronicleRow(_ chronicle: MemoryChronicle) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(chronicle.day)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.Porcelain.ink)
+            Text("\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.Porcelain.dim)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(selectedDay == chronicle.day ? Color.Porcelain.accentTint : Color.Porcelain.panel)
+        .overlay(
+            RoundedRectangle(cornerRadius: 11)
+                .stroke(selectedDay == chronicle.day ? Color.Porcelain.emerald.opacity(0.45) : Color.Porcelain.hair, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 11))
+    }
+
     @ViewBuilder
     private var detail: some View {
         if chronicles.isEmpty {
             emptyState
         } else if let selectedDay, let chronicle = chronicles.first(where: { $0.day == selectedDay }) {
-            ScrollView {
-                Text(.init(chronicle.summary))
-                    .textSelection(.enabled)
-                    .foregroundStyle(Color.Porcelain.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
+            VStack(spacing: 0) {
+                chronicleHeader(chronicle)
+                Divider()
+                ScrollView {
+                    // A chronicle is prose to read, not a form: same measure as a
+                    // meeting transcript, and its "## " headings become real
+                    // eyebrows rather than literal text.
+                    MarkdownSections(markdown: chronicle.summary, fallbackTitle: "Chronicle")
+                        .frame(maxWidth: 720, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 26)
+                        .padding(.vertical, 22)
+                }
             }
             .background(Color.Porcelain.bg)
         } else {
@@ -100,6 +124,30 @@ struct MemoryChroniclesView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.Porcelain.bg)
         }
+    }
+
+    private func chronicleHeader(_ chronicle: MemoryChronicle) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "calendar")
+                .font(.system(size: 15))
+                .foregroundStyle(Color.Porcelain.dim)
+                .frame(width: 38, height: 38)
+                .background(Color.Porcelain.panel2)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(chronicle.day)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color.Porcelain.ink)
+                Text("\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")  ·  Written on this Mac")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 26)
+        .padding(.vertical, 18)
+        .background(Color.Porcelain.panel)
     }
 
     private var emptyState: some View {

@@ -1,5 +1,5 @@
 //
-//  MeetingMarkdown.swift
+//  AppMarkdown.swift
 //  OmWhisper
 //
 //  Parses the markdown a meeting is STORED as back into structure the UI can
@@ -29,7 +29,7 @@ nonisolated struct TranscriptTurn: Equatable, Identifiable {
     var isYou: Bool { speaker == "You" }
 }
 
-nonisolated enum MeetingMarkdown {
+nonisolated enum AppMarkdown {
     /// Seconds → "0:03" / "12:05" / "1:02:33".
     static func timecode(_ seconds: Double) -> String {
         let total = max(0, Int(seconds.rounded()))

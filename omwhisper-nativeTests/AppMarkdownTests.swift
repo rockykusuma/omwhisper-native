@@ -1,8 +1,8 @@
 import Testing
 @testable import OmWhisper
 
-struct MeetingMarkdownTests {
-    typealias M = MeetingMarkdown
+struct AppMarkdownTests {
+    typealias M = AppMarkdown
 
     // MARK: timecode
 

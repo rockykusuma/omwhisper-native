@@ -303,3 +303,87 @@ struct SectionHeader: View {
         }
     }
 }
+
+/// Renders LLM-written markdown (a meeting summary, a chronicle) the way
+/// SwiftUI can't: `Text(.init(markdown))` supports no headings at all, so
+/// "## Summary" was rendering literally on screen. Parses the sections itself
+/// and draws a Porcelain eyebrow per heading, with real bullets.
+///
+/// Shared by Meetings and Memory > Chronicles — both display the same shape of
+/// model output, and they must not drift apart.
+struct MarkdownSections: View {
+    let markdown: String
+    /// Heading used when the model wrote no `##` at all.
+    var fallbackTitle: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(AppMarkdown.sections(from: markdown)) { section in
+                VStack(alignment: .leading, spacing: 7) {
+                    if let title = section.title ?? fallbackTitle {
+                        PorcelainEyebrow(title)
+                    }
+                    ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
+                        if let bullet = AppMarkdown.bulletBody(line) {
+                            HStack(alignment: .top, spacing: 9) {
+                                Circle()
+                                    .fill(Color.Porcelain.emerald)
+                                    .frame(width: 5, height: 5)
+                                    .padding(.top, 6)
+                                Text(bullet)
+                                    .font(.system(size: 13.5))
+                                    .foregroundStyle(Color.Porcelain.ink)
+                            }
+                        } else {
+                            Text(line)
+                                .font(.system(size: 14))
+                                .lineSpacing(4)
+                                .foregroundStyle(Color.Porcelain.ink)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The small uppercase tracked label above a block (SUMMARY, TRANSCRIPT).
+struct PorcelainEyebrow: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(1.0)
+            .foregroundStyle(Color.Porcelain.dim)
+    }
+}
+
+/// Inline Porcelain search field. Deliberately not `.searchable`: inside the
+/// hub's NavigationSplitView that hoists the field into the *window* toolbar,
+/// far from the list it filters and shared with whatever section is open.
+struct PorcelainSearchField: View {
+    @Binding var text: String
+    let prompt: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.Porcelain.dim)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Color.Porcelain.ink)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.Porcelain.panel2)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.Porcelain.hair, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}

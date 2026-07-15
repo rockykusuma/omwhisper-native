@@ -97,21 +97,8 @@ struct HubMeetingsSectionView: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.Porcelain.dim)
-            TextField("Search meetings", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Color.Porcelain.ink)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.Porcelain.panel2)
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.Porcelain.hair, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .padding(11)
+        PorcelainSearchField(text: $searchText, prompt: "Search meetings")
+            .padding(11)
     }
 
     private func meetingRow(_ meeting: Meeting) -> some View {
@@ -217,7 +204,7 @@ private struct MeetingDetailView: View {
     }
 
     private var turns: [TranscriptTurn] {
-        MeetingMarkdown.turns(from: meeting.transcript ?? "")
+        AppMarkdown.turns(from: meeting.transcript ?? "")
     }
 
     var body: some View {
@@ -296,7 +283,7 @@ private struct MeetingDetailView: View {
     private var transcriptBody: some View {
         if !turns.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                eyebrow("Transcript")
+                PorcelainEyebrow("Transcript")
                 VStack(spacing: 0) {
                     ForEach(turns) { TranscriptTurnRow(turn: $0) }
                 }
@@ -305,7 +292,7 @@ private struct MeetingDetailView: View {
             // No speaker labels — the no-audio permission note, or a transcript
             // from a format this can't parse. Show it rather than an empty pane.
             VStack(alignment: .leading, spacing: 10) {
-                eyebrow("Transcript")
+                PorcelainEyebrow("Transcript")
                 Text(transcript)
                     .font(.system(size: 14))
                     .foregroundStyle(Color.Porcelain.ink)
@@ -324,43 +311,9 @@ private struct MeetingDetailView: View {
     }
 
     private func summaryCard(_ summary: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            ForEach(MeetingMarkdown.sections(from: summary)) { section in
-                VStack(alignment: .leading, spacing: 7) {
-                    eyebrow(section.title ?? "Summary")
-                    ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
-                        if let bullet = MeetingMarkdown.bulletBody(line) {
-                            HStack(alignment: .top, spacing: 9) {
-                                Circle()
-                                    .fill(Color.Porcelain.emerald)
-                                    .frame(width: 5, height: 5)
-                                    .padding(.top, 6)
-                                Text(bullet)
-                                    .font(.system(size: 13.5))
-                                    .foregroundStyle(Color.Porcelain.ink)
-                            }
-                        } else {
-                            Text(line)
-                                .font(.system(size: 14))
-                                .lineSpacing(4)
-                                .foregroundStyle(Color.Porcelain.ink)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .omCard()
-    }
-
-    private func eyebrow(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(1.0)
-            .foregroundStyle(Color.Porcelain.dim)
+        MarkdownSections(markdown: summary, fallbackTitle: "Summary")
+            .padding(18)
+            .omCard()
     }
 
     private func copyTranscript() {

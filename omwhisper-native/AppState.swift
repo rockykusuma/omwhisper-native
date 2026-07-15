@@ -821,6 +821,20 @@ final class AppState {
         engineKind == .cloud || crossLingualUsesSarvam || polishBackend == .cloud
     }
 
+    /// One line naming what will actually transcribe your voice, and whether that
+    /// happens here — for the hub sidebar's footer. Names the engine that would
+    /// really run (Sarvam overrides the picked engine when cross-lingual is on),
+    /// so it can't claim "on this Mac" while audio is leaving it.
+    var engineStatusLine: String {
+        if crossLingualUsesSarvam { return "Sarvam · audio leaves this Mac" }
+        switch engineKind {
+        case .apple: return "Apple Speech · on this Mac"
+        case .parakeet: return "Parakeet \(parakeetModel.displayName) · on this Mac"
+        case .whisper: return "Whisper \(whisperModel.displayName) · on this Mac"
+        case .cloud: return "\(cloudProvider.displayName) · audio leaves this Mac"
+        }
+    }
+
     // Model-download UI state. Stored (so @Observable tracks them) and owned by
     // AppState, NOT the transient Settings view — so progress survives the view
     // being recreated when the user navigates between hub sections mid-download,
