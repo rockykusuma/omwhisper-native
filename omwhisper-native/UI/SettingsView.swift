@@ -13,15 +13,18 @@
 import SwiftUI
 
 struct SettingsView: View {
+    /// Transcription moved out to its own hub section (see HubSection): it's a
+    /// feature area, not app-wide chrome, and as a tab here the app's
+    /// most-changed setting sat two levels down. What's left is genuinely
+    /// app-wide, matching D2b's split.
     enum Tab: String, CaseIterable, Identifiable {
-        case general, audio, transcription, mcp, about
+        case general, audio, mcp, about
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .general: "General"
             case .audio: "Audio"
-            case .transcription: "Transcription"
             case .mcp: "MCP"
             case .about: "About"
             }
@@ -31,17 +34,12 @@ struct SettingsView: View {
             switch self {
             case .general: "gearshape"
             case .audio: "waveform"
-            case .transcription: "waveform.badge.mic"
             case .mcp: "point.3.connected.trianglepath.dotted"
             case .about: "info.circle"
             }
         }
     }
 
-    /// Which tab to open on. Lets the hub deep-link straight to Transcription
-    /// from the sidebar's engine line, instead of landing on General and making
-    /// the user hunt for the setting they clicked to reach.
-    var initialTab: Tab = .general
     @State private var tab: Tab = .general
 
     var body: some View {
@@ -59,13 +57,11 @@ struct SettingsView: View {
             switch tab {
             case .general: GeneralSettingsView()
             case .audio: AudioSettingsView()
-            case .transcription: TranscriptionSettingsView()
             case .mcp: MCPSettingsView()
             case .about: AboutSettingsView()
             }
         }
         .background(Color.Porcelain.bg)
-        .onAppear { tab = initialTab }
     }
 }
 

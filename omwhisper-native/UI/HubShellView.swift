@@ -14,7 +14,12 @@
 import SwiftUI
 
 enum HubSection: String, CaseIterable, Identifiable {
-    case home, history, meetings, vocabulary, aiPolish, brainDump, replyAssist, memory, settings
+    // Order here IS the sidebar order (contentSections filters allCases).
+    // Transcription sits under Vocabulary and above AI Polish: it's a feature
+    // area, not app-wide chrome, and it's the counterpart to AI Polish —
+    // speech -> text, then text -> better text. It was a Settings tab, which
+    // buried the app's most-changed setting two levels down.
+    case home, history, meetings, vocabulary, transcription, aiPolish, brainDump, replyAssist, memory, settings
 
     var id: String { rawValue }
 
@@ -30,6 +35,7 @@ enum HubSection: String, CaseIterable, Identifiable {
         case .history: "History"
         case .meetings: "Meetings"
         case .vocabulary: "Vocabulary"
+        case .transcription: "Transcription"
         case .aiPolish: "AI Polish"
         case .brainDump: "Brain-dump"
         case .replyAssist: "Reply Assist"
@@ -44,6 +50,7 @@ enum HubSection: String, CaseIterable, Identifiable {
         case .history: "clock"
         case .meetings: "person.2"
         case .vocabulary: "textformat.abc"
+        case .transcription: "waveform.badge.mic"
         case .aiPolish: "sparkles"
         case .brainDump: "list.bullet.rectangle"
         case .replyAssist: "text.bubble"
@@ -58,10 +65,6 @@ struct HubShellView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selection: HubSection = .home
-    /// Which Settings tab to land on — the footer's engine line deep-links to
-    /// Transcription. Part of the content `.id` below so clicking it while
-    /// Settings is already open still switches tabs.
-    @State private var settingsTab: SettingsView.Tab = .general
 
     var body: some View {
         NavigationSplitView {
@@ -70,7 +73,7 @@ struct HubShellView: View {
             content
                 .frame(minWidth: 480, minHeight: 520)
                 .background(Color.Porcelain.bg)
-                .id("\(selection.rawValue)-\(settingsTab.rawValue)")
+                .id(selection)
                 .transition(.opacity)
                 .animation(PorcelainMotion.resolved(reduceMotion: reduceMotion), value: selection)
         }
@@ -102,7 +105,6 @@ struct HubShellView: View {
             Spacer()
             Divider().padding(.vertical, 4)
             Button {
-                settingsTab = .general
                 selection = .settings
             } label: {
                 NavRow(icon: HubSection.settings.icon, title: HubSection.settings.title, isSelected: selection == .settings)
@@ -135,19 +137,16 @@ struct HubShellView: View {
     /// rather than copied verbatim, since that copy predates M4.2's CloudEngine:
     /// it would be actively misleading if the user has Cloud selected.
     ///
-    /// It also names the engine and opens Transcription settings. Which engine is
-    /// running was invisible and buried two levels deep (Settings > Transcription),
-    /// so it got opened constantly just to check. Chosen over promoting
-    /// Transcription to its own sidebar section: engine choice is mostly one-time
-    /// setup, and a permanent top-level slot would outlive the churn — the real
-    /// problem was that the answer wasn't visible, not that it wasn't clickable.
+    /// It names the live engine and switches it in place. This complements the
+    /// Transcription section rather than replacing it: the section is where you
+    /// go to set things up (download a model, save a key), the footer is what
+    /// tells you what's running right now and flips between things already set up.
     private var privacyStatusLine: some View {
         Menu {
             engineSwitcherItems
             Divider()
             Button("More models & downloads…") {
-                settingsTab = .transcription
-                selection = .settings
+                selection = .transcription
             }
         } label: {
             HStack(spacing: 7) {
@@ -269,11 +268,12 @@ struct HubShellView: View {
         case .history: HistoryView()
         case .meetings: HubMeetingsSectionView()
         case .vocabulary: VocabularySettingsView()
+        case .transcription: TranscriptionSettingsView()
         case .aiPolish: AISettingsView()
         case .brainDump: HubBrainDumpSectionView()
         case .replyAssist: ReplyAssistSettingsView()
         case .memory: HubMemorySectionView()
-        case .settings: SettingsView(initialTab: settingsTab)
+        case .settings: SettingsView()
         }
     }
 }
