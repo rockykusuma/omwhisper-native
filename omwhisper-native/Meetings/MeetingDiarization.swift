@@ -139,9 +139,15 @@ nonisolated enum MeetingDiarization {
         return out
     }
 
-    /// Markdown: **Speaker:**\ntext, blank line between turns.
+    /// Markdown: "**Speaker:** [0:03]\ntext", blank line between turns.
+    /// MeetingMarkdown.turns(from:) parses this back for display — the two must
+    /// stay in step. The timecode is each turn's start; it costs nothing here
+    /// (we already have it) and is what lets the UI show when a turn happened.
     static func renderInterleaved(_ turns: [TranscriptSegment]) -> String {
-        turns.map { "**\($0.speaker):**\n\($0.text.trimmingCharacters(in: .whitespacesAndNewlines))" }
-            .joined(separator: "\n\n")
+        turns.map {
+            "**\($0.speaker):** [\(MeetingMarkdown.timecode($0.start))]\n"
+                + $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .joined(separator: "\n\n")
     }
 }

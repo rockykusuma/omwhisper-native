@@ -112,6 +112,8 @@ struct MeetingDiarizationTests {
             TranscriptSegment(text: "hello there", start: 0, end: 2, speaker: "You"),
             TranscriptSegment(text: "hi", start: 2, end: 3, speaker: "Speaker 1"),
         ]
-        #expect(D.renderInterleaved(turns) == "**You:**\nhello there\n\n**Speaker 1:**\nhi")
+        // Each label carries the turn's start time — MeetingMarkdown.turns(from:)
+        // parses it back out for the transcript UI.
+        #expect(D.renderInterleaved(turns) == "**You:** [0:00]\nhello there\n\n**Speaker 1:** [0:02]\nhi")
     }
 }

@@ -60,10 +60,26 @@ struct HubMeetingsSectionView: View {
         .padding(12)
     }
 
+    /// A plain HStack, deliberately NOT a NavigationSplitView: this view already
+    /// lives inside HubShellView's NavigationSplitView, and macOS reads the nested
+    /// pair as a three-column layout — it reserved a wide empty band between the
+    /// list and the transcript that no padding could remove.
     private var browser: some View {
-        NavigationSplitView {
+        HStack(spacing: 0) {
+            meetingList
+            Divider()
+            detail
+        }
+        .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK") { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    private var meetingList: some View {
+        VStack(spacing: 0) {
+            searchField
             ScrollView {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: 6) {
                     ForEach(meetings) { meeting in
                         Button { selectedID = meeting.id } label: {
                             meetingRow(meeting)
@@ -73,27 +89,63 @@ struct HubMeetingsSectionView: View {
                         .accessibilityAddTraits(selectedID == meeting.id ? [.isButton, .isSelected] : .isButton)
                     }
                 }
-                .padding(12)
+                .padding(9)
             }
-            .background(Color.Porcelain.bg)
-            .searchable(text: $searchText, prompt: "Search meetings")
-            .navigationSplitViewColumnWidth(min: 220, ideal: 260)
-        } detail: {
-            detail
         }
-        .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK") { errorMessage = nil }
-        } message: { Text(errorMessage ?? "") }
+        .frame(width: 248)
+        .background(Color.Porcelain.bg)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.Porcelain.dim)
+            TextField("Search meetings", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Color.Porcelain.ink)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.Porcelain.panel2)
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.Porcelain.hair, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .padding(11)
     }
 
     private func meetingRow(_ meeting: Meeting) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(meeting.appName).fontWeight(.medium).foregroundStyle(Color.Porcelain.ink)
-            Text("\(shortDate(meeting.startedAt)) · \(durationText(meeting.durationSeconds)) · \(status(meeting))")
-                .font(.caption).foregroundStyle(Color.Porcelain.dim)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(meeting.appName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.Porcelain.ink)
+            Text("\(shortDate(meeting.startedAt)) · \(durationText(meeting.durationSeconds))")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.Porcelain.dim)
+            statusPill(meeting)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .omRowCard()
+        .padding(10)
+        .background(selectedID == meeting.id ? Color.Porcelain.accentTint : Color.Porcelain.panel)
+        .overlay(
+            RoundedRectangle(cornerRadius: 11)
+                .stroke(selectedID == meeting.id ? Color.Porcelain.emerald.opacity(0.45) : Color.Porcelain.hair, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 11))
+    }
+
+    /// A recording that captured nothing reads as a failure, not a state — it
+    /// carries the permission note as its transcript, so "Summarized" would be a lie.
+    private func statusPill(_ meeting: Meeting) -> some View {
+        let failed = meeting.durationSeconds < 1
+        return Text(failed ? "No audio" : status(meeting).uppercased())
+            .font(.system(size: 9.5, weight: .semibold))
+            .tracking(0.5)
+            .foregroundStyle(failed ? Color.Porcelain.dim : Color.Porcelain.emerald)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(failed ? Color.Porcelain.panel2 : Color.Porcelain.accentTint2)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
     }
 
     @ViewBuilder
@@ -164,50 +216,156 @@ private struct MeetingDetailView: View {
         working || (meeting.id.map { appState.transcribingMeetingIDs.contains($0) } ?? false)
     }
 
+    private var turns: [TranscriptTurn] {
+        MeetingMarkdown.turns(from: meeting.transcript ?? "")
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(meeting.appName)
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Color.Porcelain.ink)
-
-                HStack(spacing: 10) {
-                    Button(busy ? "Working…" : (meeting.transcript == nil ? "Transcribe & Summarize" : "Re-transcribe")) {
-                        run()
+        VStack(spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    if let summary = meeting.summary, !summary.isEmpty {
+                        summaryCard(summary)
                     }
-                    .disabled(busy)
-                    Button("Delete", role: .destructive) { delete() }.disabled(busy)
-                    if busy { ProgressView().controlSize(.small) }
+                    transcriptBody
+                    if let errorMessage {
+                        Text(errorMessage).font(.caption).foregroundStyle(Color.omError)
+                    }
                 }
-
-                if let summary = meeting.summary, !summary.isEmpty {
-                    section("Summary", markdown: summary)
-                }
-                if let transcript = meeting.transcript, !transcript.isEmpty {
-                    section("Transcript", markdown: transcript)
-                } else if !busy {
-                    Text("Not transcribed yet — tap Transcribe & Summarize.")
-                        .font(.caption).foregroundStyle(Color.Porcelain.dim)
-                }
-                if let errorMessage {
-                    Text(errorMessage).font(.caption).foregroundStyle(.red)
-                }
+                // Transcripts are for reading: hold the text to a comfortable
+                // measure instead of letting lines run the full window width.
+                .frame(maxWidth: 720, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 26)
+                .padding(.vertical, 22)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color.Porcelain.bg)
     }
 
-    private func section(_ title: String, markdown: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased()).font(.system(size: 11, weight: .semibold)).tracking(1.2)
-                .foregroundStyle(Color.Porcelain.dim)
-            Text(.init(markdown)).textSelection(.enabled).foregroundStyle(Color.Porcelain.ink)
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color.Porcelain.dim)
+                    .frame(width: 38, height: 38)
+                    .background(Color.Porcelain.panel2)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(meeting.appName)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color.Porcelain.ink)
+                    Text(metaLine)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Color.Porcelain.dim)
+                }
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                Button(busy ? "Working…" : (meeting.transcript == nil ? "Transcribe & Summarize" : "Re-transcribe")) { run() }
+                    .disabled(busy)
+                if !turns.isEmpty {
+                    Button("Copy transcript") { copyTranscript() }
+                }
+                Button("Delete", role: .destructive) { delete() }.disabled(busy)
+                if busy { ProgressView().controlSize(.small) }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(.horizontal, 26)
+        .padding(.vertical, 18)
+        .background(Color.Porcelain.panel)
+    }
+
+    /// Only states we can actually stand behind: speaker count comes from the
+    /// parsed transcript, and meetings always transcribe on-device regardless of
+    /// the dictation/polish backend — but which engine wrote an existing
+    /// transcript isn't recorded, so it isn't claimed.
+    private var metaLine: String {
+        var parts = [shortDate(meeting.startedAt), durationText(meeting.durationSeconds)]
+        let speakers = Set(turns.map(\.speaker)).count
+        if speakers > 1 { parts.append("\(speakers) speakers") }
+        parts.append("Transcribed on this Mac")
+        return parts.joined(separator: "  ·  ")
+    }
+
+    @ViewBuilder
+    private var transcriptBody: some View {
+        if !turns.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                eyebrow("Transcript")
+                VStack(spacing: 0) {
+                    ForEach(turns) { TranscriptTurnRow(turn: $0) }
+                }
+            }
+        } else if let transcript = meeting.transcript, !transcript.isEmpty {
+            // No speaker labels — the no-audio permission note, or a transcript
+            // from a format this can't parse. Show it rather than an empty pane.
+            VStack(alignment: .leading, spacing: 10) {
+                eyebrow("Transcript")
+                Text(transcript)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.Porcelain.ink)
+                    .textSelection(.enabled)
+            }
+        } else if busy {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Transcribing on this Mac…")
+                    .font(.system(size: 13)).foregroundStyle(Color.Porcelain.dim)
+            }
+        } else {
+            Text("Not transcribed yet — press Transcribe & Summarize.")
+                .font(.system(size: 13)).foregroundStyle(Color.Porcelain.dim)
+        }
+    }
+
+    private func summaryCard(_ summary: String) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(MeetingMarkdown.sections(from: summary)) { section in
+                VStack(alignment: .leading, spacing: 7) {
+                    eyebrow(section.title ?? "Summary")
+                    ForEach(Array(section.lines.enumerated()), id: \.offset) { _, line in
+                        if let bullet = MeetingMarkdown.bulletBody(line) {
+                            HStack(alignment: .top, spacing: 9) {
+                                Circle()
+                                    .fill(Color.Porcelain.emerald)
+                                    .frame(width: 5, height: 5)
+                                    .padding(.top, 6)
+                                Text(bullet)
+                                    .font(.system(size: 13.5))
+                                    .foregroundStyle(Color.Porcelain.ink)
+                            }
+                        } else {
+                            Text(line)
+                                .font(.system(size: 14))
+                                .lineSpacing(4)
+                                .foregroundStyle(Color.Porcelain.ink)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
         .omCard()
+    }
+
+    private func eyebrow(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(1.0)
+            .foregroundStyle(Color.Porcelain.dim)
+    }
+
+    private func copyTranscript() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(meeting.transcript ?? "", forType: .string)
     }
 
     private func run() {
@@ -226,5 +384,55 @@ private struct MeetingDetailView: View {
         guard let id = meeting.id, let store = appState.meetingStore else { return }
         try? store.delete(id: id)
         Task { await onChanged() }
+    }
+
+    private func shortDate(_ iso: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short
+        return f.string(from: date)
+    }
+
+    private func durationText(_ seconds: Double) -> String {
+        let m = Int(seconds) / 60, s = Int(seconds) % 60
+        return "\(m)m \(s)s"
+    }
+}
+
+/// One speaker turn, interview-transcript style: who + when in a right-aligned
+/// gutter, words in a single column you can read straight down. The layout every
+/// serious transcript tool converges on, because a transcript is scanned for
+/// "who said that" far more often than it's read start to finish.
+///
+/// Only "You" is accented. Per-speaker colors were considered and rejected: the
+/// palette is closed (design skill §1/§6), and a color scheme stops scaling once
+/// a call has more voices than the palette has hues — name plus position doesn't.
+private struct TranscriptTurnRow: View {
+    let turn: TranscriptTurn
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 18) {
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(turn.speaker)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(turn.isYou ? Color.Porcelain.emerald : Color.Porcelain.ink)
+                    .multilineTextAlignment(.trailing)
+                if let timecode = turn.timecode {
+                    Text(timecode)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(Color.Porcelain.dim)
+                }
+            }
+            .frame(width: 104, alignment: .trailing)
+
+            Text(turn.text)
+                .font(.system(size: 15))
+                .lineSpacing(5)  // ~1.55 line height (design skill §3)
+                .foregroundStyle(Color.Porcelain.ink)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 11)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(turn.speaker)\(turn.timecode.map { " at \($0)" } ?? ""): \(turn.text)")
     }
 }
