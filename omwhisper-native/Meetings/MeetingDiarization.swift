@@ -74,9 +74,15 @@ nonisolated enum MeetingDiarization {
     /// system track (the tap captures output only), so real speech can't match
     /// and is never dropped — headphones simply mean nothing matches at all.
     ///
-    /// ponytail: a genuinely simultaneous identical short utterance (both sides
-    /// say "yeah" at once) is credited to the speaker, not you. Needs the audio
-    /// itself (echo is a delayed, attenuated copy) to do better — not worth it.
+    /// ponytail: two known ceilings, both erring toward keeping text rather than
+    /// losing the user's words — the safer direction.
+    /// 1. A genuinely simultaneous identical short utterance (both sides say
+    ///    "yeah" at once) is credited to the speaker, not you.
+    /// 2. Echo that Whisper packs into ONE segment with real speech ("<echo> …
+    ///    I'm pretty much excited") survives: dropping it would take the real
+    ///    speech with it. Splitting sub-segment needs the audio itself (echo is a
+    ///    delayed, attenuated copy of the system track) — only worth it if
+    ///    speaker-bleed transcripts keep reading badly.
     static func dropEchoed(
         you: [TranscriptSegment],
         others: [TranscriptSegment],

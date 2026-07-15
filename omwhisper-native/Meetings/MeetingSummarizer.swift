@@ -23,8 +23,12 @@ nonisolated enum MeetingSummarizer {
         name: "Meeting Chunk Summary",
         prompt: """
             Summarize this portion of a meeting transcript into 2-5 terse bullet \
-            points of what was said/decided. The transcript labels speakers as \
-            **You:** and **Others:** — preserve who said what. No preamble, just bullets.
+            points of what was said/decided. Speakers are labelled **You:** (the \
+            person who recorded the meeting) and **Speaker 1:**, **Speaker 2:**, … \
+            (the other participants). Preserve who said what, and attribute a point \
+            to the recorder ONLY when it appears under a **You:** label — the word \
+            "you" inside another speaker's line refers to whoever they were \
+            addressing, not the recorder. No preamble, just bullets.
             """,
         isBuiltIn: true
     )
@@ -33,12 +37,16 @@ nonisolated enum MeetingSummarizer {
         id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000002")!,
         name: "Meeting Summary",
         prompt: """
-            You are writing a private summary of a meeting from bullet-point notes \
-            (speakers labeled You/Others). Write concise markdown with:
+            You are writing a private summary of a meeting from bullet-point notes. \
+            "You" in the notes means the person who recorded the meeting; \
+            "Speaker 1", "Speaker 2", … are the other participants. Write concise \
+            markdown with:
             ## Summary — 2-4 sentences on what the meeting was about and any decisions.
             ## Action items — a bullet list of concrete follow-ups (who owns each, if \
             clear). Omit this section entirely if there were none.
-            Rules: be specific, no filler, no speculation beyond the notes.
+            Rules: be specific, no filler, no speculation beyond the notes. Never \
+            credit the recorder with a plan, opinion or commitment that another \
+            speaker voiced — if a note doesn't say the recorder said it, they didn't.
             """,
         isBuiltIn: true
     )
