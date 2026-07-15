@@ -142,9 +142,13 @@ struct HubShellView: View {
     /// setup, and a permanent top-level slot would outlive the churn — the real
     /// problem was that the answer wasn't visible, not that it wasn't clickable.
     private var privacyStatusLine: some View {
-        Button {
-            settingsTab = .transcription
-            selection = .settings
+        Menu {
+            engineSwitcherItems
+            Divider()
+            Button("More models & downloads…") {
+                settingsTab = .transcription
+                selection = .settings
+            }
         } label: {
             HStack(spacing: 7) {
                 Circle()
@@ -159,11 +163,86 @@ struct HubShellView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .help("Open Transcription settings")
-        .accessibilityLabel("\(appState.engineStatusLine). Open Transcription settings.")
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help("Switch transcription engine")
+        .accessibilityLabel("\(appState.engineStatusLine). Switch transcription engine.")
         .padding(.horizontal, 8)
         .padding(.top, 8)
+    }
+
+    /// The quick switcher. Lists ONLY what can run right now — a downloaded model,
+    /// a cloud provider with a saved key. Offering a model that isn't downloaded
+    /// would set it and then fail at the next dictation (transcribe() throws
+    /// modelNotDownloaded), which defeats the point of a one-click switcher;
+    /// downloading stays in Settings, where the progress UI lives.
+    @ViewBuilder
+    private var engineSwitcherItems: some View {
+        // Sarvam overrides whatever engine is picked (see AppState.activeEngine),
+        // so offering engine choices under it would be a lie — the pick would
+        // appear to work and change nothing. Offer the way out instead.
+        if appState.crossLingualUsesSarvam {
+            Button("Stop using Sarvam for cross-lingual") {
+                appState.crossLingualUseSarvam = false
+            }
+            Text("Sarvam handles cross-lingual dictation. Turn it off to pick an engine.")
+        } else {
+            ForEach(engineOptions) { option in
+                Button {
+                    option.apply()
+                } label: {
+                    // A menu Button's label can't carry a checkmark on macOS the
+                    // way a Picker's does, so mark the live one inline.
+                    Text(option.isCurrent ? "✓  \(option.label)" : "     \(option.label)")
+                }
+            }
+        }
+    }
+
+    private struct EngineOption: Identifiable {
+        let id: String
+        let label: String
+        let isCurrent: Bool
+        let apply: () -> Void
+    }
+
+    private var engineOptions: [EngineOption] {
+        var options: [EngineOption] = [
+            EngineOption(id: "apple", label: "Apple Speech", isCurrent: appState.engineKind == .apple) {
+                appState.engineKind = .apple
+            }
+        ]
+        for model in WhisperModel.allCases where WhisperEngine.isDownloaded(model) {
+            options.append(EngineOption(
+                id: "whisper-\(model.rawValue)",
+                label: "Whisper \(model.displayName)",
+                isCurrent: appState.engineKind == .whisper && appState.whisperModel == model
+            ) {
+                appState.whisperModel = model
+                appState.engineKind = .whisper
+            })
+        }
+        for model in ParakeetModel.allCases where ParakeetEngine.isDownloaded(model) {
+            options.append(EngineOption(
+                id: "parakeet-\(model.rawValue)",
+                label: "Parakeet \(model.displayName)",
+                isCurrent: appState.engineKind == .parakeet && appState.parakeetModel == model
+            ) {
+                appState.parakeetModel = model
+                appState.engineKind = .parakeet
+            })
+        }
+        for provider in CloudProviderKind.allCases where Keychain.loadSTTKey(provider) != nil {
+            options.append(EngineOption(
+                id: "cloud-\(provider.rawValue)",
+                label: "\(provider.displayName) (online)",
+                isCurrent: appState.engineKind == .cloud && appState.cloudProvider == provider
+            ) {
+                appState.cloudProvider = provider
+                appState.engineKind = .cloud
+            })
+        }
+        return options
     }
 
     private var brandRow: some View {
