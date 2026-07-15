@@ -49,8 +49,14 @@ nonisolated enum Keychain {
     static func deleteSTTKey(_ provider: CloudProviderKind) throws { try delete(account: provider.keychainAccount) }
 
     // MARK: Generic core
+    //
+    // Internal, not private, so tests can exercise it against their OWN account
+    // and never touch a real one. They used to call the named methods above, which
+    // meant `xcodebuild test` deleted the user's actual API keys from the login
+    // keychain (the test host IS the app, so `service` resolves identically).
+    // Nothing outside this type should call these — use a named accessor.
 
-    private static func load(account: String) -> String? {
+    static func load(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -70,7 +76,7 @@ nonisolated enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func save(_ key: String, account: String) throws {
+    static func save(_ key: String, account: String) throws {
         let data = Data(key.utf8)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -99,7 +105,7 @@ nonisolated enum Keychain {
         guard persisted else { throw KeychainError.notPersisted }
     }
 
-    private static func delete(account: String) throws {
+    static func delete(account: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

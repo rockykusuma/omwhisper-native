@@ -44,62 +44,6 @@ struct TranscriptionSettingsView: View {
                 .foregroundStyle(Color.Porcelain.ink)
             }
 
-            PorcelainSection(eyebrow: "Cross-Lingual") {
-                Toggle("Speak another language, write English", isOn: $state.crossLingualEnabled)
-                    .tint(Color.Porcelain.emerald)
-                    .foregroundStyle(Color.Porcelain.ink)
-                if state.crossLingualEnabled {
-                    Picker("I speak", selection: $state.whisperLanguage) {
-                        Text("Auto-detect").tag("auto")
-                        ForEach(whisperLanguageOptions, id: \.code) { opt in
-                            Text(opt.name).tag(opt.code)
-                        }
-                    }
-                }
-                Text("Dictate in your language; polished English comes out.")
-                    .font(.caption)
-                    .foregroundStyle(Color.Porcelain.dim)
-
-                Divider().padding(.vertical, 2)
-
-                if sarvamKeySaved {
-                    Toggle("Use Sarvam (cloud) for translation", isOn: $state.crossLingualUseSarvam)
-                        .tint(Color.Porcelain.emerald)
-                        .foregroundStyle(Color.Porcelain.ink)
-                    Text(state.crossLingualUseSarvam
-                         ? "Sarvam key saved — speech goes straight to English via Sarvam."
-                         : "Sarvam key saved, but off — cross-lingual uses on-device Whisper + your polish backend.")
-                        .font(.caption)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    Button("Clear Sarvam key") {
-                        try? Keychain.deleteSarvamKey(); sarvamKeySaved = false; sarvamKeyInput = ""
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Color.Porcelain.mint)
-                } else {
-                    Text("Best for Indic languages (Telugu, Hindi, …): add a Sarvam key and speech goes straight to English via Sarvam — no Whisper model or polish backend needed. Without a key, cross-lingual uses on-device Whisper + your polish backend.")
-                        .font(.caption)
-                        .foregroundStyle(Color.Porcelain.dim)
-                    HStack {
-                        SecureField("Sarvam API key", text: $sarvamKeyInput)
-                            .porcelainField()
-                        Button("Save") {
-                            do {
-                                try Keychain.saveSarvamKey(sarvamKeyInput.trimmingCharacters(in: .whitespacesAndNewlines))
-                                sarvamKeySaved = true; sarvamKeyInput = ""; sarvamKeyError = nil
-                            } catch { sarvamKeyError = "Couldn't save to Keychain." }
-                        }
-                        .disabled(sarvamKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                    if let sarvamKeyError {
-                        Text(sarvamKeyError).font(.caption).foregroundStyle(.red)
-                    }
-                }
-                Text("Your dictation audio is sent to Sarvam (sarvam.ai) to transcribe-and-translate. Recorded meetings stay on this Mac.")
-                    .font(.caption)
-                    .foregroundStyle(Color.Porcelain.dim)
-            }
-
             if state.engineKind == .parakeet {
                 PorcelainSection(eyebrow: "Parakeet Model") {
                     Picker("Model", selection: $state.parakeetModel) {
@@ -243,6 +187,8 @@ struct TranscriptionSettingsView: View {
                     }
                 }
             }
+
+            crossLingualSection
         }
         .task {
             hasSavedKey = Keychain.loadSTTKey(appState.cloudProvider) != nil
@@ -256,6 +202,68 @@ struct TranscriptionSettingsView: View {
             hasSavedKey = Keychain.loadSTTKey(newProvider) != nil
             testResult = nil
             keychainError = nil
+        }
+    }
+
+    /// Last section on the page: it's a mode layered ON TOP of the engine choice
+    /// (and Sarvam overrides it entirely), so it reads as a footnote to the engine
+    /// setup above rather than competing with it for the top of the page.
+    private var crossLingualSection: some View {
+        @Bindable var state = appState
+        return PorcelainSection(eyebrow: "Cross-Lingual") {
+            Toggle("Speak another language, write English", isOn: $state.crossLingualEnabled)
+                .tint(Color.Porcelain.emerald)
+                .foregroundStyle(Color.Porcelain.ink)
+            if state.crossLingualEnabled {
+                Picker("I speak", selection: $state.whisperLanguage) {
+                    Text("Auto-detect").tag("auto")
+                    ForEach(whisperLanguageOptions, id: \.code) { opt in
+                        Text(opt.name).tag(opt.code)
+                    }
+                }
+            }
+            Text("Dictate in your language; polished English comes out.")
+                .font(.caption)
+                .foregroundStyle(Color.Porcelain.dim)
+
+            Divider().padding(.vertical, 2)
+
+            if sarvamKeySaved {
+                Toggle("Use Sarvam (cloud) for translation", isOn: $state.crossLingualUseSarvam)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                Text(state.crossLingualUseSarvam
+                     ? "Sarvam key saved — speech goes straight to English via Sarvam."
+                     : "Sarvam key saved, but off — cross-lingual uses on-device Whisper + your polish backend.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+                Button("Clear Sarvam key") {
+                    try? Keychain.deleteSarvamKey(); sarvamKeySaved = false; sarvamKeyInput = ""
+                }
+                .font(.caption)
+                .foregroundStyle(Color.Porcelain.mint)
+            } else {
+                Text("Best for Indic languages (Telugu, Hindi, …): add a Sarvam key and speech goes straight to English via Sarvam — no Whisper model or polish backend needed. Without a key, cross-lingual uses on-device Whisper + your polish backend.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+                HStack {
+                    SecureField("Sarvam API key", text: $sarvamKeyInput)
+                        .porcelainField()
+                    Button("Save") {
+                        do {
+                            try Keychain.saveSarvamKey(sarvamKeyInput.trimmingCharacters(in: .whitespacesAndNewlines))
+                            sarvamKeySaved = true; sarvamKeyInput = ""; sarvamKeyError = nil
+                        } catch { sarvamKeyError = "Couldn't save to Keychain." }
+                    }
+                    .disabled(sarvamKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if let sarvamKeyError {
+                    Text(sarvamKeyError).font(.caption).foregroundStyle(.red)
+                }
+            }
+            Text("Your dictation audio is sent to Sarvam (sarvam.ai) to transcribe-and-translate. Recorded meetings stay on this Mac.")
+                .font(.caption)
+                .foregroundStyle(Color.Porcelain.dim)
         }
     }
 
