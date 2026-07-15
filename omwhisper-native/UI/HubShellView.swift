@@ -75,6 +75,12 @@ struct HubShellView: View {
                 .animation(PorcelainMotion.resolved(reduceMotion: reduceMotion), value: selection)
         }
         .frame(minWidth: 760, minHeight: 560)
+        // Set once here, not per control: native controls (segmented pickers,
+        // toggles, borderless buttons) default to the SYSTEM accent — stock blue,
+        // against a green palette. `.tint` flows down the environment, so every
+        // section inherits it and a newly added control can't quietly land blue.
+        // Explicit .tint on an individual control still wins where one is set.
+        .tint(Color.Porcelain.emerald)
         .porcelainWindow(colorScheme: appState.appearancePreference.colorScheme)
         .preferredColorScheme(appState.appearancePreference.colorScheme)
     }

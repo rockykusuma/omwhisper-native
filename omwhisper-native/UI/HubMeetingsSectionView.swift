@@ -363,7 +363,11 @@ private struct TranscriptTurnRow: View {
     let turn: TranscriptTurn
 
     var body: some View {
-        HStack(alignment: .top, spacing: 18) {
+        // .firstTextBaseline, not .top: the label is 12.5pt and the body 15pt, so
+        // aligning their top *edges* leaves the baselines ~2pt apart and the name
+        // visibly floating above its first line. Baseline alignment is what makes
+        // text of two sizes read as one row.
+        HStack(alignment: .firstTextBaseline, spacing: 18) {
             VStack(alignment: .trailing, spacing: 1) {
                 Text(turn.speaker)
                     .font(.system(size: 12.5, weight: .semibold))

@@ -50,6 +50,9 @@ struct MiniPanelView: View {
         .padding(16)
         .frame(width: 270)
         .background(Color.Porcelain.bg)
+        // Same reason as HubShellView: native controls otherwise pick up the
+        // system accent (blue) instead of the app's palette.
+        .tint(Color.Porcelain.emerald)
         .preferredColorScheme(appState.appearancePreference.colorScheme)
     }
 
