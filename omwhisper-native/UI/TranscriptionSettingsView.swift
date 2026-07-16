@@ -11,7 +11,6 @@
 
 import SwiftUI
 import FluidAudio
-import WhisperKit
 
 struct TranscriptionSettingsView: View {
     @Environment(AppState.self) private var appState
@@ -101,7 +100,7 @@ struct TranscriptionSettingsView: View {
 
                     Picker("Language", selection: $state.whisperLanguage) {
                         Text("Auto-detect").tag("auto")
-                        ForEach(whisperLanguageOptions, id: \.code) { opt in
+                        ForEach(WhisperEngine.languageOptions, id: \.code) { opt in
                             Text(opt.name).tag(opt.code)
                         }
                     }
@@ -217,7 +216,7 @@ struct TranscriptionSettingsView: View {
             if state.crossLingualEnabled {
                 Picker("I speak", selection: $state.whisperLanguage) {
                     Text("Auto-detect").tag("auto")
-                    ForEach(whisperLanguageOptions, id: \.code) { opt in
+                    ForEach(WhisperEngine.languageOptions, id: \.code) { opt in
                         Text(opt.name).tag(opt.code)
                     }
                 }
@@ -265,13 +264,6 @@ struct TranscriptionSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(Color.Porcelain.dim)
         }
-    }
-
-    /// WhisperKit's language list ([name: code]) sorted by display name.
-    private var whisperLanguageOptions: [(name: String, code: String)] {
-        Constants.languages
-            .map { (name: $0.key.capitalized, code: $0.value) }
-            .sorted { $0.name < $1.name }
     }
 
     private func saveKey() {

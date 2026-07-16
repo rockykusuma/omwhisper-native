@@ -91,10 +91,29 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
     }
 
     /// Human-readable name for a WhisperKit language code ("te" → "Telugu");
-    /// "" for auto/unknown. Reverse of Constants.languages ([name: code]).
+    /// "" for auto/unknown.
+    ///
+    /// Locale, not a reverse lookup through Constants.languages ([name: code]).
+    /// That dict maps 112 names onto 100 codes — "dutch"/"flemish" both → "nl",
+    /// "romanian"/"moldavian"/"moldovan" all → "ro" — and `.first` over a
+    /// Dictionary is UNORDERED, so the old lookup returned "Castilian" or
+    /// "Spanish" for "es" at random between launches. Locale names every one of
+    /// the 100 codes (verified, including "yue" → Cantonese and Whisper's
+    /// nonstandard "jw" → Javanese), canonically and localized for free.
     nonisolated static func languageName(forCode code: String) -> String {
         guard code != "auto" else { return "" }
-        return Constants.languages.first { $0.value == code }?.key.capitalized ?? ""
+        return Locale.current.localizedString(forLanguageCode: code) ?? ""
+    }
+
+    /// Every language WhisperKit supports — one row per code, canonically named,
+    /// sorted for display. Deduped on the code because Constants.languages is
+    /// keyed by NAME: feeding its 112 entries to a ForEach(id: \.code) gave
+    /// duplicate IDs, which is not just console noise — a Picker with colliding
+    /// IDs has undefined selection behaviour.
+    nonisolated static var languageOptions: [(name: String, code: String)] {
+        Set(Constants.languages.values)
+            .map { (name: languageName(forCode: $0), code: $0) }
+            .sorted { $0.name < $1.name }
     }
 
     /// Downloads (with progress) + loads the requested model's pipeline if not

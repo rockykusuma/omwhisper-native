@@ -26,6 +26,41 @@ struct WhisperEngineTests {
         #expect(WhisperModel.decodeLanguage("en") == "en")
     }
 
+    /// The bug this guards: Constants.languages is keyed by NAME and maps 112
+    /// names onto 100 codes (dutch/flemish → nl), so ForEach(id: \.code) hit
+    /// duplicate IDs — console spam, and undefined Picker selection.
+    @Test("languageOptions has exactly one row per code")
+    func languageOptionsAreUnique() {
+        let codes = WhisperEngine.languageOptions.map(\.code)
+        #expect(codes.count == Set(codes).count)
+        #expect(!codes.isEmpty)
+        // Every duplicated code from the real dict survives exactly once.
+        for dup in ["nl", "ro", "zh", "es", "ca", "pa", "ps", "si", "lb", "ht", "my", "en"] {
+            #expect(codes.filter { $0 == dup }.count == 1, "expected exactly one row for \(dup)")
+        }
+    }
+
+    @Test("languageOptions are named and sorted, never blank")
+    func languageOptionsAreNamed() {
+        let opts = WhisperEngine.languageOptions
+        #expect(opts.allSatisfy { !$0.name.isEmpty })
+        #expect(opts.map(\.name) == opts.map(\.name).sorted())
+    }
+
+    /// Locale gives the canonical name; the old Dictionary.first lookup was
+    /// UNORDERED, so "es" returned "Castilian" or "Spanish" at random.
+    @Test("languageName resolves codes canonically, auto to empty")
+    func languageNames() {
+        #expect(WhisperEngine.languageName(forCode: "auto") == "")
+        #expect(WhisperEngine.languageName(forCode: "es") == "Spanish")
+        #expect(WhisperEngine.languageName(forCode: "ro") == "Romanian")
+        #expect(WhisperEngine.languageName(forCode: "nl") == "Dutch")
+        #expect(WhisperEngine.languageName(forCode: "te") == "Telugu")
+        // Whisper ships codes Locale still resolves: yue, and the nonstandard jw.
+        #expect(WhisperEngine.languageName(forCode: "yue") == "Cantonese")
+        #expect(WhisperEngine.languageName(forCode: "jw") == "Javanese")
+    }
+
     /// TranscriptionSegment.text (the only timestamped text WhisperKit exposes)
     /// arrives raw — these are real strings from a recorded meeting, which landed
     /// verbatim in the transcript before this stripped them.
