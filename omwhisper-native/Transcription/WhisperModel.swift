@@ -68,4 +68,36 @@ nonisolated enum WhisperModel: String, CaseIterable, Identifiable, Sendable {
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// Strip Whisper's caption-style non-speech annotations — "[BLANK_AUDIO]",
+    /// "[MUSIC PLAYING]", "[INAUDIBLE]". These are never the user's words, but they
+    /// reach us as literal text: OpenAI's reference decoder suppresses the
+    /// underlying tokens via `suppress_tokens`, and WhisperKit leaves that
+    /// unimplemented (`suppressTokens ?? [] // nonSpeechTokens() // TODO` in its
+    /// Configurations.swift — `nonSpeechTokens()` is defined nowhere in the package).
+    /// Two shapes, both measured on this app's own models against real audio:
+    ///   - bracketed caps: "[BLANK_AUDIO]" (silence), "[MUSIC PLAYING]" (a blip)
+    ///   - parenthesised lowercase: "(bell rings)", "(upbeat music)"
+    /// A pause inside a real recording produces them mid-transcript too, so this
+    /// runs on every result, not just the no-speech case.
+    ///
+    /// ponytail: shape-matched, not a phrase list — an enumerated list of
+    /// "[BLANK_AUDIO]", "(laughs)"… never ends. The paren arm is bounded (starts
+    /// lowercase, ≤32 inner chars, letters/spaces/apostrophes only) so it takes
+    /// "(bell rings)" but not a real parenthetical clause. The upstream-correct
+    /// fix is OpenAI's `suppress_tokens`, which stops the decoder emitting "["/"("
+    /// at all — WhisperKit exposes `suppressTokens: [Int]` but computing the IDs
+    /// needs the tokenizer at call time; do that if this text pass ever misfires.
+    static func stripNonSpeechAnnotations(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\[[A-Z][A-Z_ ]*\\]", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\([a-z][a-z ']{0,32}\\)", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Everything Whisper emits that isn't speech, removed. The one cleaner both
+    /// the dictation and meeting paths run their text through.
+    static func cleanTranscript(_ text: String) -> String {
+        stripNonSpeechAnnotations(stripSpecialTokens(text))
+    }
 }

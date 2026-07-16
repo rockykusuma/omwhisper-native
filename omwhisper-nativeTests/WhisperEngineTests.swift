@@ -47,4 +47,42 @@ struct WhisperEngineTests {
         #expect(WhisperModel.vocabularyPrompt([]) == "")
         #expect(WhisperModel.vocabularyPrompt(["SwiftUI", "Parakeet"]) == "SwiftUI, Parakeet")
     }
+
+    /// Real outputs measured from this app's own models: base/small return
+    /// "[BLANK_AUDIO]" for a silent recording and "[MUSIC PLAYING]" for a blip.
+    /// WhisperKit never suppresses these (its nonSpeechTokens() is an
+    /// unimplemented TODO), so without stripping they get pasted.
+    @Test("stripNonSpeechAnnotations removes caption markup, keeps real words")
+    func nonSpeechAnnotations() {
+        #expect(WhisperModel.stripNonSpeechAnnotations("[BLANK_AUDIO]") == "")
+        #expect(WhisperModel.stripNonSpeechAnnotations("[MUSIC PLAYING]") == "")
+        #expect(WhisperModel.stripNonSpeechAnnotations("[INAUDIBLE]") == "")
+        // Mid-transcript: a pause inside otherwise-real speech.
+        #expect(WhisperModel.stripNonSpeechAnnotations(
+            "so the plan is [BLANK_AUDIO] we ship on Friday"
+        ) == "so the plan is we ship on Friday")
+        // Parenthesised markup — "(bell rings)" came out of a real recording on
+        // disk, which is why the paren arm exists at all.
+        #expect(WhisperModel.stripNonSpeechAnnotations("(bell rings) (bell rings)") == "")
+        #expect(WhisperModel.stripNonSpeechAnnotations("(upbeat music) hello") == "hello")
+        // Ordinary speech must survive untouched — including brackets/parens that
+        // aren't the annotation shape.
+        #expect(WhisperModel.stripNonSpeechAnnotations("already clean") == "already clean")
+        #expect(WhisperModel.stripNonSpeechAnnotations("the array[i] lookup") == "the array[i] lookup")
+        #expect(WhisperModel.stripNonSpeechAnnotations("ship v2 (Q3) then") == "ship v2 (Q3) then")
+        // Bounded: a long parenthetical is a real clause, not a sound effect.
+        let clause = "the call (which we agreed would be recorded beforehand) went fine"
+        #expect(WhisperModel.stripNonSpeechAnnotations(clause) == clause)
+    }
+
+    @Test("cleanTranscript strips tokens and annotations together")
+    func cleanTranscript() {
+        #expect(WhisperModel.cleanTranscript(
+            "<|startoftranscript|><|en|><|0.00|> [BLANK_AUDIO]<|5.00|>"
+        ) == "")
+        #expect(WhisperModel.cleanTranscript(
+            "<|0.00|> hello there [MUSIC PLAYING] friend<|3.44|>"
+        ) == "hello there friend")
+        #expect(WhisperModel.cleanTranscript("just words") == "just words")
+    }
 }

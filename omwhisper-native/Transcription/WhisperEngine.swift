@@ -117,11 +117,34 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
         state.withLockUnchecked { $0.pipe = pipe; $0.loadedModel = requested }
     }
 
+    /// True if `samples` contain any speech-level audio.
+    ///
+    /// Whisper ALWAYS emits caption-shaped output — asked to transcribe silence it
+    /// invents rather than returning nothing. Measured on this app: 5s of silence
+    /// through large-v3 yields "Thank you.", base/small yield "[BLANK_AUDIO]" — and
+    /// that text was being pasted into whatever the user had focused. The decoder's
+    /// own guards don't catch it: `noSpeechThreshold` only fires when no-speech
+    /// probability is high AND avgLogProb is BELOW `logProbThreshold`, and Whisper
+    /// hallucinates *confidently* (high logprob), so the AND never trips.
+    ///
+    /// So the fix is upstream of the decoder — don't ask it about silence at all.
+    /// EnergyVAD is WhisperKit's own detector at its own default threshold (0.02),
+    /// not a number of ours. Validated against every recording on disk: the 7 with
+    /// real speech peak ≥0.0616 and pass; the 1 with none peaks 0.0181 (and Whisper
+    /// transcribes it to "") and is correctly rejected — a 3.4× margin either side.
+    nonisolated private static func hasSpeech(_ samples: [Float]) -> Bool {
+        EnergyVAD(sampleRate: 16000).voiceActivity(in: samples).contains(true)
+    }
+
     /// Batch-transcribe a 16 kHz mono Float sample array into timestamped
     /// segments (for meeting diarization — the streaming transcribe() drops
     /// timestamps). Loads the requested model from disk if needed; throws
-    /// modelNotDownloaded if it isn't downloaded.
+    /// modelNotDownloaded if it isn't downloaded. Silent input returns no segments.
     func transcribeSegments(samples: [Float]) async throws -> [(text: String, start: Double, end: Double)] {
+        guard Self.hasSpeech(samples) else {
+            Self.log.debug("whisper: no voice activity, skipping transcribe")
+            return []
+        }
         let requested = state.withLockUnchecked { $0.requestedModel }
         if !state.withLockUnchecked({ $0.pipe != nil && $0.loadedModel == requested }) {
             guard Self.isDownloaded(requested) else { throw EngineError.modelNotDownloaded }
@@ -130,7 +153,7 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
         guard let pipe = state.withLockUnchecked({ $0.pipe }) else { throw EngineError.modelNotDownloaded }
         let results = try await pipe.transcribe(audioArray: samples, decodeOptions: DecodingOptions(task: .transcribe))
         return results.flatMap { $0.segments }
-            .map { (text: WhisperModel.stripSpecialTokens($0.text), start: Double($0.start), end: Double($0.end)) }
+            .map { (text: WhisperModel.cleanTranscript($0.text), start: Double($0.start), end: Double($0.end)) }
             .filter { !$0.text.isEmpty }
     }
 
@@ -172,8 +195,11 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
                     samples.append(contentsOf: UnsafeBufferPointer(start: ch[0], count: Int(converted.frameLength)))
                 }
 
-                guard !samples.isEmpty else {
-                    Self.log.debug("whisper: 0 samples, nothing to transcribe")
+                // !isEmpty alone never held: a silent recording still carries
+                // noise-floor samples, so it passed and Whisper invented text for
+                // it. hasSpeech is the real gate — see its doc comment.
+                guard !samples.isEmpty, Self.hasSpeech(samples) else {
+                    Self.log.debug("whisper: no speech in \(samples.count, privacy: .public) samples, nothing to transcribe")
                     continuation.finish(); return
                 }
                 Self.log.debug("whisper transcribe: \(samples.count, privacy: .public) samples, model=\(requested.rawValue, privacy: .public), lang=\(language, privacy: .public)")
@@ -188,7 +214,10 @@ nonisolated final class WhisperEngine: TranscriptionEngine {
                     promptTokens: promptTokens
                 )
                 let results = try await pipe.transcribe(audioArray: samples, decodeOptions: options)
-                let text = results.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                // cleanTranscript, not just trimming: result.text is free of <|…|>
+                // tokens but NOT of "[BLANK_AUDIO]"/"[MUSIC PLAYING]", which a pause
+                // inside otherwise-real speech still produces.
+                let text = WhisperModel.cleanTranscript(results.map(\.text).joined())
                 // Count only — never log the transcribed text (it's the user's speech).
                 Self.log.debug("whisper result: \(results.count, privacy: .public) segments, \(text.count, privacy: .public) chars")
                 if !text.isEmpty { continuation.yield(.final(text)) }
