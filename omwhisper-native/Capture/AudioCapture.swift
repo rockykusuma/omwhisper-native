@@ -125,10 +125,31 @@ final class AudioCapture {
     /// same semantics as the old app (`audio_input_device: None`).
     nonisolated func start(preferredDeviceUID: String? = nil) throws -> AsyncStream<AVAudioPCMBuffer> {
         let input = engine.inputNode
+
+        // A start() that threw after installTap left its tap behind, and
+        // installTap on an already-tapped bus traps ("required condition is
+        // false: nullptr == Tap()") — so one failed start poisoned every later
+        // one. Bluetooth makes that routine: AirPods bringing up their SCO link
+        // fail engine.start() with "_StartIO: Start failed ... error 35".
+        // removeTap on an untapped bus is a documented no-op, so this is always
+        // safe and makes a leaked tap unable to arm the trap.
+        input.removeTap(onBus: 0)
+
         if let preferredDeviceUID, let deviceID = Self.coreAudioDeviceID(forUID: preferredDeviceUID) {
             try Self.setInputDevice(deviceID, on: input)
         }
-        let format = input.outputFormat(forBus: 0)
+
+        // inputFormat, NOT outputFormat. For a Bluetooth mic these DISAGREE:
+        // measured on real AirPods, inputFormat=24000Hz (the actual hardware, in
+        // HFP mode) while outputFormat still claims 48000Hz. AVFAudio validates
+        // the tap format against the hardware and traps — "Format mismatch: input
+        // hw <24000 Hz>, client format <48000 Hz>" — which is the crash selecting
+        // AirPods in the mic picker produced. Worse, when it didn't trap it
+        // delivered ZERO frames: asking a 24kHz device for 48kHz yields silence.
+        // Every non-Bluetooth device reports the two identically, which is why
+        // this went unnoticed. BufferConverter resamples whatever arrives, so the
+        // engines are unaffected by the rate.
+        let format = input.inputFormat(forBus: 0)
 
         // Bounded so a stalled consumer (converter/ASR falling behind the mic)
         // drops stale audio to recover latency instead of queuing unbounded —
@@ -152,7 +173,20 @@ final class AudioCapture {
         }
 
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            // Leave nothing armed for the next start(): an installed tap would
+            // trap it, and a live continuation would strand its consumer. This is
+            // the routine Bluetooth path, not a corner case — see removeTap above.
+            input.removeTap(onBus: 0)
+            state.withLock { s in
+                s.continuation?.finish()
+                s.continuation = nil
+                s.level = 0
+            }
+            throw error
+        }
         return stream
     }
 

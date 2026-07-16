@@ -38,7 +38,11 @@ final class BufferConverter {
             return buffer
         }
 
-        if converter == nil || converter?.outputFormat != format {
+        // Rebuild when EITHER end changes. Checking only the output format was a
+        // latent bug: the input rate can change under us (a Bluetooth mic
+        // renegotiating HFP flips 48kHz -> 24kHz mid-session), and a converter
+        // built for the old input rate would then be fed buffers it can't convert.
+        if converter == nil || converter?.outputFormat != format || converter?.inputFormat != inputFormat {
             converter = AVAudioConverter(from: inputFormat, to: format)
             converter?.primeMethod = .none
         }
