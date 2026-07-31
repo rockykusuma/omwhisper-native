@@ -36,7 +36,11 @@ struct PasteService {
     /// immediately; the previous pasteboard contents are restored `restoreDelay`
     /// later on a detached timeline so the caller (stopDictation) isn't blocked for
     /// two seconds before it can reset state / hide the overlay / accept the hotkey.
-    static func paste(_ text: String, restoreDelay: Duration = .seconds(2)) {
+    static func paste(
+        _ text: String,
+        restoreClipboard: Bool = true,
+        restoreDelay: Duration = .seconds(2)
+    ) {
         let pasteboard = NSPasteboard.general
         let saved = pasteboard.string(forType: .string)
 
@@ -44,6 +48,9 @@ struct PasteService {
         pasteboard.setString(text, forType: .string)
 
         sendCmdV()
+
+        // Opted out: the dictated text just stays on the clipboard.
+        guard restoreClipboard else { return }
 
         // ponytail: only .string is preserved (M1); non-text clipboard content is
         // still lost on restore — that's finding M1, fix when the clipboard-

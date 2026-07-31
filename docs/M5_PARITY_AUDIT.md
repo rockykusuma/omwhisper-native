@@ -43,7 +43,7 @@ the user it's already running). Appendix B lists it. ~10 lines.
 
 ## P1 — On Appendix B, genuinely missing
 
-### 3. Clipboard-restore delay is not a setting
+### 3. ~~Clipboard-restore delay is not a setting~~ — FIXED 2026-07-31
 
 Appendix B: *"paste to frontmost app + clipboard restore **w/ delay setting**"*.
 
@@ -56,6 +56,12 @@ Matters for slow targets (Electron apps, remote desktops, VMs) where 2s can rest
 clipboard before the paste lands. Also missing the old `restore_clipboard` on/off flag —
 native always restores.
 
+**Fixed:** `AppState.restoreClipboard` (default on) and `clipboardRestoreDelayMS` (default
+2000, clamped ≥ 0 on read so a stale value can't feed a negative duration into the paste
+path), both wired through a single `pasteRespectingClipboardSettings` helper so the two
+paste sites can't drift. `PasteService.paste` gained `restoreClipboard:` and skips the
+restore entirely when off. Controls sit under Settings → General.
+
 ### 4. No debug info / log export
 
 Appendix B: *"debug info + rotating logs"*. Native has 12 `os.Logger` call sites, no log
@@ -65,14 +71,32 @@ This one is already costing you: your own notes record that os_log is dead on de
 that `--diagnose-meeting` was the *only* working evidence channel for the meeting bugs. A
 beta soak without a way for a tester to hand you state produces unactionable reports.
 
-### 5. CapsLock PTT dropped
+### 5. ~~CapsLock PTT dropped~~ — WITHDRAWN 2026-07-31, not a gap
 
-Appendix B: *"PTT (Fn/CapsLock/R-Opt/R-Ctrl)"*. Old `MACOS_ONLY_KEYS`
-(`lib.rs:632`) = Fn, CapsLock, Right Option, Right Control. Native `PTTKey`
-(`Hotkeys/KeyCombo.swift`) = fn, rightCommand, rightOption, rightControl.
+The original finding compared the two apps' *picker options* and concluded CapsLock had been
+dropped. Checking the behaviour instead: the old app's single-key PTT entry point is
 
-CapsLock swapped for Right ⌘. Small, but CapsLock is the one PTT key with no other job on
-the keyboard, which is exactly why people pick it.
+```rust
+fn spawn_ptt_for_key(key: &str, ...) -> Option<crate::fn_key::PttTapHandle> {
+    if key != "Fn" {
+        return None;
+    }
+```
+
+**CapsLock PTT never worked in the Tauri app.** It appeared in the settings picker and in
+`MACOS_ONLY_KEYS` (`lib.rs:632`), but the CGEventTap that implements single-key PTT
+(`fn_key.rs`) only ever handled Fn and Left Ctrl — picking CapsLock silently did nothing.
+Right Option and Right Control were dead there too, and the native app implements both for
+real (`PTTKey.pressState`). Native is *ahead* on PTT, not behind.
+
+Not worth building now either: CapsLock is a latching key. macOS emits `flagsChanged` when
+the lock state toggles, not on physical press and release, so "hold to talk" isn't
+expressible — you'd get press-to-start/press-to-stop, a stuck caps LED, and nothing at all
+for the many users who remap the key. If a CapsLock trigger is ever wanted it should ship
+honestly as a *toggle*, not as PTT.
+
+Lesson for the rest of this audit: a checklist entry describes what the old UI *offered*,
+which is not the same as what it *did*.
 
 ---
 
@@ -123,10 +147,20 @@ server, reply assist, cross-lingual dictation, and brain-dump mode. Appendix B i
 
 ## Recommended order
 
-1. Single-instance guard (P0-2) — small, self-contained, no external dependency.
-2. Debug-info export (P1-4) — needed *before* the beta soak to make it worth running.
-3. Clipboard delay setting + `restore_clipboard` (P1-3), CapsLock PTT (P1-5) — both small.
-4. Sparkle key + appcast + release-script step (P0-1) — **needs your go-ahead**; do it last
-   but do it before any .dmg leaves your machine.
-5. Then the live-verification backlog (real multi-person call, Deepgram/OpenAI/Groq,
-   onboarding first-run, D4b motion + dark mode, cross-engine WER) → beta.
+1. ~~Single-instance guard (P0-2)~~ — done 2026-07-31.
+2. ~~Debug-info export (P1-4)~~ — done 2026-07-31.
+3. ~~Clipboard delay setting + `restore_clipboard` (P1-3)~~ — done 2026-07-31.
+   ~~CapsLock PTT (P1-5)~~ — withdrawn, never worked in the old app either.
+4. **Prove the distribution path** — and note it has *never* been run: no git tags, no
+   releases, no `.env`, and no Developer ID Application certificate installed (only an
+   "Apple Development" cert, which cannot notarize). The chain is strictly ordered —
+   Developer ID cert → `build-release.sh` runs → a real .dmg exists → Sparkle key signs it
+   → appcast published → auto-update proven. The cert and an app-specific password are the
+   user's to create; everything after is scriptable.
+5. That first fresh install also closes three owed live verifications at once: onboarding
+   first-run on a clean `hasCompletedOnboarding`, the single-instance guard in its real
+   `/Applications`-vs-`~/Downloads` case, and whether a notarized Release build's TCC
+   permissions behave like the dev build's (the Info.plist PlistBuddy patch phase has only
+   ever run under Debug).
+6. Then the rest of the live backlog (real multi-person call, Deepgram/OpenAI/Groq,
+   D4b motion + dark mode, cross-engine WER) → beta soak → tag the Tauri repo `v-final`.
