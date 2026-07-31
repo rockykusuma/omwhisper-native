@@ -1,9 +1,13 @@
 # Release Setup — from zero to a notarized .dmg
 
-One-time setup, then `scripts/build-release.sh` does the rest. Nothing in this chain has
-ever been run for this project, so expect to iterate on step 5.
+One-time setup, then `scripts/build-release.sh` does the rest.
 
 Team ID: **`Y87BZN47C5`**.
+
+**Status (2026-07-31):** steps 1 and 5-up-to-notarization are done — the certificate exists
+and a signed `OmWhisper_2.0.0_arm64.dmg` builds cleanly. Outstanding: **step 2** (back up the
+private key), **step 3/4** (app-specific password, so notarization can run), and **step 7**
+(Sparkle key — before any .dmg is distributed).
 
 ---
 
@@ -126,6 +130,7 @@ development.
   the actual reason. Usual causes: an embedded framework not signed with the same identity,
   or a binary missing the hardened runtime. Sparkle and the CoreML/WhisperKit frameworks are
   the likely candidates, since they've never been through this.
+
 Re-check the injected Info.plist keys after any change to the patch build phase — without
 `NSAudioCaptureUsageDescription`, meeting recording silently captures nothing, with no prompt
 and no error:
