@@ -22,5 +22,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--diagnose-meeting"),
 if CommandLine.arguments.contains("--mcp") {
     MCPLauncher.run()
 } else {
+    // GUI branch only — the --mcp subprocess is meant to run alongside the app.
+    SingleInstance.enforce()
     OmWhisperApp.main()
 }
