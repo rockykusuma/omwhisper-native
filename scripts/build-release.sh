@@ -182,10 +182,37 @@ else
   echo "  Team ID is Y87BZN47C5 — set APPLE_ID and an app-specific APPLE_ID_PASSWORD to notarize."
 fi
 
+# ── Appcast (Sparkle) ────────────────────────────────────────────────────────
+# generate_appcast signs each archive with the EdDSA private key from the login
+# keychain and writes/updates appcast.xml in the same directory. Using Sparkle's
+# own tool rather than hand-writing XML: it owns the signature format, delta
+# generation, and pruning of old entries.
+SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData/omwhisper-native-*/SourcePackages/artifacts/sparkle/Sparkle/bin \
+  -name generate_appcast -maxdepth 1 2>/dev/null | head -1)
+
+if [ -n "$SPARKLE_BIN" ]; then
+  echo ""
+  echo "Generating appcast..."
+  # Only the .dmg should be fed to it — the exported .app and staging copies
+  # would otherwise be picked up as separate "updates".
+  APPCAST_DIR="$BUILD_DIR/appcast"
+  mkdir -p "$APPCAST_DIR"
+  cp "$DMG_PATH" "$APPCAST_DIR/"
+  if "$SPARKLE_BIN" "$APPCAST_DIR" 2>&1 | tail -5; then
+    echo "appcast.xml: $APPCAST_DIR/appcast.xml"
+  else
+    echo "⚠️  appcast generation failed — check that the Sparkle signing key exists"
+    echo "    (generate_keys -p should print a public key)."
+  fi
+else
+  echo ""
+  echo "⚠️  Sparkle's generate_appcast not found — build once in Xcode so SPM"
+  echo "    resolves the Sparkle artifact, then re-run."
+fi
+
 echo ""
-echo "Upload $DMG_NAME to the GitHub release, then update omwhisper.in/appcast.xml"
-echo "(Sparkle feed) and version.json with the new $VERSION. Appcast entries need"
-echo "an EdDSA signature — sign_update from Sparkle's SPM checkout, once the"
-echo "signing key exists (not generated yet — see CLAUDE.md)."
+echo "Next: upload $DMG_NAME to the GitHub release, and publish"
+echo "$BUILD_DIR/appcast/appcast.xml at https://omwhisper.in/appcast.xml"
+echo "(must match SUFeedURL in Info.plist)."
 echo ""
 echo "Done."

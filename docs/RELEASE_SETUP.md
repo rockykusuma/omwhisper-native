@@ -176,7 +176,31 @@ that have never been verified on a real build:
   the dev build
 - A real dictation cycle end to end
 
-## 7. Sparkle (do this before the .dmg goes to anyone)
+## 7. Sparkle — DONE 2026-07-31
+
+Key generated, `SUPublicEDKey` shipping in the binary, appcast generated and signed.
+
+- Public key: `KWxanNe25QRF/+jZypGqO+K9s3Cp30ptU8YOrmBgvgY=`
+- Injected via the same PlistBuddy phase as `SUFeedURL` (`INFOPLIST_KEY_SUPublicEDKey`),
+  since `GENERATE_INFOPLIST_FILE` drops third-party keys. Verified present inside the
+  notarized .dmg, not just in a Debug build.
+- `build-release.sh` now runs Sparkle's own `generate_appcast`, which signs the archive with
+  the private key from the login keychain and writes `.build-release/appcast/appcast.xml`.
+
+⚠️ **The private key is in your login keychain and nowhere else.** Lose it and no user can
+ever verify an update again — the only recovery is shipping a new public key, which existing
+installs will reject. Export it now and store it with the .p12 from step 2:
+
+```bash
+<sparkle-bin>/generate_keys -x sparkle_private_key.txt   # then move it somewhere safe
+```
+
+Remaining before a release actually goes out: the `enclosure url` in the generated appcast
+defaults to `https://omwhisper.in/<dmg>` — make sure the .dmg is actually served from there
+(or edit the URL to the GitHub release asset), and publish `appcast.xml` at
+`https://omwhisper.in/appcast.xml` to match `SUFeedURL`.
+
+### Original notes
 
 Auto-update is currently inert: `SUFeedURL` points at `https://omwhisper.in/appcast.xml`,
 but no `SUPublicEDKey` is in the Info.plist and no appcast exists.
