@@ -40,6 +40,9 @@ nonisolated enum WERBenchmark {
         let seconds: Double
         let audioSeconds: Double
         let failures: [String]
+        /// Same engine, same audio, with custom vocabulary passed. nil when the
+        /// corpus has no vocabulary.txt.
+        var biased: WER.Result?
     }
 
     static func run(directory: URL) async {
@@ -61,6 +64,19 @@ nonisolated enum WERBenchmark {
                      entries.reduce(0) { $0 + WER.normalize($1.reference).count }))
         print("")
 
+        // Optional: a vocabulary.txt of one term per line turns the run into an
+        // A/B — same engine, same audio, biasing off then on. Engines are given
+        // no vocabulary otherwise, which measures them with their biasing
+        // switched off and is not what a user with a vocab list experiences.
+        let vocabulary = loadVocabulary(directory)
+        if vocabulary.isEmpty {
+            print("No vocabulary.txt — measuring engines with biasing OFF.")
+        } else {
+            print("vocabulary.txt: \(vocabulary.count) term(s) — each engine runs twice, off then on.")
+            print("  \(vocabulary.joined(separator: ", "))")
+        }
+        print("")
+
         var rows: [Row] = []
         for (label, engine, skip) in engines() {
             if let skip {
@@ -71,7 +87,13 @@ nonisolated enum WERBenchmark {
             }
             guard let engine else { continue }
             print("· \(label): running…")
-            rows.append(await measure(label: label, engine: engine, entries: entries))
+            var row = await measure(label: label, engine: engine, entries: entries)
+            if !vocabulary.isEmpty {
+                print("· \(label): running with vocabulary…")
+                row.biased = await measure(label: label, engine: engine,
+                                           entries: entries, vocabulary: vocabulary).result
+            }
+            rows.append(row)
         }
 
         print("")
@@ -106,6 +128,15 @@ nonisolated enum WERBenchmark {
                 return Entry(name: audio.deletingPathExtension().lastPathComponent,
                              audio: audio, reference: reference, duration: duration)
             }
+    }
+
+    /// One term per line; blank lines and `#` comments ignored.
+    private static func loadVocabulary(_ directory: URL) -> [String] {
+        let url = directory.appendingPathComponent("vocabulary.txt")
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return raw.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
     }
 
     // MARK: engines
@@ -150,21 +181,26 @@ nonisolated enum WERBenchmark {
 
     // MARK: measurement
 
-    private static func measure(label: String, engine: TranscriptionEngine, entries: [Entry]) async -> Row {
+    private static func measure(label: String, engine: TranscriptionEngine, entries: [Entry],
+                                vocabulary: [String] = []) async -> Row {
         var results: [WER.Result] = []
         var failures: [String] = []
         let started = Date()
 
         for entry in entries {
             do {
-                let hypothesis = try await MeetingTranscriber.transcribeFile(entry.audio, engine: engine)
+                let hypothesis = try await MeetingTranscriber.transcribeFile(
+                    entry.audio, engine: engine, vocabulary: vocabulary)
                 let result = WER.compare(reference: entry.reference, hypothesis: hypothesis)
                 results.append(result)
-                print(String(format: "    %-10s %5.1f%%  (S%d D%d I%d)  \"%@\"",
-                             (entry.name as NSString).utf8String ?? "",
-                             result.rate * 100,
-                             result.substitutions, result.deletions, result.insertions,
-                             hypothesis.isEmpty ? "<empty>" : String(hypothesis.prefix(60))))
+                // Full hypothesis, never truncated. A 60-char preview here caused a
+                // real misreading on the first run: every engine's line was cut off
+                // mid-sentence, so which word actually failed was invisible and the
+                // wrong word got blamed.
+                print(String(format: "    %-18@ %5.1f%%  (S%d D%d I%d)",
+                             entry.name as NSString, result.rate * 100,
+                             result.substitutions, result.deletions, result.insertions))
+                print("        \(hypothesis.isEmpty ? "<empty>" : hypothesis)")
             } catch {
                 failures.append("\(entry.name): \(error.localizedDescription)")
                 print("    \(entry.name): FAILED — \(error.localizedDescription)")
@@ -183,23 +219,42 @@ nonisolated enum WERBenchmark {
     private static func report(_ rows: [Row], entries: [Entry]) {
         guard !rows.isEmpty else { print("No engine produced a result."); return }
 
-        print("┌─────────────────────────┬────────┬───────┬───────┬───────┬────────┐")
-        print("│ engine                  │    WER │  subs │  dels │   ins │    RTF │")
-        print("├─────────────────────────┼────────┼───────┼───────┼───────┼────────┤")
-        for row in rows.sorted(by: { $0.result.rate < $1.result.rate }) {
-            let rtf = row.audioSeconds > 0 ? row.seconds / row.audioSeconds : 0
-            print(String(format: "│ %-23@ │ %5.1f%% │ %5d │ %5d │ %5d │ %5.2fx │",
-                         row.engine as NSString,
-                         row.result.rate * 100,
-                         row.result.substitutions,
-                         row.result.deletions,
-                         row.result.insertions,
-                         rtf))
+        let hasBiased = rows.contains { $0.biased != nil }
+
+        if hasBiased {
+            print("engine                     WER(off)  WER(on)     delta     RTF")
+            print("──────────────────────────────────────────────────────────────")
+            for row in rows.sorted(by: { ($0.biased ?? $0.result).rate < ($1.biased ?? $1.result).rate }) {
+                let rtf = row.audioSeconds > 0 ? row.seconds / row.audioSeconds : 0
+                if let biased = row.biased {
+                    let delta = (biased.rate - row.result.rate) * 100
+                    // Sign is explicit: "-0.8" alone reads as a magnitude.
+                    let mark = delta < -0.001 ? "better" : (delta > 0.001 ? "WORSE" : "no change")
+                    print(String(format: "%-24@  %6.1f%%  %6.1f%%  %+5.1f %-9@  %5.2fx",
+                                 row.engine as NSString, row.result.rate * 100, biased.rate * 100,
+                                 delta, mark as NSString, rtf))
+                } else {
+                    print(String(format: "%-24@  %6.1f%%       —         —       %5.2fx",
+                                 row.engine as NSString, row.result.rate * 100, rtf))
+                }
+            }
+        } else {
+            print("engine                        WER   subs   dels    ins     RTF")
+            print("──────────────────────────────────────────────────────────────")
+            for row in rows.sorted(by: { $0.result.rate < $1.result.rate }) {
+                let rtf = row.audioSeconds > 0 ? row.seconds / row.audioSeconds : 0
+                print(String(format: "%-24@  %6.1f%%  %5d  %5d  %5d   %5.2fx",
+                             row.engine as NSString, row.result.rate * 100,
+                             row.result.substitutions, row.result.deletions,
+                             row.result.insertions, rtf))
+            }
         }
-        print("└─────────────────────────┴────────┴───────┴───────┴───────┴────────┘")
         print("")
         print("WER = (subs + dels + ins) / reference words, pooled across samples. Lower is better.")
-        print("RTF = processing time / audio duration. Below 1.00x is faster than real time.")
+        print("RTF = processing time / audio duration, biasing-off pass. Below 1.00x beats real time.")
+        if hasBiased {
+            print("delta = WER(on) - WER(off). Negative means custom vocabulary helped.")
+        }
 
         let failed = rows.filter { !$0.failures.isEmpty }
         if !failed.isEmpty {

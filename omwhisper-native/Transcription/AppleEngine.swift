@@ -17,9 +17,13 @@
 // AnalyzerInput, etc.) are a Swift-native, concurrency-first API and need no
 // such treatment.
 @preconcurrency import AVFoundation
+import Foundation
 import Speech
+import os
 
 struct AppleEngine: TranscriptionEngine {
+    nonisolated static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OmWhisper", category: "AppleEngine")
+    nonisolated var log: Logger { Self.log }
     let kind: EngineKind = .apple
 
     enum EngineError: Error, LocalizedError {
@@ -82,6 +86,13 @@ struct AppleEngine: TranscriptionEngine {
                     let context = AnalysisContext()
                     context.contextualStrings[.general] = vocabulary
                     try await analyzer.setContext(context)
+                    // Proves the bias was actually applied. Added 2026-08-01 when the
+                    // WER benchmark showed byte-identical output with and without a
+                    // vocabulary: without this line there is no way to tell "context
+                    // was set and ignored" from "this branch never ran". It fired —
+                    // the context IS set, and the transcript still does not change.
+                    // See docs/wer-corpus/README.md.
+                    log.debug("contextualStrings applied: \(vocabulary.count, privacy: .public) term(s)")
                 }
                 let (inputSequence, inputBuilder) = AsyncStream<AnalyzerInput>.makeStream()
 

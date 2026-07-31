@@ -6,67 +6,93 @@ and reports Word Error Rate. This closes the accuracy comparison M4 has owed sin
 
 ## Corpus format
 
-A directory of pairs. `03-code.wav` beside `03-code.txt` holding exactly what was said.
+A directory of pairs: `03-code.wav` beside `03-code.txt` holding exactly what was said. Any
+audio `AVAudioFile` can open works — `.wav`, `.m4a`, `.caf`, `.mp3`, `.aiff`. QuickTime Player →
+File → New Audio Recording produces a usable `.m4a`.
 
-Any audio `AVAudioFile` can open works — `.wav`, `.m4a`, `.caf`, `.mp3`, `.aiff`. QuickTime
-Player → File → New Audio Recording produces a usable `.m4a`.
+Add an optional `vocabulary.txt` (one term per line, `#` comments allowed) and every engine runs
+**twice** — biasing off, then on — reporting the delta. Without it, engines are measured with
+their biasing switched off, which is not what a user with a vocabulary list experiences.
 
-Write references the way you would want the text pasted, and keep that consistent across
-samples. There is no number/currency normalization, so a reference of "five" scores an engine
-that writes "5" as wrong. That is pessimistic in absolute terms but fair between engines, which
-is what the comparison turns on.
+There is no number/currency normalization, so a reference of "five" scores an engine that writes
+"5" as wrong. Pessimistic in absolute terms, fair between engines.
 
 ## Two kinds of corpus, two different questions
 
 **Synthetic** — `bash scripts/make-wer-corpus.sh /tmp/wer` builds one with macOS `say` in
-seconds. Answers "do these engines differ from each other?" and smoke-tests the harness.
+seconds. Answers "do these engines differ?" and smoke-tests the harness. It does **not** predict
+your dictation accuracy: synthetic speech is clean, unaccented, close-mic'd and free of
+disfluency. Treat the numbers as a floor.
 
-It does **not** answer "how accurate will dictation be for me". Synthetic speech is clean,
-unaccented, close-mic'd and free of disfluency; every engine scores far better on it than on
-real dictation. Treat the numbers as a floor.
+**Recorded** — read a prepared script into your own mic, in your room, and save what you read as
+the `.txt`. The only version whose numbers predict your experience.
 
-**Recorded** — read a prepared script aloud into your own mic, in the room you actually work
-in, and save what you read as the `.txt`. Ground truth by construction, real voice, real
-hardware. This is the only version whose numbers predict anything about your experience.
-Include the technical vocabulary you actually dictate; that is where engines diverge most.
+## Run — 2026-08-01, synthetic corpus, M2 Pro
 
-## Baseline run — 2026-08-01, synthetic corpus
+8 samples, ~55s, 168 reference words, with a 10-term `vocabulary.txt`.
 
-6 samples, 38.9s, 132 reference words, on an M2 Pro.
+| Engine | WER (biasing off) | WER (on) | Δ |
+|---|---|---|---|
+| Whisper large-v3 turbo | 2.4% | **0.6%** | −1.8 better |
+| Cloud · ElevenLabs Scribe | 3.0% | 3.0% | no change |
+| Whisper small | 4.2% | 3.6% | −0.6 better |
+| Whisper base | 8.3% | 4.2% | −4.2 better |
+| Parakeet v3 | 4.2% | 4.8% | +0.6 |
+| Parakeet v2 | 4.8% | 4.8% | no change |
+| Apple Speech *(default)* | 6.0% | 6.0% | no change |
 
-| Engine | WER | S | D | I | RTF |
-|---|---|---|---|---|---|
-| Cloud · ElevenLabs Scribe | 0.0% | 0 | 0 | 0 | 0.17x |
-| Whisper large-v3 turbo | 0.8% | 1 | 0 | 0 | 0.44x |
-| Apple Speech *(default)* | 1.5% | 2 | 0 | 0 | 0.04x |
-| Parakeet v2 | 1.5% | 2 | 0 | 0 | 0.05x |
-| Parakeet v3 | 2.3% | 2 | 0 | 1 | 0.04x |
-| Whisper small | 3.0% | 3 | 0 | 1 | 0.11x |
-| Whisper base | 3.8% | 4 | 1 | 0 | 0.06x |
+RTF: Apple 0.04x, Parakeet 0.05x, Whisper base 0.06x, small 0.12x, turbo 0.45x, ElevenLabs 0.18x.
 
-AssemblyAI, Deepgram, OpenAI and Groq were skipped — no key in the Keychain.
+AssemblyAI, Deepgram, OpenAI and Groq skipped — no key in the Keychain.
 
-**Read this as a floor and a smoke test, not a ranking.** At 132 reference words one wrong word
-is 0.76% WER, so the entire spread between first and third place is two words. Nothing here
-separates Apple, Parakeet v2 and Whisper turbo.
+### The finding: custom vocabulary does nothing on two of the three on-device engines
 
-**The one real signal is where the errors landed.** Almost every error in the whole run came
-from a single sample, and a single word in it — "async", variously heard as "a sync", "Usync"
-and "and our sync". Ordinary prose was transcribed perfectly by every engine. So on clean
-speech the engines are indistinguishable, and they separate on *technical vocabulary* — exactly
-the case sign-off criterion #4 exists for.
+**Apple Speech and both Parakeet variants produce byte-identical transcripts with and without a
+vocabulary list.** Not "a small effect" — character-for-character the same text, with the listed
+terms still wrong:
 
-That has a direct consequence: the harness currently passes **no vocabulary** to the engines,
-so it measures them with their biasing turned off. Re-running with "async" in custom vocabulary
-would measure whether `contextualStrings`/keyterm biasing actually earns its place. That is
-the more interesting experiment and it is not done yet.
+```
+reference   … I pushed the appcast to Vercel … notarize … SwiftUI settings pane shipped.
+Apple, off  … I pushed the app cast to Versal … notarise … SwiftUI settings pain ship.
+Apple, on   … I pushed the app cast to Versal … notarise … SwiftUI settings pain ship.
+```
 
-Also worth noting: RTF says the on-device engines are not the slow option. Apple and Parakeet
-run at ~0.04x — roughly 25× faster than real time — while Whisper turbo is 0.44x and the cloud
-round-trip is 0.17x.
+`appcast`, `notarize`, `SwiftUI`, `WhisperKit`, `Parakeet`, `Keychain` and `GRDB` were all in
+`vocabulary.txt`. Apple heard "app cast" and "whisper kit" both times.
+
+**This is not a plumbing bug, and that was checked rather than assumed.** A `log.debug` inside
+`AppleEngine`'s biasing branch (kept, deliberately) fires `contextualStrings applied: 10 term(s)`
+on every biased run — so the branch executes and `AnalysisContext.contextualStrings` is set
+before `start()`, exactly as the API documents. The transcript simply does not change.
+
+The control that makes it conclusive: **the same vocabulary array, on the same audio, through
+the same call site, measurably changes Whisper** — base improves 8.3% → 4.2%. So the value
+reaches the engines; two of them ignore it.
+
+**What this calls into question:**
+
+- **Sign-off criterion #4** ("technical vocabulary respected via context hints") is recorded in
+  `CLAUDE.md` as shipped 2026-07-07. It was recorded on the strength of the code being written
+  and the mechanism being confirmed against the SDK — never on an observed change in a
+  transcript. This is the same shape as the items in `CLAUDE.md` § Verification.
+- **S2 context-aware dictation** routes auto-extracted screen terms through this same
+  `contextualStrings` path. If biasing has no effect, neither does S2.
+- The **Vocabulary settings tab**'s custom-words list is inert on the default engine. Word
+  replacements and fuzzy correction are unaffected — those are post-processing in `AppState`,
+  not engine biasing.
+
+**Before treating it as settled**, note the corpus is synthetic and small. Biasing may only move
+a decision the model is already uncertain about, and TTS audio is unusually unambiguous. The
+cheap next test is a recorded corpus of the same jargon in a real voice. But byte-identical
+output across 8 samples is a strong prior, and Whisper responding on identical input rules out
+the easy explanations.
+
+Parakeet's boosting needs a second CTC model that downloads lazily on first use with a
+non-empty vocabulary; whether that download completed here was not separately confirmed, so
+Parakeet's "no change" is weaker evidence than Apple's.
 
 ## What this does not measure
 
 Accented speech · background noise · far-field mics · disfluency and self-correction ·
-overlapping speakers · streaming partial quality (only the final text is scored) · vocabulary
-biasing · punctuation and casing (normalized away before scoring).
+overlapping speakers · streaming partial quality (only final text is scored) · punctuation and
+casing (normalized away before scoring).
