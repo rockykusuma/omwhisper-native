@@ -38,6 +38,41 @@ echo "Version:  $VERSION"
 echo "Arch:     $(uname -m)"
 echo ""
 
+# ── Build-number guard ───────────────────────────────────────────────────────
+# Sparkle compares updates on sparkle:version, which is CURRENT_PROJECT_VERSION
+# — NOT the marketing version. Ship 2.0.1 with the build number still at 1 and
+# nobody is offered the update, silently, no matter what the version string
+# says. Check against the live feed, which is what users actually see.
+BUILD_NUMBER=$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showBuildSettings 2>/dev/null \
+  | awk -F' = ' '/ CURRENT_PROJECT_VERSION /{print $2; exit}')
+FEED_URL=$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showBuildSettings 2>/dev/null \
+  | awk -F' = ' '/ INFOPLIST_KEY_SUFeedURL /{print $2; exit}')
+echo "Build:    $BUILD_NUMBER"
+
+if [ -n "${FEED_URL:-}" ]; then
+  LIVE_FEED=$(curl -sSL --max-time 15 "$FEED_URL" 2>/dev/null || true)
+  # grep -o, not sed: sed substitutes once per line, so several <sparkle:version>
+  # tags sharing a line would report the last one rather than the highest.
+  LAST_SHIPPED=$(printf '%s' "$LIVE_FEED" \
+    | grep -o '<sparkle:version>[0-9]\{1,\}</sparkle:version>' \
+    | grep -o '[0-9]\{1,\}' \
+    | sort -n | tail -1)
+  if [ -n "$LAST_SHIPPED" ]; then
+    if [ "$BUILD_NUMBER" -le "$LAST_SHIPPED" ] 2>/dev/null; then
+      echo ""
+      echo "ERROR: CURRENT_PROJECT_VERSION is $BUILD_NUMBER, but $LAST_SHIPPED is already"
+      echo "       live on $FEED_URL."
+      echo "       Sparkle compares on this number — existing installs would never be"
+      echo "       offered this build. Bump CURRENT_PROJECT_VERSION and rebuild."
+      exit 1
+    fi
+    echo "          (live feed is at build $LAST_SHIPPED — OK)"
+  else
+    echo "          (no live feed yet — build-number check skipped)"
+  fi
+fi
+echo ""
+
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
   echo "ERROR: APPLE_SIGNING_IDENTITY is not set."
   echo "  export APPLE_SIGNING_IDENTITY=\"Developer ID Application: Your Name (TEAMID)\""
