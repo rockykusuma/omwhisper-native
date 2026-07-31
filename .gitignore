@@ -72,3 +72,11 @@ __pycache__/
 
 # superpowers SDD scratch (briefs, reports, ledger)
 .superpowers/
+
+### Release
+# Signing + notarization credentials. NEVER commit: APPLE_ID_PASSWORD is an
+# app-specific password with full Apple ID scope.
+.env
+
+# build-release.sh output: archive, exported .app, staging, and the .dmg
+.build-release/

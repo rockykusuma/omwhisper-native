@@ -27,7 +27,13 @@ echo "║   OmWhisper Native Release Builder  ║"
 echo "╚════════════════════════════════════╝"
 echo ""
 
-VERSION=$(defaults read "$PROJECT_ROOT/omwhisper-native/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "unknown")
+# MARKETING_VERSION from build settings, not a file: the target uses
+# GENERATE_INFOPLIST_FILE, so omwhisper-native/Info.plist does not exist on disk
+# and reading it silently yielded "unknown" — which would have shipped a .dmg
+# named OmWhisper_unknown_arm64.dmg.
+VERSION=$(xcodebuild -project "$PROJECT" -scheme "$SCHEME" -showBuildSettings 2>/dev/null \
+  | awk -F' = ' '/ MARKETING_VERSION /{print $2; exit}')
+VERSION=${VERSION:-unknown}
 echo "Version:  $VERSION"
 echo "Arch:     $(uname -m)"
 echo ""
