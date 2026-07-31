@@ -1,68 +1,140 @@
+<div align="center">
+
+<img src="omwhisper-native/Assets.xcassets/AppIcon.appiconset/icon_256.png" width="128" alt="OmWhisper">
+
 # OmWhisper
 
-Menu-bar dictation for macOS. Hold a key, speak, and the text lands in whatever app you're
-in — with your choice of on-device or cloud transcription, and optional AI cleanup.
+**Hold a key. Speak. The text lands where you're typing.**
 
-**[Download OmWhisper 2.0](https://github.com/rockykusuma/omwhisper-native/releases/latest)**
-· [omwhisper.in](https://www.omwhisper.in)
+Menu-bar dictation for macOS, with your choice of on-device or cloud transcription.
 
-Requires **macOS 26 (Tahoe) or later** on **Apple Silicon**. Signed and notarized.
+[![Release](https://img.shields.io/github/v/release/rockykusuma/omwhisper-native?color=0FA97C&label=release)](https://github.com/rockykusuma/omwhisper-native/releases/latest)
+[![Platform](https://img.shields.io/badge/macOS%2026%2B-Apple%20Silicon-0E7490)](#requirements)
+[![License: MIT](https://img.shields.io/badge/License-MIT-0FA97C.svg)](./LICENSE)
 
-Windows users: the previous [Tauri build](https://github.com/rockykusuma/omwhisper) remains
+**[⬇️ Download](https://github.com/rockykusuma/omwhisper-native/releases/latest)** ·
+[🌐 omwhisper.in](https://www.omwhisper.in) ·
+[📖 Documentation](https://www.omwhisper.in/docs) ·
+[🔒 Privacy](https://www.omwhisper.in/privacy)
+
+</div>
+
+---
+
+Most dictation apps pick a side: everything on your device (private, but limited), or everything
+in the cloud (accurate, but your audio is someone else's problem). OmWhisper lets you choose per
+engine, and always tells you which one is about to run.
+
+Out of the box, your audio never leaves your Mac. Point it at a cloud provider with your own API
+key and it will — after scrubbing secrets and personal data out of anything sent for AI cleanup.
+The app itself only ever phones home to check for updates.
+
+## Requirements
+
+**macOS 26 (Tahoe) or later**, on **Apple Silicon**. Signed with a Developer ID and notarized.
+
+Windows users: the previous [Tauri build](https://github.com/rockykusuma/omwhisper) is still
 available and is now frozen.
+
+## Install
+
+Download the `.dmg` from [Releases](https://github.com/rockykusuma/omwhisper-native/releases/latest),
+drag OmWhisper to Applications, and launch it. A first-run walkthrough handles permissions and
+lets you try a dictation before anything is pasted anywhere. Updates arrive in-app via Sparkle.
+
+macOS asks for **Microphone** and **Speech Recognition** the first time you dictate, and for
+**Accessibility** the first time OmWhisper pastes — that last one is what lets text land in
+another app.
 
 ## Using it
 
-- **Hold Fn** and talk — release when you're done. This is the way most people use it.
-- **⌘⇧V** toggles dictation instead, if you'd rather press once and press again
-- **⌘⇧B** dictates and cleans the text up with AI before pasting
-- **⌘⇧P** polishes whatever text you currently have selected
+| | |
+|---|---|
+| **Hold Fn** | Talk, release when done. This is how most people use it. The key is configurable. |
+| **⌘⇧V** | Toggle dictation instead — press once to start, again to stop |
+| **⌘⇧B** | Dictate, then clean the text up with AI before pasting |
+| **⌘⇧P** | Polish whatever text you currently have selected, in place |
+| **⌘⇧D** | Brain dump — ramble, get back something structured |
+| **Double-tap right ⌥** | Draft a reply from what's on screen *(off by default)* |
 
-macOS asks for Microphone and Speech Recognition the first time you dictate, and for
-Accessibility the first time OmWhisper pastes — that last one is what lets text land in
-another app.
+Text is pasted into the frontmost app and your clipboard is restored afterwards. Release-to-paste
+measured between 108 ms and 697 ms across nine runs on an M-series Mac.
 
 ## Where your audio goes
 
-Four transcription engines, switchable at any time. The sidebar always names the one that
-will actually run and whether it stays on your Mac:
+Four transcription engines, switchable at any time. The sidebar always names the one that will
+actually run and whether it leaves your Mac.
 
-| Engine | Runs |
+| Engine | Runs | Words appear |
+|---|---|---|
+| **Apple Speech** *(default)* | On device | While you speak |
+| **Parakeet** | On device — CoreML, multilingual or English-only | While you speak |
+| **Whisper** | On device — the widest language coverage | On release |
+| **Cloud** | AssemblyAI · Deepgram · ElevenLabs · OpenAI · Groq | Varies by provider |
+
+Cloud engines need your own API key, which is stored in the macOS Keychain — never in preferences.
+Custom vocabulary biases every engine toward the words you actually use.
+
+## AI cleanup
+
+Optional, off by default. Removes filler, fixes self-corrections, applies a style — seven built in,
+plus your own.
+
+| Backend | Runs |
 |---|---|
-| Apple Speech *(default)* | On device — streaming, words appear as you speak |
-| Parakeet | On device — CoreML, multilingual or English-only |
-| Whisper | On device — the widest language coverage |
-| Cloud | AssemblyAI · Deepgram · ElevenLabs · OpenAI · Groq, with your own key |
+| **Apple Foundation Models** | On device |
+| **Ollama** | Locally, against any model you've pulled |
+| **OpenAI-compatible API** | The provider you choose |
 
-AI polish is off by default and offers the same choice: Apple Foundation Models (on device),
-Ollama (local), or any OpenAI-compatible API. Text sent to a cloud provider is scrubbed of
-secrets and personal data first — keys, tokens, cards, emails, phone numbers — and restored
-in the result. If polish fails for any reason, your raw text is pasted rather than lost.
+Text bound for a cloud provider is scrubbed first — keys, tokens, cards, emails, phone numbers are
+replaced with placeholders and restored in the result. **If cleanup fails for any reason, your raw
+text is pasted rather than lost.**
 
-Meeting recording, memory, reply assist, cross-lingual dictation and the MCP server are all
-opt-in and off by default. See [the privacy policy](https://www.omwhisper.in/privacy) for
-what each one stores.
+## Beyond dictation
 
-## Building
+Every one of these is **off by default** and stays off until you turn it on. See the
+[privacy policy](https://www.omwhisper.in/privacy) for what each one stores.
 
-The Xcode scheme is **`omwhisper-native`**, not `OmWhisper` — the product name and the scheme
-name differ, and using the wrong one fails with "does not contain a scheme named".
+| | |
+|---|---|
+| **Meetings** | Records calls after an on-screen consent prompt, then transcribes and summarizes them entirely on device |
+| **Memory** | Periodically notes what's on screen so you can search it later, with a daily written chronicle |
+| **Reply assist** | Double-tap right ⌥ to draft a reply from the conversation in front of you |
+| **Cross-lingual** | Speak one language, get polished English out |
+| **MCP server** | Exposes your history and memory to Claude Desktop as read-only tools |
+
+## Development
+
+The Xcode scheme is **`omwhisper-native`**, not `OmWhisper` — the product name and the scheme name
+differ, and using the wrong one fails with "does not contain a scheme named".
 
 ```bash
 xcodebuild -scheme omwhisper-native -project omwhisper-native.xcodeproj build test
 ```
 
-Needs Xcode with the macOS 26 SDK. Release builds (archive → notarize → `.dmg` → appcast) come
-from `scripts/build-release.sh` and need a paid Apple Developer account — see
-`docs/RELEASE_SETUP.md` for the one-time signing setup.
+Needs Xcode with the macOS 26 SDK. Dependencies resolve through SPM automatically. Release builds
+(archive → notarize → `.dmg` → appcast) come from `scripts/build-release.sh` and need a paid Apple
+Developer account — see [`docs/RELEASE_SETUP.md`](docs/RELEASE_SETUP.md) for the one-time setup.
+
+| Layer | Technology |
+|---|---|
+| UI | SwiftUI + AppKit (`NSStatusItem`, non-activating `NSPanel`, `CGEventTap`) |
+| State | One `@Observable` `AppState` |
+| Transcription | SpeechAnalyzer · FluidAudio (Parakeet) · WhisperKit · streaming WebSocket + REST |
+| AI cleanup | Foundation Models · Ollama · OpenAI-compatible |
+| Storage | SQLite via GRDB, with FTS5 |
+| Updates | Sparkle |
+
+Swift 6 with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so anything touching audio callbacks is
+explicitly `nonisolated` — `CLAUDE.md` covers that and the rest of the project's conventions.
 
 ## Why a rewrite
 
-macOS 26's SpeechTranscriber and Foundation Models replace roughly 60% of the Tauri app's
-codebase: on-device streaming transcription, VAD and LLM polish become API calls rather than
-hand-rolled pipelines. `docs/NATIVE_MIGRATION_PLAN.md` has the full rationale, architecture
-and feature-parity checklist; `CLAUDE.md` has the project context and milestone history.
+macOS 26's SpeechTranscriber and Foundation Models replace roughly 60% of the Tauri app's codebase:
+on-device streaming transcription, voice activity detection and LLM cleanup become API calls rather
+than hand-rolled pipelines. [`docs/NATIVE_MIGRATION_PLAN.md`](docs/NATIVE_MIGRATION_PLAN.md) has the
+full rationale and architecture.
 
 ## License
 
-See [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE).
