@@ -8,6 +8,7 @@
 //  app had via Resend, not ported).
 //
 
+import OSLog
 import SwiftUI
 
 struct AboutSettingsView: View {
@@ -28,10 +29,22 @@ struct AboutSettingsView: View {
                 Link("Documentation", destination: URL(string: "https://rockykusuma.github.io/omwhisper/")!)
                     .foregroundStyle(Color.Porcelain.emerald)
                 Button("Check for Updates…") {
-                    (NSApp.delegate as? AppDelegate)?.checkForUpdates()
+                    // The optional chain silently swallowed everything when the
+                    // cast failed, which is indistinguishable from a dead button.
+                    if let delegate = AppDelegate.shared {
+                        delegate.checkForUpdates()
+                    } else {
+                        Logger(subsystem: "com.omwhisper.mac", category: "Updater")
+                            .error("no AppDelegate — update check dropped")
+                    }
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.Porcelain.emerald)
+                // .plain leaves the hit region as the glyphs themselves, so
+                // clicks landing between or beside letters miss entirely — the
+                // Link above works precisely because it does not do this.
+                // contentShape gives the row a solid target.
+                .contentShape(Rectangle())
             }
 
             PorcelainSection(eyebrow: "Troubleshooting") {
@@ -42,6 +55,7 @@ struct AboutSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color.Porcelain.emerald)
+                .contentShape(Rectangle())
                 Text("Your settings, permissions, and recent log lines. No transcriptions, no window contents, no API keys.")
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)

@@ -7,6 +7,7 @@
 
 import AppKit
 import Observation
+import OSLog
 import Sparkle
 import SwiftUI
 
@@ -55,6 +56,15 @@ struct OmWhisperApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    /// SwiftUI's @NSApplicationDelegateAdaptor does NOT install this object as
+    /// NSApp.delegate — it installs its own forwarding shim. So
+    /// `NSApp.delegate as? AppDelegate` is nil, and every call written as
+    /// `(NSApp.delegate as? AppDelegate)?.something()` was an optional chain on
+    /// nil: it fired, did nothing, and reported nothing. That is why Check for
+    /// Updates appeared dead and the single-instance ping never opened the hub.
+    /// Views reach the delegate through this instead.
+    static private(set) weak var shared: AppDelegate?
+
     let appState = AppState()
     private var statusItem: NSStatusItem?
     #if DEBUG
@@ -90,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.shared = self
         registerUpdaterDefaults()
 
         // Skip entirely under XCTest — see isRunningUnderTests in AppState.swift.
@@ -115,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DistributedNotificationCenter.default().addObserver(
             forName: SingleInstance.openHubNotification, object: nil, queue: nil
         ) { _ in
-            Task { @MainActor in (NSApp.delegate as? AppDelegate)?.openHub() }
+            Task { @MainActor in AppDelegate.shared?.openHub() }
         }
 
         // First run: show the Welcome window once. Dispatched to the next runloop
@@ -268,9 +279,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     #endif
 
     /// Triggered from Settings → About (no longer a menu item). Internal so the
-    /// About view can reach it via `NSApp.delegate as? AppDelegate`.
+    /// About view can reach it via `AppDelegate.shared`.
     func checkForUpdates() {
+        // .notice, not .debug: debug entries are not retained, and this has to
+        // survive long enough to appear in Copy Debug Info.
+        let log = Logger(subsystem: "com.omwhisper.mac", category: "Updater")
+        let u = updaterController.updater
+        let feed = u.feedURL?.absoluteString ?? "nil"
+        let last = u.lastUpdateCheckDate?.description ?? "never"
+        log.notice("check requested canCheck=\(u.canCheckForUpdates, privacy: .public) feed=\(feed, privacy: .public) last=\(last, privacy: .public) autoDL=\(u.automaticallyDownloadsUpdates, privacy: .public)")
         updaterController.checkForUpdates(nil)
+        log.notice("checkForUpdates returned")
     }
 
     /// Whether Sparkle can currently check — lets the About button disable itself.
