@@ -137,6 +137,10 @@ APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (Y87BZN47C5)"
 APPLE_ID="your-apple-id@example.com"
 APPLE_ID_PASSWORD="xxxx-xxxx-xxxx-xxxx"   # the app-specific password from step 3
 APPLE_TEAM_ID="Y87BZN47C5"
+
+# Only needed if the website repo is not a sibling of this one. Publishing
+# copies appcast.xml into it and pushes, which is what updates omwhisper.in.
+# OMWHISPER_WEB_REPO="/path/to/omWhisperWebApp"
 ```
 
 `APPLE_SIGNING_IDENTITY` must match `security find-identity` output **character for
@@ -148,11 +152,15 @@ notarization. That's a useful way to test step 5 in isolation.
 ## 5. Run it
 
 ```bash
-bash scripts/build-release.sh
+bash scripts/build-release.sh              # build only
+bash scripts/build-release.sh --publish    # build, release, update the site, verify
 ```
 
 Archive → export → .dmg → notarize → staple → Gatekeeper check. Notarization takes 1–5
 minutes. Output lands in `.build-release/` (gitignored) as `OmWhisper_2.0.0_arm64.dmg`.
+
+Without `--publish` nothing outward-facing happens. See **Cutting a release** below for what
+`--publish` adds.
 
 ### Status of the unsigned-of-notarization dry run (2026-07-31)
 
@@ -272,3 +280,66 @@ So this must happen before the first .dmg is distributed, not after.
 
 Still to do in the script: a `generate_appcast`/`sign_update` step, and a DMG volume icon
 (the disk image currently mounts with a generic one).
+
+## 8. Cutting a release
+
+```bash
+bash scripts/build-release.sh --publish
+```
+
+That is the whole thing. It runs preflight, builds and notarizes, creates the GitHub release,
+uploads the `.dmg`, copies `appcast.xml` into the website repo, pushes it, and then **proves the
+result is live** before claiming success.
+
+### Preflight runs before the build
+
+`--publish` checks `gh` auth and that both repos are clean (the website repo also has to be on
+`main`) *before* archiving, because discovering a missing web repo after a ten-minute
+notarization is the failure worth designing out.
+
+**Publishing refuses to run from a dirty tree in either repo.** For the native repo that is
+correctness, not tidiness: `gh release create` tags whatever commit is checked out, so a dirty
+tree produces a tag that does not correspond to the binary people download — and nothing
+downstream would ever reveal it. For the website repo it is about not sweeping unrelated work
+into a release commit.
+
+### Release notes
+
+`docs/releases/vX.Y.Z.md` is used when it exists; otherwise `gh --generate-notes` writes them
+from the commit log.
+
+### If publishing fails after the build succeeded
+
+Re-run publishing on its own — it does not rebuild, and every step is idempotent (the release is
+reused, the asset re-uploaded with `--clobber`, the appcast committed only if it changed):
+
+```bash
+bash scripts/publish-release.sh
+bash scripts/publish-release.sh --dry-run    # show what it would do, touch nothing
+```
+
+### Checking that what is live is consistent
+
+```bash
+bash scripts/publish-release.sh --verify-only
+```
+
+Answers "does the live site actually agree with this build?" at any time. Three checks, each able
+to fail:
+
+1. the live appcast reports a build number at least as new as this one
+2. the deployed site bundle references this `.dmg` filename
+3. the enclosure URL **read out of the deployed feed** returns 200
+
+The third is deliberately read from the live feed rather than a local variable. A local variable
+can only confirm what the script already believes; the deployed feed is what Sparkle fetches, and
+it is the only copy that can catch a wrong `--download-url-prefix`.
+
+### Why this exists
+
+`build-release.sh` used to end by *printing* a reminder to upload the .dmg and publish the
+appcast by hand. A printed reminder cannot fail and cannot be observed. It was not followed:
+**omwhisper.in served 2.0.0 for four consecutive releases** — the build with silent auto-updates,
+a dead Check for Updates button, and a Documentation link pointing at the frozen Tauri docs —
+while the GitHub releases all looked healthy. The verify stage above would have caught it the day
+it happened.

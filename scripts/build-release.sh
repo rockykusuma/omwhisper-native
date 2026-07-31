@@ -14,6 +14,15 @@ EXPORT_DIR="$BUILD_DIR/export"
 
 cd "$PROJECT_ROOT"
 
+PUBLISH=0
+for arg in "$@"; do
+  case "$arg" in
+    --publish) PUBLISH=1 ;;
+    -h|--help) echo "usage: build-release.sh [--publish]"; exit 0 ;;
+    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
+
 # Load .env if present (APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_ID_PASSWORD, APPLE_TEAM_ID)
 if [ -f "$PROJECT_ROOT/.env" ]; then
   set -a
@@ -37,6 +46,14 @@ VERSION=${VERSION:-unknown}
 echo "Version:  $VERSION"
 echo "Arch:     $(uname -m)"
 echo ""
+
+# Preflight before archiving: every check is cheap, and discovering a missing
+# web repo or an unusable gh token after a ten-minute notarization is exactly
+# the failure mode this ordering exists to prevent.
+if [ "$PUBLISH" = "1" ]; then
+  bash "$SCRIPT_DIR/publish-release.sh" --preflight-only || exit 1
+  echo ""
+fi
 
 # ── Build-number guard ───────────────────────────────────────────────────────
 # Sparkle compares updates on sparkle:version, which is CURRENT_PROJECT_VERSION
@@ -258,8 +275,16 @@ else
 fi
 
 echo ""
-echo "Next: upload $DMG_NAME to the GitHub release, and publish"
-echo "$BUILD_DIR/appcast/appcast.xml at https://omwhisper.in/appcast.xml"
-echo "(must match SUFeedURL in Info.plist)."
-echo ""
-echo "Done."
+if [ "$PUBLISH" = "1" ]; then
+  VERSION="$VERSION" BUILD_NUMBER="$BUILD_NUMBER" DMG_NAME="$DMG_NAME" \
+    bash "$SCRIPT_DIR/publish-release.sh"
+else
+  # Deliberately names a runnable, self-verifying command rather than a
+  # checklist of manual steps. The checklist that used to live here could not
+  # fail and was not followed — omwhisper.in served 2.0.0 for four releases.
+  echo "Built, not published. To release this build:"
+  echo "  bash scripts/publish-release.sh"
+  echo "Or re-run with --publish to do both in one command."
+  echo ""
+  echo "Done."
+fi
