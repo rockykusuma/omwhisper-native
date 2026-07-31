@@ -198,7 +198,19 @@ if [ -n "$SPARKLE_BIN" ]; then
   APPCAST_DIR="$BUILD_DIR/appcast"
   mkdir -p "$APPCAST_DIR"
   cp "$DMG_PATH" "$APPCAST_DIR/"
-  if "$SPARKLE_BIN" "$APPCAST_DIR" 2>&1 | tail -5; then
+  # Without an explicit prefix, generate_appcast derives the download URL from
+  # the app's own SUFeedURL — i.e. it would point users at the website for a
+  # binary the website doesn't host. The .dmg lives on GitHub Releases; the
+  # site serves only appcast.xml. Override DOWNLOAD_URL_PREFIX if that changes.
+  DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/rockykusuma/omwhisper-native/releases/download/v${VERSION}/}"
+  PRODUCT_LINK="${PRODUCT_LINK:-https://www.omwhisper.in}"
+  # Regenerate from scratch: generate_appcast updates entries in place, so a
+  # stale URL in an existing appcast.xml would survive a prefix change.
+  rm -f "$APPCAST_DIR/appcast.xml"
+  if "$SPARKLE_BIN" \
+       --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
+       --link "$PRODUCT_LINK" \
+       "$APPCAST_DIR" 2>&1 | tail -5; then
     echo "appcast.xml: $APPCAST_DIR/appcast.xml"
   else
     echo "⚠️  appcast generation failed — check that the Sparkle signing key exists"

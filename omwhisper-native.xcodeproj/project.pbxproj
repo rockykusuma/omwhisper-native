@@ -390,7 +390,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OmWhisper uses Apple's on-device speech recognition to turn your voice into text.";
-				INFOPLIST_KEY_SUFeedURL = "https://omwhisper.in/appcast.xml";
+				INFOPLIST_KEY_SUFeedURL = "https://www.omwhisper.in/appcast.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "KWxanNe25QRF/+jZypGqO+K9s3Cp30ptU8YOrmBgvgY=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -432,7 +432,7 @@
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OmWhisper uses Apple's on-device speech recognition to turn your voice into text.";
-				INFOPLIST_KEY_SUFeedURL = "https://omwhisper.in/appcast.xml";
+				INFOPLIST_KEY_SUFeedURL = "https://www.omwhisper.in/appcast.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "KWxanNe25QRF/+jZypGqO+K9s3Cp30ptU8YOrmBgvgY=";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
