@@ -172,6 +172,63 @@ preflight() {
   return $ok
 }
 
+# ── Publish ──────────────────────────────────────────────────────────────────
+# Every step is idempotent: re-running after a verify timeout converges rather
+# than duplicating a release or an asset.
+
+run() {  # honour --dry-run for anything with an outward-facing effect
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "  [dry-run] $*"
+  else
+    "$@"
+  fi
+}
+
+publish() {
+  local tag="v$VERSION"
+  local dmg="$BUILD_DIR/$DMG_NAME"
+  if [ ! -f "$dmg" ]; then
+    echo "✗ .dmg not found at $dmg — run build-release.sh first"
+    return 1
+  fi
+
+  # 1 + 2. Release, then asset.
+  if gh release view "$tag" >/dev/null 2>&1; then
+    echo "Release $tag exists — reusing it."
+  else
+    local notes_file="$PROJECT_ROOT/docs/releases/$tag.md"
+    if [ -f "$notes_file" ]; then
+      echo "Creating $tag with notes from docs/releases/$tag.md"
+      run gh release create "$tag" --title "OmWhisper $VERSION" --notes-file "$notes_file"
+    else
+      echo "Creating $tag with generated notes (no docs/releases/$tag.md)"
+      run gh release create "$tag" --title "OmWhisper $VERSION" --generate-notes
+    fi
+  fi
+  run gh release upload "$tag" "$dmg" --clobber
+
+  # 3 + 4. Appcast into the web repo, which Vercel deploys on push. The site's
+  # DOWNLOAD_URL is derived from this file at build time, so the download
+  # button follows with no separate step to forget.
+  local src="$BUILD_DIR/appcast/appcast.xml"
+  if [ ! -f "$src" ]; then
+    echo "✗ appcast not found at $src"
+    return 1
+  fi
+  run cp "$src" "$WEB_REPO/public/appcast.xml"
+
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "  [dry-run] commit + push $WEB_REPO"
+  elif repo_is_clean "$WEB_REPO"; then
+    echo "Web repo unchanged — appcast already current."
+  else
+    git -C "$WEB_REPO" add public/appcast.xml
+    git -C "$WEB_REPO" commit -q -m "🔖 chore(appcast): OmWhisper $VERSION (build $BUILD_NUMBER)"
+    git -C "$WEB_REPO" push -q origin main
+    echo "✓ web repo pushed — Vercel deploying"
+  fi
+}
+
 # ── Mode guards ──────────────────────────────────────────────────────────────
 # Kept together, below every function definition: bash executes top to bottom,
 # so a guard placed above a definition would call an undefined function.
@@ -185,3 +242,18 @@ if [ "$MODE" = "verify" ]; then
   verify_release "$BUILD_NUMBER" "$DMG_NAME"
   exit $?
 fi
+
+# ── Default: the whole thing ─────────────────────────────────────────────────
+echo "Publishing OmWhisper $VERSION (build $BUILD_NUMBER)"
+echo ""
+preflight || exit 1
+echo ""
+publish   || exit 1
+echo ""
+if [ "$DRY_RUN" = "1" ]; then
+  echo "[dry-run] skipping verification — nothing was published."
+  exit 0
+fi
+verify_release "$BUILD_NUMBER" "$DMG_NAME" || exit 1
+echo ""
+echo "Released. $VERSION (build $BUILD_NUMBER) is live and verified."
