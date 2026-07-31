@@ -244,6 +244,10 @@ struct HubShellView: View {
         return options
     }
 
+    private static var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+    }
+
     private var brandRow: some View {
         HStack(spacing: 11) {
             OmBrandJewel(appState: appState, size: 38)
@@ -251,7 +255,12 @@ struct HubShellView: View {
                 Text("OmWhisper")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color.Porcelain.ink)
-                Text("2.0 · listening locally")
+                // Read the version; do not hardcode it. This said "2.0" while the
+                // app was running 2.0.1. "listening locally" was hardcoded too,
+                // and would have claimed it while streaming audio to a cloud
+                // provider — the engine line in the sidebar footer is the one
+                // that actually knows, so this row just carries the version.
+                Text(Self.appVersion)
                     .font(.system(size: 10.5))
                     .foregroundStyle(Color.Porcelain.dim)
             }
