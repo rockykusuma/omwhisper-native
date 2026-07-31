@@ -17,6 +17,12 @@ if let flag = CommandLine.arguments.firstIndex(of: "--diagnose-meeting"),
     await MeetingDiagnostics.run(directory: URL(fileURLWithPath: CommandLine.arguments[flag + 1]))
     exit(0)
 }
+
+if let flag = CommandLine.arguments.firstIndex(of: "--wer"),
+   flag + 1 < CommandLine.arguments.count {
+    await WERBenchmark.run(directory: URL(fileURLWithPath: CommandLine.arguments[flag + 1]))
+    exit(0)
+}
 #endif
 
 if CommandLine.arguments.contains("--mcp") {
