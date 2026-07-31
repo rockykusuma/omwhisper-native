@@ -1,42 +1,67 @@
 # OmWhisper
 
-Free, offline-capable voice-to-text for macOS — a menu-bar dictation app with your choice of
-local (on-device) or cloud transcription and AI polish backends.
+Menu-bar dictation for macOS. Hold a key, speak, and the text lands in whatever app you're
+in — with your choice of on-device or cloud transcription, and optional AI cleanup.
 
-This is the **native Swift rewrite** (v2.0) of OmWhisper, built on macOS 26's SpeechTranscriber
-and Foundation Models APIs. It supersedes the original Tauri/Rust app at
-[rockykusuma/omwhisper](https://github.com/rockykusuma/omwhisper), which is now frozen
-(bug-fix-only) and remains the release for Windows users.
+**[Download OmWhisper 2.0](https://github.com/rockykusuma/omwhisper-native/releases/latest)**
+· [omwhisper.in](https://www.omwhisper.in)
 
-## Status
+Requires **macOS 26 (Tahoe) or later** on **Apple Silicon**. Signed and notarized.
 
-Early build — see `docs/NATIVE_MIGRATION_PLAN.md` for the milestone plan (M0–M5) and
-`CLAUDE.md` for full project context.
+Windows users: the previous [Tauri build](https://github.com/rockykusuma/omwhisper) remains
+available and is now frozen.
 
-## Requirements
+## Using it
 
-- macOS 26 or later
-- Apple Silicon
-- Xcode with the macOS 26 SDK
+- **⌘⇧V** starts and stops dictation; **hold Fn** to push-to-talk
+- **⌘⇧B** dictates and cleans the text up with AI before pasting
+- **⌘⇧P** polishes whatever text you currently have selected
 
-## Build
+macOS asks for Microphone and Speech Recognition the first time you dictate, and for
+Accessibility the first time OmWhisper pastes — that last one is what lets text land in
+another app.
+
+## Where your audio goes
+
+Four transcription engines, switchable at any time. The sidebar always names the one that
+will actually run and whether it stays on your Mac:
+
+| Engine | Runs |
+|---|---|
+| Apple Speech *(default)* | On device — streaming, words appear as you speak |
+| Parakeet | On device — CoreML, multilingual or English-only |
+| Whisper | On device — the widest language coverage |
+| Cloud | AssemblyAI · Deepgram · ElevenLabs · OpenAI · Groq, with your own key |
+
+AI polish is off by default and offers the same choice: Apple Foundation Models (on device),
+Ollama (local), or any OpenAI-compatible API. Text sent to a cloud provider is scrubbed of
+secrets and personal data first — keys, tokens, cards, emails, phone numbers — and restored
+in the result. If polish fails for any reason, your raw text is pasted rather than lost.
+
+Meeting recording, memory, reply assist, cross-lingual dictation and the MCP server are all
+opt-in and off by default. See [the privacy policy](https://www.omwhisper.in/privacy) for
+what each one stores.
+
+## Building
+
+The Xcode scheme is **`omwhisper-native`**, not `OmWhisper` — the product name and the scheme
+name differ, and using the wrong one fails with "does not contain a scheme named".
 
 ```bash
-# Build + run in Xcode, or from the command line:
-xcodebuild -scheme OmWhisper -project omwhisper-native.xcodeproj build test
+xcodebuild -scheme omwhisper-native -project omwhisper-native.xcodeproj build test
 ```
 
-Release builds (archive → notarize → `.dmg`) are produced by `scripts/build-release.sh` and
-require a paid Apple Developer account. See that script and `CLAUDE.md` for the required
-environment variables.
+Needs Xcode with the macOS 26 SDK. Release builds (archive → notarize → `.dmg` → appcast) come
+from `scripts/build-release.sh` and need a paid Apple Developer account — see
+`docs/RELEASE_SETUP.md` for the one-time signing setup.
 
 ## Why a rewrite
 
-macOS 26 system APIs (SpeechTranscriber, Foundation Models) replace roughly 60% of the Tauri
-app's codebase — on-device streaming transcription, VAD, and LLM polish become API calls
-instead of hand-rolled pipelines. See `docs/NATIVE_MIGRATION_PLAN.md` for the full rationale,
-architecture, and feature-parity checklist.
+macOS 26's SpeechTranscriber and Foundation Models replace roughly 60% of the Tauri app's
+codebase: on-device streaming transcription, VAD and LLM polish become API calls rather than
+hand-rolled pipelines. `docs/NATIVE_MIGRATION_PLAN.md` has the full rationale, architecture
+and feature-parity checklist; `CLAUDE.md` has the project context and milestone history.
 
 ## License
 
-See `LICENSE`.
+See [`LICENSE`](LICENSE).
