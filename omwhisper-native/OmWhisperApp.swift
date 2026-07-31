@@ -61,11 +61,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusMenu = NSMenu()   // dev-tools right-click menu (DEBUG only)
     #endif
     private let popover = NSPopover()
-    // Reads SUFeedURL from Info.plist — inert until a real appcast.xml + EdDSA
-    // public key exist (SUPublicEDKey not set yet); "Check for Updates…" will
-    // just fail quietly until then. startingUpdater: begins the normal
-    // scheduled background check cycle (Sparkle's own default: daily) — never
-    // under tests, see isRunningUnderTests in AppState.swift.
+    // Reads SUFeedURL and SUPublicEDKey from Info.plist. startingUpdater: begins
+    // the normal scheduled background check cycle (Sparkle's own default: daily)
+    // — never under tests, see isRunningUnderTests in AppState.swift.
+    //
+    // Checking automatically is fine; *installing* automatically is not. With
+    // SUAutomaticallyUpdate on, Sparkle swaps the app out silently with no
+    // prompt — which is how 2.0.0 became 2.0.1 with no visible sign, and means
+    // a bad release reaches everyone before anyone can decline it. See
+    // registerUpdaterDefaults() below.
     private let updaterController = SPUStandardUpdaterController(
         startingUpdater: !isRunningUnderTests, updaterDelegate: nil, userDriverDelegate: nil
     )
@@ -76,7 +80,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var openDesignGalleryAction: OpenWindowAction?
     #endif
 
+    /// Prompt before installing, unless the user has explicitly chosen otherwise.
+    ///
+    /// `register` supplies a *fallback*, so anyone who ticks Sparkle's own
+    /// "automatically download and install" box keeps that choice — writing the
+    /// key directly would silently override them on every launch.
+    private func registerUpdaterDefaults() {
+        UserDefaults.standard.register(defaults: ["SUAutomaticallyUpdate": false])
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        registerUpdaterDefaults()
+
         // Skip entirely under XCTest — see isRunningUnderTests in AppState.swift.
         // Without this, every `xcodebuild test` run launches a real, interactive
         // menu-bar instance that outlives the test run.
