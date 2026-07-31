@@ -52,12 +52,23 @@ mkdir -p "$BUILD_DIR"
 
 # ── Archive ──────────────────────────────────────────────────────────────────
 echo "Archiving..."
+# CODE_SIGN_IDENTITY alone is not enough and fails two ways: the targets are set
+# to automatic signing, which Xcode refuses to combine with a manually specified
+# identity, and the SPM package targets (GRDB, Sparkle, ...) have no team of
+# their own, so they fail with "requires a development team". Passing the style
+# and team on the command line settles both for every target in the build, and
+# leaves the checked-in project on automatic signing for normal development.
+# PROVISIONING_PROFILE_SPECIFIER is deliberately empty: Developer ID macOS apps
+# are not provisioned, and an inherited value would be looked up and fail.
 xcodebuild archive \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
   -archivePath "$ARCHIVE_PATH" \
   -destination 'generic/platform=macOS' \
+  CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY="$APPLE_SIGNING_IDENTITY" \
+  DEVELOPMENT_TEAM="${APPLE_TEAM_ID:-Y87BZN47C5}" \
+  PROVISIONING_PROFILE_SPECIFIER="" \
   2>&1 | tee "$BUILD_DIR/archive.log" | grep -E "Compiling|Archiving|Finished|error|warning: unused" | tail -30
 
 # ── Export (Developer ID, direct distribution) ──────────────────────────────

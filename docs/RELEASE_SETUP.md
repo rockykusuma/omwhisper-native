@@ -94,9 +94,31 @@ bash scripts/build-release.sh
 Archive → export → .dmg → notarize → staple → Gatekeeper check. Notarization takes 1–5
 minutes. Output lands in `.build-release/` (gitignored) as `OmWhisper_2.0.0_arm64.dmg`.
 
-### What will probably go wrong the first time
+### Status of the unsigned-of-notarization dry run (2026-07-31)
 
-This chain has never executed once, so treat the first run as a debugging session:
+**Archive → sign → export → .dmg is proven.** `OmWhisper_2.0.0_arm64.dmg` (10.2 MB) built
+successfully with notarization skipped. Confirmed on the exported app:
+
+- `Authority=Developer ID Application: … (Y87BZN47C5)` chaining to Apple Root CA
+- `flags=0x10000(runtime)` — hardened runtime on
+- `codesign --verify --deep --strict` passes, including the embedded Sparkle framework
+- **`SUFeedURL` and `NSAudioCaptureUsageDescription` both survive into Release** — the
+  PlistBuddy patch phase was the biggest open risk and it works
+- `AppIcon.icns` present, entitlements carry `com.apple.security.device.audio-input`
+
+The first run did fail, twice, both fixed in the script:
+
+- `GRDB_GRDB … requires a development team` — SPM package targets have no team of their own
+- `conflicting provisioning settings … automatically signed, but code signing identity …
+  manually specified`
+
+`CODE_SIGN_IDENTITY` alone caused both. The archive step now also passes
+`CODE_SIGN_STYLE=Manual`, `DEVELOPMENT_TEAM`, and an empty
+`PROVISIONING_PROFILE_SPECIFIER` (Developer ID macOS apps aren't provisioned), which settles
+it for every target while leaving the checked-in project on automatic signing for normal
+development.
+
+### What may still go wrong once notarization is on
 
 - **"No signing certificate found"** — `APPLE_SIGNING_IDENTITY` doesn't exactly match
   step 1's output.
@@ -104,21 +126,16 @@ This chain has never executed once, so treat the first run as a debugging sessio
   the actual reason. Usual causes: an embedded framework not signed with the same identity,
   or a binary missing the hardened runtime. Sparkle and the CoreML/WhisperKit frameworks are
   the likely candidates, since they've never been through this.
-- **The Info.plist patch phase.** `SUFeedURL` and `NSAudioCaptureUsageDescription` are
-  injected by a PlistBuddy build phase (`GENERATE_INFOPLIST_FILE` silently drops third-party
-  keys). **That phase has only ever run under Debug.** Confirm both survive into the Release
-  build before shipping:
-  ```bash
-  /usr/libexec/PlistBuddy -c "Print :SUFeedURL" \
-    .build-release/export/OmWhisper.app/Contents/Info.plist
-  /usr/libexec/PlistBuddy -c "Print :NSAudioCaptureUsageDescription" \
-    .build-release/export/OmWhisper.app/Contents/Info.plist
-  ```
-  Without the second one, meeting recording silently captures nothing — no prompt, no error.
+Re-check the injected Info.plist keys after any change to the patch build phase — without
+`NSAudioCaptureUsageDescription`, meeting recording silently captures nothing, with no prompt
+and no error:
 
-Already confirmed in place, so these should not be the problem: `ENABLE_HARDENED_RUNTIME =
-YES`, `ENABLE_APP_SANDBOX = NO`, and an entitlements file carrying
-`com.apple.security.device.audio-input`.
+```bash
+/usr/libexec/PlistBuddy -c "Print :SUFeedURL" \
+  .build-release/export/OmWhisper.app/Contents/Info.plist
+/usr/libexec/PlistBuddy -c "Print :NSAudioCaptureUsageDescription" \
+  .build-release/export/OmWhisper.app/Contents/Info.plist
+```
 
 ## 6. Install it fresh and actually use it
 
