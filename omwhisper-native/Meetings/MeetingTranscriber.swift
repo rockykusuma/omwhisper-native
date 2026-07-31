@@ -58,7 +58,11 @@ nonisolated enum MeetingTranscriber {
 
     /// Read the whole file in buffer chunks, feed the engine, join every .final.
     /// Missing/empty file → "".
-    static func transcribeFile(_ url: URL, engine: TranscriptionEngine) async throws -> String {
+    /// `vocabulary` defaults to empty so meeting transcription is unchanged;
+    /// the WER benchmark passes a real list to measure whether engine biasing
+    /// actually helps.
+    static func transcribeFile(_ url: URL, engine: TranscriptionEngine,
+                               vocabulary: [String] = []) async throws -> String {
         guard let file = try? AVAudioFile(forReading: url), file.length > 0 else { return "" }
         let format = file.processingFormat
         let (stream, continuation) = AsyncStream<AVAudioPCMBuffer>.makeStream()
@@ -79,7 +83,7 @@ nonisolated enum MeetingTranscriber {
 
         var finals: [String] = []
         do {
-            for try await event in engine.transcribe(stream, vocabulary: []) {
+            for try await event in engine.transcribe(stream, vocabulary: vocabulary) {
                 if case .final(let text) = event {
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty { finals.append(trimmed) }
