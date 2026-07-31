@@ -91,7 +91,52 @@ final class AppState {
     var overlayPreview: OverlayStyle?
 
     // MARK: Settings (persisted; keep keys stable — see SettingsKeys)
+    /// Put the user's previous clipboard contents back after pasting. Off means
+    /// the dictated text simply stays on the clipboard.
+    var restoreClipboard: Bool {
+        get {
+            access(keyPath: \.restoreClipboard)
+            return UserDefaults.standard.object(forKey: SettingsKeys.restoreClipboard) as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.restoreClipboard) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.restoreClipboard)
+            }
+        }
+    }
+
+    /// How long to wait before that restore. Slow targets — Electron apps, remote
+    /// desktops, VMs — can still be reading the pasteboard when a 2s restore
+    /// fires, and then they paste the user's OLD clipboard instead of the
+    /// dictation. Clamped on read so a stale defaults value can't feed a negative
+    /// duration into the paste path.
+    var clipboardRestoreDelayMS: Int {
+        get {
+            access(keyPath: \.clipboardRestoreDelayMS)
+            let value = UserDefaults.standard.object(forKey: SettingsKeys.clipboardRestoreDelayMS) as? Int
+            return max(0, value ?? 2000)
+        }
+        set {
+            withMutation(keyPath: \.clipboardRestoreDelayMS) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.clipboardRestoreDelayMS)
+            }
+        }
+    }
+
+    /// Single place the two paste sites read the clipboard settings from, so they
+    /// can't drift apart.
+    private func pasteRespectingClipboardSettings(_ text: String) {
+        PasteService.paste(
+            text,
+            restoreClipboard: restoreClipboard,
+            restoreDelay: .milliseconds(clipboardRestoreDelayMS))
+    }
+
     var pasteAfterStop: Bool {
+        // ponytail: no access/withMutation here — pre-existing, and it's one of the
+        // several Toggle-bound settings CLAUDE.md flags for a dedicated pass. A
+        // Toggle's own animation masks the missing Observation signal; the two
+        // settings above need it because they drive non-Toggle controls.
         get { UserDefaults.standard.object(forKey: SettingsKeys.pasteAfterStop) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.pasteAfterStop) }
     }
@@ -1182,7 +1227,7 @@ final class AppState {
         let result = await polishedText(for: original)
         overlay.hide()
         overlayPhase = .none
-        PasteService.paste(result)
+        pasteRespectingClipboardSettings(result)
     }
 
     /// Play a one-off canned demo of `style` in the real HUD so the settings
@@ -1387,7 +1432,7 @@ final class AppState {
 
         if phase == .pasting, pasteAfterStop, !onboardingDemoActive {
             if PasteService.hasAccessibilityPermission() {
-                PasteService.paste(text)
+                pasteRespectingClipboardSettings(text)
                 latencyLog.info("stop-to-paste: \(stopRequestedAt.duration(to: .now))")
             } else {
                 // paste() is what normally puts text on the pasteboard; since we're
@@ -1754,6 +1799,8 @@ nonisolated enum AppearancePreference: String, Codable, CaseIterable, Identifiab
 
 nonisolated enum SettingsKeys {
     static let pasteAfterStop = "pasteAfterStop"
+    static let restoreClipboard = "restoreClipboard"
+    static let clipboardRestoreDelayMS = "clipboardRestoreDelayMS"
     static let appearancePreference = "appearancePreference"
     static let polishBackend = "polishBackend"
     static let ollamaBaseURL = "ollamaBaseURL"

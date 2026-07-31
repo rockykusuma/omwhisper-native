@@ -49,6 +49,24 @@ struct GeneralSettingsView: View {
                 Toggle("Paste into the active app when dictation stops", isOn: $state.pasteAfterStop)
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
+                Toggle("Restore my previous clipboard afterwards", isOn: $state.restoreClipboard)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                if state.restoreClipboard {
+                    HStack {
+                        Text("Wait before restoring")
+                            .foregroundStyle(Color.Porcelain.ink)
+                        Spacer()
+                        Stepper(value: $state.clipboardRestoreDelayMS, in: 0...10_000, step: 250) {
+                            Text(Self.delayLabel(state.clipboardRestoreDelayMS))
+                                .foregroundStyle(Color.Porcelain.dim)
+                                .monospacedDigit()
+                        }
+                    }
+                    Text("Raise this if a slow app — Electron, a remote desktop, a VM — sometimes pastes your old clipboard instead of what you dictated.")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+                }
                 Toggle("Launch at login", isOn: $state.launchAtLogin)
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
@@ -84,6 +102,13 @@ struct GeneralSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(Color.Porcelain.dim)
         }
+    }
+
+    /// Milliseconds as a short label. %g drops trailing zeros on its own, so the
+    /// 250ms steps read as 0.25s / 2s / 2.5s rather than 2.50s.
+    static func delayLabel(_ milliseconds: Int) -> String {
+        guard milliseconds > 0 else { return "immediately" }
+        return String(format: "%gs", Double(milliseconds) / 1000)
     }
 }
 
