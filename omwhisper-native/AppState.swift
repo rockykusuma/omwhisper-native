@@ -133,12 +133,15 @@ final class AppState {
     }
 
     var pasteAfterStop: Bool {
-        // ponytail: no access/withMutation here — pre-existing, and it's one of the
-        // several Toggle-bound settings CLAUDE.md flags for a dedicated pass. A
-        // Toggle's own animation masks the missing Observation signal; the two
-        // settings above need it because they drive non-Toggle controls.
-        get { UserDefaults.standard.object(forKey: SettingsKeys.pasteAfterStop) as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.pasteAfterStop) }
+        get {
+            access(keyPath: \.pasteAfterStop)
+            return UserDefaults.standard.object(forKey: SettingsKeys.pasteAfterStop) as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.pasteAfterStop) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.pasteAfterStop)
+            }
+        }
     }
     /// Hub/menu-bar-panel appearance. `.system` (default) follows macOS; `.light`/
     /// `.dark` override it. Drives the window's NSAppearance + SwiftUI colorScheme
@@ -157,13 +160,27 @@ final class AppState {
         }
     }
     var soundEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: SettingsKeys.soundEnabled) as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.soundEnabled) }
+        get {
+            access(keyPath: \.soundEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.soundEnabled) as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.soundEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.soundEnabled)
+            }
+        }
     }
     /// Matches the old app's default (`sound_volume: 0.2`).
     var soundVolume: Double {
-        get { UserDefaults.standard.object(forKey: SettingsKeys.soundVolume) as? Double ?? 0.2 }
-        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.soundVolume) }
+        get {
+            access(keyPath: \.soundVolume)
+            return UserDefaults.standard.object(forKey: SettingsKeys.soundVolume) as? Double ?? 0.2
+        }
+        set {
+            withMutation(keyPath: \.soundVolume) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.soundVolume)
+            }
+        }
     }
     /// nil = system default input. AVCaptureDevice.uniqueID, not a display name
     /// (the old app matched by name, which breaks for two identical mic models).
@@ -180,21 +197,38 @@ final class AppState {
     }
     var customVocabulary: [String] {
         get {
+            access(keyPath: \.customVocabulary)
             guard let data = UserDefaults.standard.data(forKey: SettingsKeys.customVocabulary) else { return [] }
             return (try? JSONDecoder().decode([String].self, from: data)) ?? []
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.customVocabulary) }
+        set {
+            withMutation(keyPath: \.customVocabulary) {
+                UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.customVocabulary)
+            }
+        }
     }
     var wordReplacements: [ReplacementRule] {
         get {
+            access(keyPath: \.wordReplacements)
             guard let data = UserDefaults.standard.data(forKey: SettingsKeys.wordReplacements) else { return [] }
             return (try? JSONDecoder().decode([ReplacementRule].self, from: data)) ?? []
         }
-        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.wordReplacements) }
+        set {
+            withMutation(keyPath: \.wordReplacements) {
+                UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.wordReplacements)
+            }
+        }
     }
     var fuzzyVocabCorrection: Bool {
-        get { UserDefaults.standard.object(forKey: SettingsKeys.fuzzyVocabCorrection) as? Bool ?? false }
-        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.fuzzyVocabCorrection) }
+        get {
+            access(keyPath: \.fuzzyVocabCorrection)
+            return UserDefaults.standard.object(forKey: SettingsKeys.fuzzyVocabCorrection) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.fuzzyVocabCorrection) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.fuzzyVocabCorrection)
+            }
+        }
     }
     /// Disabled by default — polish is opt-in.
     ///
@@ -371,8 +405,15 @@ final class AppState {
     /// by default. Reads the frontmost window's visible text at dictation start
     /// to bias engine vocabulary; nothing is stored. See S2 design spec.
     var contextAwareDictationEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: SettingsKeys.contextAwareDictationEnabled) as? Bool ?? false }
-        set { UserDefaults.standard.set(newValue, forKey: SettingsKeys.contextAwareDictationEnabled) }
+        get {
+            access(keyPath: \.contextAwareDictationEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.contextAwareDictationEnabled) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.contextAwareDictationEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.contextAwareDictationEnabled)
+            }
+        }
     }
     /// SMAppService is itself the source of truth (macOS's login-item registry) —
     /// unlike the other settings above, nothing is mirrored into UserDefaults.
@@ -404,10 +445,15 @@ final class AppState {
     /// returns 0 for a missing key — no separate "has a value" bookkeeping needed.
     var autoDeleteAfterDays: Int? {
         get {
+            access(keyPath: \.autoDeleteAfterDays)
             let value = UserDefaults.standard.integer(forKey: SettingsKeys.autoDeleteAfterDays)
             return value == 0 ? nil : value
         }
-        set { UserDefaults.standard.set(newValue ?? 0, forKey: SettingsKeys.autoDeleteAfterDays) }
+        set {
+            withMutation(keyPath: \.autoDeleteAfterDays) {
+                UserDefaults.standard.set(newValue ?? 0, forKey: SettingsKeys.autoDeleteAfterDays)
+            }
+        }
     }
     /// Off by default — every Smriti-derived feature ships off by default.
     /// MeetingWatcher isn't started at all unless this is on: no poll timer,
