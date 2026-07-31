@@ -93,6 +93,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         popover.behavior = .transient        // closes on outside click
         observeDictationState()             // keep the icon in sync while the menu is closed
 
+        // A second launch exits (SingleInstance) and pings us on the way out, so
+        // the user gets a window instead of nothing happening. Looks the delegate
+        // up rather than capturing self — a @Sendable closure can't hold a
+        // MainActor-isolated reference.
+        DistributedNotificationCenter.default().addObserver(
+            forName: SingleInstance.openHubNotification, object: nil, queue: nil
+        ) { _ in
+            Task { @MainActor in (NSApp.delegate as? AppDelegate)?.openHub() }
+        }
+
         // First run: show the Welcome window once. Dispatched to the next runloop
         // tick so makeScene() has stored openOnboardingAction (same store-on-delegate
         // bridge as openHubAction). LSUIElement app → activate so it comes forward.
@@ -228,7 +238,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // MARK: Actions
 
     // Called from the mini-panel's "Open OmWhisper" row (via a closure), not a menu.
-    private func openHub() {
+    // Internal (not private) so the single-instance observer above can reach it
+    // via NSApp.delegate — same bridge checkForUpdates() uses.
+    func openHub() {
         NSApp.activate(ignoringOtherApps: true)
         openHubAction?(id: "hub")
     }

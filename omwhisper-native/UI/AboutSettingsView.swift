@@ -11,6 +11,9 @@
 import SwiftUI
 
 struct AboutSettingsView: View {
+    @Environment(AppState.self) private var appState
+    @State private var copiedDebugInfo = false
+
     var body: some View {
         PorcelainPage {
             PorcelainSection {
@@ -31,6 +34,19 @@ struct AboutSettingsView: View {
                 .foregroundStyle(Color.Porcelain.emerald)
             }
 
+            PorcelainSection(eyebrow: "Troubleshooting") {
+                Button(copiedDebugInfo ? "Copied — paste it into your report" : "Copy Debug Info") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(DebugInfo.text(for: appState), forType: .string)
+                    copiedDebugInfo = true
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.Porcelain.emerald)
+                Text("Your settings, permissions, and recent log lines. No transcriptions, no window contents, no API keys.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
+
             Text("Made with ॐ by Rakesh Kusuma")
                 .font(.caption)
                 .foregroundStyle(Color.Porcelain.dim)
@@ -47,5 +63,5 @@ struct AboutSettingsView: View {
 }
 
 #Preview {
-    AboutSettingsView()
+    AboutSettingsView().environment(AppState())
 }
