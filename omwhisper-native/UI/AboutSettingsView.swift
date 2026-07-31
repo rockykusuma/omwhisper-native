@@ -26,10 +26,7 @@ struct AboutSettingsView: View {
             }
 
             PorcelainSection {
-                // rockykusuma.github.io/omwhisper documents the frozen Tauri app — wrong
-                // product for anyone running 2.0. There is no docs site for the native
-                // app yet, so this points at the README, same as the website's DOCS_URL.
-                Link("Documentation", destination: URL(string: "https://github.com/rockykusuma/omwhisper-native#readme")!)
+                Link("Documentation", destination: URL(string: "https://www.omwhisper.in/docs")!)
                     .foregroundStyle(Color.Porcelain.emerald)
                 Button("Check for Updates…") {
                     // The optional chain silently swallowed everything when the
