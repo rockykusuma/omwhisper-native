@@ -126,9 +126,60 @@ verify_release() {
   return 0
 }
 
+# ── Preflight ────────────────────────────────────────────────────────────────
+# Runs BEFORE the build. Every check here is cheap, and discovering a missing
+# web repo or an expired gh token after a ten-minute notarization is the
+# failure mode this ordering exists to prevent.
+
+repo_is_clean() { [ -z "$(git -C "$1" status --porcelain)" ]; }
+repo_branch()   { git -C "$1" rev-parse --abbrev-ref HEAD; }
+
+preflight() {
+  local ok=0
+
+  # `gh api user`, not `gh auth status`: status exits non-zero if ANY configured
+  # account has a stale token, even when the active one is fine. This machine
+  # has three accounts and one expired, so the status check reported failure
+  # while every real gh command worked. Making an authenticated call tests the
+  # thing we actually depend on.
+  local who
+  if ! who=$(gh api user -q .login 2>/dev/null); then
+    echo "✗ gh cannot authenticate to the API — run: gh auth login"; ok=1
+  else
+    echo "✓ gh authenticated as $who"
+  fi
+
+  # A dirty native tree is a correctness problem, not tidiness: gh release
+  # create tags whatever commit is checked out, so publishing from a dirty
+  # tree yields a tag that does not match the binary users download — and
+  # nothing downstream would ever reveal it.
+  if ! repo_is_clean "$PROJECT_ROOT"; then
+    echo "✗ native repo has uncommitted changes — the tag would not match the build"; ok=1
+  else
+    echo "✓ native repo clean"
+  fi
+
+  if [ ! -d "$WEB_REPO/.git" ]; then
+    echo "✗ web repo not found at $WEB_REPO (set OMWHISPER_WEB_REPO)"; ok=1
+  elif ! repo_is_clean "$WEB_REPO"; then
+    echo "✗ web repo has uncommitted changes — publishing would sweep them up"; ok=1
+  elif [ "$(repo_branch "$WEB_REPO")" != "main" ]; then
+    echo "✗ web repo is on $(repo_branch "$WEB_REPO"), not main"; ok=1
+  else
+    echo "✓ web repo clean on main ($WEB_REPO)"
+  fi
+
+  return $ok
+}
+
 # ── Mode guards ──────────────────────────────────────────────────────────────
 # Kept together, below every function definition: bash executes top to bottom,
 # so a guard placed above a definition would call an undefined function.
+
+if [ "$MODE" = "preflight" ]; then
+  preflight
+  exit $?
+fi
 
 if [ "$MODE" = "verify" ]; then
   verify_release "$BUILD_NUMBER" "$DMG_NAME"
