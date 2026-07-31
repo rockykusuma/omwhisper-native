@@ -67,7 +67,17 @@ nonisolated enum SalientTermExtractor {
         var iterations = 0
         while offset < ns.length, iterations < 500 {
             iterations += 1
-            let misspelled = checker.checkSpelling(of: text, startingAt: offset)
+            // Pin the language instead of letting NSSpellChecker guess per call.
+            // `automaticallyIdentifiesLanguages` is ON by default on a fresh
+            // account, and with it on the checker infers a language from the text
+            // itself — so a short snippet gets guessed as French/Italian and a
+            // term like "classe" comes back correctly spelled, hiding exactly the
+            // rare word we're here to find. `language()` is the user's own
+            // spell-check language, so this respects non-English users without
+            // making the result depend on a per-call guess.
+            let misspelled = checker.checkSpelling(
+                of: text, startingAt: offset, language: checker.language(),
+                wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
             guard misspelled.location != NSNotFound, misspelled.length > 0 else { break }
             let word = ns.substring(with: misspelled)
             if word.count >= 4 {
