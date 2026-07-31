@@ -13,7 +13,8 @@ available and is now frozen.
 
 ## Using it
 
-- **⌘⇧V** starts and stops dictation; **hold Fn** to push-to-talk
+- **Hold Fn** and talk — release when you're done. This is the way most people use it.
+- **⌘⇧V** toggles dictation instead, if you'd rather press once and press again
 - **⌘⇧B** dictates and cleans the text up with AI before pasting
 - **⌘⇧P** polishes whatever text you currently have selected
 
