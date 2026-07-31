@@ -4,10 +4,15 @@ One-time setup, then `scripts/build-release.sh` does the rest.
 
 Team ID: **`Y87BZN47C5`**.
 
-**Status (2026-07-31):** steps 1 and 5-up-to-notarization are done — the certificate exists
-and a signed `OmWhisper_2.0.0_arm64.dmg` builds cleanly. Outstanding: **step 2** (back up the
-private key), **step 3/4** (app-specific password, so notarization can run), and **step 7**
-(Sparkle key — before any .dmg is distributed).
+**Status (2026-07-31): the distribution chain works end to end.** Certificate, signing,
+export, .dmg, notarization (`status: Accepted`, submission
+`d6bf9113-b5d0-45e0-bfdd-7a876f3b9095`) and stapling all succeed. The notarized artifact is
+`OmWhisper_2.0.0_arm64.dmg`, SHA-256
+`165f74d5c7666aa16e996a464c45e9feb5fd3e9146ff408b9290f2c259195548`.
+
+Outstanding: **step 2** (back up the private key — still the one irreversible item),
+**step 7** (Sparkle key, before any .dmg is distributed), and a real Gatekeeper test on a
+machine that has it enabled (see below).
 
 ---
 
@@ -109,6 +114,21 @@ successfully with notarization skipped. Confirmed on the exported app:
 - **`SUFeedURL` and `NSAudioCaptureUsageDescription` both survive into Release** — the
   PlistBuddy patch phase was the biggest open risk and it works
 - `AppIcon.icns` present, entitlements carry `com.apple.security.device.audio-input`
+- After notarization: `stapler validate` passes on the .dmg, and the enclosed app assesses as
+  `source=Notarized Developer ID`
+
+**Two caveats found while verifying, neither blocking:**
+
+1. **Gatekeeper assessments are disabled on this machine** (`spctl --status: assessments
+   disabled`), so `spctl --assess` returns "accepted" for anything and the script's tick
+   proved nothing. The script now warns when that's the case. `source=Notarized Developer ID`
+   *is* meaningful — it reflects real notarization state — but a true Gatekeeper test needs
+   `sudo spctl --master-enable` or another Mac.
+2. **The ticket is stapled to the .dmg, not the enclosed .app.** An app dragged to
+   /Applications carries no ticket and is verified online at first launch. Normal for .dmg
+   distribution and fine for anyone online, which is the usual case for a fresh download. If
+   offline first-launch ever has to work, notarize and staple the .app first, then rebuild
+   the .dmg from it and notarize that too.
 
 The first run did fail, twice, both fixed in the script:
 

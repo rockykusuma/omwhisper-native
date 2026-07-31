@@ -153,8 +153,26 @@ if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_ID_PASSWORD:-}" ] && [ -n "${APPLE_TE
 
   echo ""
   echo "Verifying Gatekeeper acceptance..."
+  # spctl --assess returns "accepted" for everything when assessments are off,
+  # so the check below is a false green on a machine with Gatekeeper disabled.
+  # Say so rather than printing a tick that means nothing.
+  if ! spctl --status 2>/dev/null | grep -q "assessments enabled"; then
+    echo "⚠️  Gatekeeper assessments are DISABLED on this machine — the check below"
+    echo "    proves nothing. Re-enable with 'sudo spctl --master-enable', or verify"
+    echo "    on another Mac, before trusting it."
+  fi
   spctl --assess --type open --context context:primary-signature --verbose "$DMG_PATH" \
     && echo "✓ Gatekeeper: accepted" || echo "✗ Gatekeeper check failed"
+
+  # The ticket is stapled to the .dmg, not to the .app inside it, so the app a
+  # user drags to /Applications carries no ticket of its own and Gatekeeper
+  # verifies it online on first launch. Fine when online, which is the normal
+  # case for something just downloaded. Staple the .app too (a second notarize
+  # pass on the .app, then rebuild the .dmg from it) if offline first-launch
+  # ever needs to work.
+  echo ""
+  echo "Note: ticket stapled to the .dmg. The enclosed .app verifies online on"
+  echo "      first launch — see scripts comment if offline launch must work."
 
   DMG_SHA256=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
   echo ""
