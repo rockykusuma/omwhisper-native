@@ -52,20 +52,71 @@ Developer ID Application: Your Name (Y87BZN47C5)
 > being certain nothing else signs with it — revoking breaks updates for anything already
 > shipped with it.
 
-## 2. Back up the private key — do this immediately
+## 2. Back up BOTH private keys — do this immediately
 
-**This is the step people skip and regret.** The certificate is worthless without its private
-key, the key exists only in your login keychain, and Apple cannot re-issue it. Lose it (disk
-failure, wiped Mac) and you cannot ship an update that existing installs will accept — every
-user has to manually re-download.
+Two keys now exist, both only in your login keychain, **neither re-issuable**:
 
-1. **Keychain Access → login → My Certificates**
-2. Find **Developer ID Application: … (Y87BZN47C5)**, expand it so you can see the private
-   key underneath
-3. Right-click the certificate → **Export "Developer ID Application: …"**
-4. Save as **.p12**, set a strong password
-5. Store the .p12 **and** its password somewhere durable and off this machine — a password
-   manager is ideal. Not in this repo.
+| Key | If lost |
+|---|---|
+| Developer ID Application | Can't sign anything users will run |
+| Sparkle EdDSA | No user can ever verify an update — a new key is rejected by existing installs |
+
+A disk failure today costs you the ability to update every copy you ever ship. `*.p12`,
+`*.pem` and `*private*key*` are gitignored as a safety net, but these do not belong in the
+repo at all.
+
+### 2a. Developer ID → .p12
+
+Use Keychain Access, not `security export` — the CLI has no way to export a single identity
+and would dump all of them.
+
+1. Open **Keychain Access** (⌘Space → "Keychain Access")
+2. Sidebar **login**, then the **My Certificates** category
+3. Select **Developer ID Application: Arunbharath Reddy Keshapalli (Y87BZN47C5)**
+   — expand the triangle and confirm a private key sits underneath it. No key, nothing to back up.
+4. Right-click → **Export "Developer ID Application: …"**
+5. File Format **Personal Information Exchange (.p12)**, choose a location
+6. Set a strong **export password** — this encrypts the .p12. Store it with the file.
+7. Enter your **macOS login password** when prompted to release the key from the keychain
+
+Verify the export really contains both halves:
+
+```bash
+# the right certificate?
+openssl pkcs12 -in omwhisper-developer-id.p12 -nokeys -passin pass:'YOUR_EXPORT_PASSWORD' \
+  | openssl x509 -noout -subject
+# and the private key? should print BEGIN ... PRIVATE KEY
+openssl pkcs12 -in omwhisper-developer-id.p12 -nocerts -passin pass:'YOUR_EXPORT_PASSWORD' \
+  -passout pass:temp | grep -m1 PRIVATE
+```
+
+### 2b. Sparkle EdDSA → text file
+
+```bash
+SPARKLE_BIN=$(find ~/Library/Developer/Xcode/DerivedData/omwhisper-native-*/SourcePackages/artifacts/sparkle/Sparkle/bin -name generate_keys -maxdepth 1 | head -1)
+"$SPARKLE_BIN" -x ~/Desktop/omwhisper-sparkle-private-key.txt
+```
+
+Approve the keychain prompt. The file is **plaintext** — its contents are exactly the password
+of the "Private key for signing Sparkle updates" keychain item. Move it into secure storage
+and delete it from disk; don't leave it on the Desktop.
+
+Verify it matches the key that's actually shipping:
+
+```bash
+"$SPARKLE_BIN" -p    # must print KWxanNe25QRF/+jZypGqO+K9s3Cp30ptU8YOrmBgvgY=
+```
+
+### 2c. Store them
+
+Both files plus the .p12 export password, in a password manager (as file attachments) or an
+encrypted disk image, with at least one copy **off this machine**.
+
+### Restoring on a new Mac
+
+- **Developer ID**: double-click the .p12, enter the export password.
+- **Sparkle**: `generate_keys -f <exported-file>`. Remove any existing "Private key for
+  signing Sparkle updates" item in Keychain Access first, or the import is refused.
 
 ## 3. Create an app-specific password for notarization
 

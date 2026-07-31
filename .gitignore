@@ -80,3 +80,10 @@ __pycache__/
 
 # build-release.sh output: archive, exported .app, staging, and the .dmg
 .build-release/
+
+# Exported signing keys — safety net so an accidental save in the repo can't be
+# committed. Neither key can be re-issued: the Developer ID .p12 and the Sparkle
+# EdDSA private key both live only in the login keychain.
+*.p12
+*.pem
+*private*key*
