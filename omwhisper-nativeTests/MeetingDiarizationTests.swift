@@ -116,4 +116,31 @@ struct MeetingDiarizationTests {
         // parses it back out for the transcript UI.
         #expect(D.renderInterleaved(turns) == "**You:** [0:00]\nhello there\n\n**Speaker 1:** [0:02]\nhi")
     }
+
+    @Test func applySpeakerNamesSubstitutesLabelsOnly() {
+        let transcript = "**Speaker 1:** [0:03]\nhello **You:** [0:05]\nSpeaker 1 said hi to Speaker 10"
+        let out = D.applySpeakerNames(transcript, names: ["Speaker 1": "Alice"])
+        // Label replaced; body-text "Speaker 1" and the distinct "Speaker 10" untouched.
+        #expect(out.contains("**Alice:** [0:03]"))
+        #expect(out.contains("Speaker 1 said hi to Speaker 10"))
+    }
+
+    @Test func applySpeakerNamesNeverRemapsYou() {
+        let transcript = "**You:** [0:01]\nhi"
+        let out = D.applySpeakerNames(transcript, names: ["You": "Bob"])
+        #expect(out == transcript)
+    }
+
+    @Test func applySpeakerNamesSkipsEmptyAndUnknown() {
+        let transcript = "**Speaker 1:** [0:03]\nhello\n\n**Speaker 2:** [0:09]\nyes"
+        let out = D.applySpeakerNames(
+            transcript, names: ["Speaker 1": "   ", "Speaker 3": "Ghost"])
+        #expect(out == transcript)  // blank name skipped; Speaker 3 not present
+    }
+
+    @Test func speakerTenNotClobberedBySpeakerOne() {
+        let transcript = "**Speaker 10:** [0:03]\nhello"
+        let out = D.applySpeakerNames(transcript, names: ["Speaker 1": "Alice"])
+        #expect(out == transcript)  // "**Speaker 1:**" ≠ "**Speaker 10:**" — colon guards it
+    }
 }

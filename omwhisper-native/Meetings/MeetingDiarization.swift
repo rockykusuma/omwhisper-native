@@ -150,4 +150,20 @@ nonisolated enum MeetingDiarization {
         }
         .joined(separator: "\n\n")
     }
+
+    /// Replace generic speaker labels with user-given names at the markdown
+    /// label sites only ("**Speaker 1:**" → "**Alice:**"); body text is never
+    /// touched (the ":**" suffix is what anchors the match, and also keeps
+    /// "Speaker 1" from matching inside "Speaker 10"). "You" is never remapped —
+    /// the recorder's own accent in the UI depends on that label. Blank names
+    /// are skipped so a cleared rename falls back to the generic label.
+    static func applySpeakerNames(_ transcript: String, names: [String: String]) -> String {
+        var out = transcript
+        for (raw, name) in names where raw != "You" {
+            let trimmed = name.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            out = out.replacingOccurrences(of: "**\(raw):**", with: "**\(trimmed):**")
+        }
+        return out
+    }
 }
