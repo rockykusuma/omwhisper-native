@@ -1,8 +1,8 @@
 # Cross-engine WER
 
 `OmWhisper --wer <corpus-dir>` (Debug build) runs every available engine over the same audio
-and reports Word Error Rate. This closes the accuracy comparison M4 has owed since the start —
-`NATIVE_MIGRATION_PLAN.md` lists "SpeechTranscriber accuracy is the big unknown" as risk #1.
+and reports Word Error Rate. This closes the accuracy comparison M4 owed from the start:
+how good is each engine, actually, rather than by reputation.
 
 ## Corpus format
 

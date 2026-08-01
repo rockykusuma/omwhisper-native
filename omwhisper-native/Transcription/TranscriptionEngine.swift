@@ -3,7 +3,7 @@
 //  OmWhisper
 //
 //  The core contract of the app. All backends — Apple SpeechTranscriber (default),
-//  Parakeet CoreML, cloud streaming — conform to this. See NATIVE_MIGRATION_PLAN.md §2.
+//  Parakeet CoreML, WhisperKit, cloud — conform to this.
 //
 
 // AVAudioPCMBuffer isn't Sendable (it's a mutable buffer wrapper) — imported

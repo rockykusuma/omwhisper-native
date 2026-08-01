@@ -4,9 +4,9 @@
 //
 //  Default TranscriptionEngine backend: on-device streaming ASR via the macOS 26
 //  Speech framework (SpeechAnalyzer + SpeechTranscriber). This is what replaces
-//  the Tauri app's whisper-rs/Parakeet/Moonshine engines, Silero VAD, and
-//  two-pass decode — punctuation, endpointing, and streaming partials are all
-//  built into the system model. See NATIVE_MIGRATION_PLAN.md §1.
+//  a hand-rolled pipeline of VAD + a bundled model + a second decode pass —
+//  punctuation, endpointing, and streaming partials are all built into the
+//  system model.
 //
 //  API shape confirmed against Apple's WWDC25 "Bring advanced speech-to-text to
 //  your app with SpeechAnalyzer" sample code.

@@ -87,8 +87,7 @@ Concrete, non-strategic takeaways — each with where it attaches:
    Automatic Updates → Beta Releases`. Sparkle supports channels natively —
    wire ours the same way; it IS the M5 beta-soak distribution mechanism.
 2. **Homebrew cask** [M5]: `brew install --cask fluidvoice` — table stakes
-   for dev-audience distribution. Publish `omwhisper` cask at launch;
-   the Tauri app never had one.
+   for dev-audience distribution. Publish an `omwhisper` cask at launch.
 3. **Notch-aware overlay placement** [OVERLAY_SPEC §14 open question]: their
    overlay can sit around the MacBook notch. Worth offering placement as a
    setting (bottom-center default · under-notch option) — the notch position

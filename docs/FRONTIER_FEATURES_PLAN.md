@@ -2,7 +2,7 @@
 
 > Decided 2026-07-07 (R approved all seven). Features that change what dictation *is*
 > rather than doing the same thing better. These interleave with the M/S/T roadmap
-> (`NATIVE_MIGRATION_PLAN.md`, `SMRITI_INTEGRATION_PLAN.md`) — they never block the
+> (see the tracker in `CLAUDE.md`) — they never block the
 > committed spine (M2 → S2 → M3 → S3 → S4 → S1 → S5 → M4), and none are needed for
 > the 2.0 release (M5). They ship as post-2.0 waves.
 >

@@ -2,7 +2,7 @@
 //  OmWhisperApp.swift
 //  OmWhisper
 //
-//  Menu-bar dictation app. See CLAUDE.md and docs/NATIVE_MIGRATION_PLAN.md.
+//  Menu-bar dictation app. See CLAUDE.md for conventions.
 //
 
 import AppKit

@@ -17,9 +17,8 @@
   appcast entry, website download link, git tag. One page, followed every time.
 - **Rollback story**: keep N−1 DMG downloadable; appcast supports pulling a bad
   release. Decide the "bad build shipped" procedure before it happens.
-- **Min-OS gate**: the DMG needs `LSMinimumSystemVersion` messaging and the
-  website needs a "requires macOS 26 (Apple Silicon)" gate with the Tauri app
-  offered to everyone below it. Otherwise the #1 support email is "won't open."
+- **Min-OS gate** ✅ done (S6): the site states "requires macOS 26 (Apple
+  Silicon)" up front. Without it the #1 support email is "won't open."
 
 ## 2. Edge-case catalog [attach to M2/M3 QA — cheap to test now, expensive later]
 
@@ -69,9 +68,10 @@ The brand IS privacy; it needs artifacts, not just behavior:
 
 No analytics means support IS the feedback channel:
 
-- **In-app diagnostics**: "Copy Debug Info" (versions, engine, permissions
-  state, last error — all local, user-visible before sending) + local log
-  file with rotation. The Tauri app had this; the native app doesn't yet.
+- **In-app diagnostics** ✅ done (M5): "Copy Debug Info" in About — versions,
+  engine, permissions state, all local and user-visible before sending. No
+  log file was written deliberately: `os.Logger` + the unified log already is
+  the rotating log, with macOS owning retention (`DebugInfo.swift`).
 - **Report a problem** menu item → pre-filled email/GitHub issue with the
   debug info the user consents to attach.
 - **DECIDE**: support channel — GitHub issues only, or an email too?
@@ -107,9 +107,8 @@ The overlay has budgets (<3% CPU, 60fps); the app doesn't:
 
 ## 7. Identity & legal [before M5 public launch]
 
-- **DECIDE — license & repo visibility**: Tauri app is MIT/public. Is
-  omwhisper-native also MIT/public from day one? (Open source is part of the
-  trust story; decide deliberately, not by default.)
+- **License & repo visibility** ✅ settled: MIT, public (`LICENSE`, and the
+  README states it). Open source is part of the trust story.
 - **Name check**: quick trademark/App-name collision search for "OmWhisper"
   in software (there are many *Whisper*-named tools post-OpenAI-Whisper).
   Cheap now, painful after launch.
@@ -123,12 +122,8 @@ The overlay has budgets (<3% CPU, 60fps); the app doesn't:
 
 ## 8. Existing-user migration [attach to M5]
 
-- Tauri-app users: final Tauri release should show a one-time "OmWhisper 2.0
-  is native" notice pointing to the new download (the old updater
-  version.json can carry it). History importer already ships in M2 ✅.
-- Windows users: clear message that Windows stays on 1.x (maintained? frozen?
-  **DECIDE** the public wording — "frozen" reads abandoned; "feature-complete"
-  reads intentional).
+- Users upgrading from a pre-2.0 install: the one-time history importer ships
+  and runs automatically on first launch ✅. Nothing else is needed from them.
 
 ## 9. Success criteria without analytics [M5 beta]
 

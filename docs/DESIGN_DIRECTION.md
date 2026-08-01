@@ -57,8 +57,7 @@ grouped list). This also fixes the tab-overflow ceiling permanently.
   no badges, it's a quiet reflection); last 3 dictations as rows with
   destination-app icon, hover → Copy / Re-polish. Data: `HistoryStore`
   already has everything (fetchPage + storageInfo); add a small
-  `statsSummary(day:)` query (words/duration per day — port of the Tauri
-  `get_stats_summary`).
+  `statsSummary(day:)` query (words/duration per day).
 - **Menu-bar mini-panel**: `NSPopover` (or borderless panel) from the status
   item: 270pt card — mini orb canvas, Ready/Listening state line, primary
   Start/Stop button, active polish style chip (click = cycle, right-click =

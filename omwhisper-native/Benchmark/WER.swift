@@ -3,8 +3,8 @@
 //  OmWhisper
 //
 //  Word Error Rate — the standard ASR accuracy measure, and the one number
-//  M4 has owed since the beginning (docs/NATIVE_MIGRATION_PLAN.md risk #1:
-//  "SpeechTranscriber accuracy is the big unknown").
+//  M4 owed from the start: how accurate is each engine, actually?
+//  Findings live in docs/wer-corpus/README.md.
 //
 //  WER = (substitutions + deletions + insertions) / reference word count.
 //  Reported per-category as well as combined, because the categories say

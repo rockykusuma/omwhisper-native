@@ -172,12 +172,11 @@ A single 1.5pt circle: radius `34 + amp·20 + sin(t/0.6s)·2`, alpha
 
 - **Source**: a vector ॐ path imported as a `Path`/asset — **not** a font
   glyph (font rendering of U+0950 varies by machine; the logo must be
-  pixel-identical everywhere). Note: `landing/omwhisper-logo.svg` referenced
-  in the Tauri repo's CLAUDE.md **no longer exists there** — the SVG lives in
-  the separate `omWhisperWebApp` repo. Pull it from there, or regenerate: the
-  Tauri icons were rendered from the *Devanagari Sangam MN* font
-  (`scripts/generate_icons.py`), so converting that glyph to outlines once
-  (any vector tool) and committing the path yields the same mark.
+  pixel-identical everywhere). The committed path lives in `UI/OmGlyph.swift`
+  and is the single source of the mark — the HUD, menu bar, app icon
+  (`scripts/make-app-icon.swift`) and OG image all render from it, so none of
+  them can drift. Regenerate assets by re-running those scripts; never
+  hand-edit the produced PNGs.
 - **Size**: ~28pt within the 64pt zone (tuned down from the original ~44pt —
   reviewed in the onboarding prototype 2026-07-07; the smaller glyph gives the
   energy field room and reads calmer). Reference: font-size 36 on the spec's

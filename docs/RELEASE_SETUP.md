@@ -340,6 +340,6 @@ it is the only copy that can catch a wrong `--download-url-prefix`.
 `build-release.sh` used to end by *printing* a reminder to upload the .dmg and publish the
 appcast by hand. A printed reminder cannot fail and cannot be observed. It was not followed:
 **omwhisper.in served 2.0.0 for four consecutive releases** — the build with silent auto-updates,
-a dead Check for Updates button, and a Documentation link pointing at the frozen Tauri docs —
+a dead Check for Updates button, and a Documentation link pointing at the wrong site —
 while the GitHub releases all looked healthy. The verify stage above would have caught it the day
 it happened.

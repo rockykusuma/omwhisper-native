@@ -111,9 +111,8 @@ OmWhisper" experience.
 *Exit*: "what was I working on before lunch?" answerable from Claude Desktop.
 
 ### S6 — Website update (omWhisperWebApp)
-OmWhisper-centric single-product page, updated for native 2.0: macOS 26 requirement,
-Windows stays on the Tauri release (download split), and new feature sections as they
-ship — context-aware dictation (S2) first, then meetings (S3), reply assist (S4),
+OmWhisper-centric single-product page, updated for 2.0: macOS 26 requirement
+(macOS only — no Windows build), and new feature sections as they ship — context-aware dictation (S2) first, then meetings (S3), reply assist (S4),
 memory + MCP (S5). Privacy page updated for the new permission surfaces (Accessibility
 capture, Input Monitoring, mic/system audio) with the same "off by default, local by
 default" story. Can start copy/design after S2 demos.

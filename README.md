@@ -32,9 +32,7 @@ The app itself only ever phones home to check for updates.
 ## Requirements
 
 **macOS 26 (Tahoe) or later**, on **Apple Silicon**. Signed with a Developer ID and notarized.
-
-Windows users: the previous [Tauri build](https://github.com/rockykusuma/omwhisper) is still
-available and is now frozen.
+macOS only — there is no Windows build.
 
 ## Install
 
@@ -97,11 +95,11 @@ Every one of these is **off by default** and stays off until you turn it on. See
 
 | | |
 |---|---|
-| **Meetings** | Records calls after an on-screen consent prompt, then transcribes and summarizes them entirely on device |
+| **Meetings** | Records calls after an on-screen consent prompt, then transcribes, diarizes and summarizes them entirely on device — editable notes, summary templates, and export |
 | **Memory** | Periodically notes what's on screen so you can search it later, with a daily written chronicle |
 | **Reply assist** | Double-tap right ⌥ to draft a reply from the conversation in front of you |
 | **Cross-lingual** | Speak one language, get polished English out |
-| **MCP server** | Exposes your history and memory to Claude Desktop as read-only tools |
+| **MCP server** | Exposes your history, memory and meetings to Claude Desktop as read-only tools |
 
 ## Development
 
@@ -128,12 +126,12 @@ Developer account — see [`docs/RELEASE_SETUP.md`](docs/RELEASE_SETUP.md) for t
 Swift 6 with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so anything touching audio callbacks is
 explicitly `nonisolated` — `CLAUDE.md` covers that and the rest of the project's conventions.
 
-## Why a rewrite
+## Why native
 
-macOS 26's SpeechTranscriber and Foundation Models replace roughly 60% of the Tauri app's codebase:
-on-device streaming transcription, voice activity detection and LLM cleanup become API calls rather
-than hand-rolled pipelines. [`docs/NATIVE_MIGRATION_PLAN.md`](docs/NATIVE_MIGRATION_PLAN.md) has the
-full rationale and architecture.
+OmWhisper is built directly on what macOS 26 provides — SpeechTranscriber for streaming on-device
+transcription, Foundation Models for on-device cleanup — instead of bundling its own pipelines.
+That is what keeps it a small, fast, single-binary app that starts instantly and asks for nothing
+it doesn't need.
 
 ## License
 
