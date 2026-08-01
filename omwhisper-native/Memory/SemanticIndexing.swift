@@ -82,6 +82,33 @@ nonisolated enum SemanticIndexing {
         }
     }
 
+    // MARK: - Diversity
+
+    /// Cap how many consecutive results may come from the same app.
+    ///
+    /// The spike found one query whose entire top 3 was the same app: plausible
+    /// content, but three near-identical windows are a worse answer than three
+    /// different sources. Order is otherwise preserved -- a demoted row moves
+    /// down, it is never dropped.
+    static func diversified<T>(_ items: [T], maxRun: Int = 3, appName: (T) -> String) -> [T] {
+        var out: [T] = []
+        var deferred: [T] = []
+        var run = 0
+        var lastApp: String?
+        for item in items {
+            let app = appName(item)
+            if app == lastApp {
+                run += 1
+                if run > maxRun { deferred.append(item); continue }
+            } else {
+                lastApp = app
+                run = 1
+            }
+            out.append(item)
+        }
+        return out + deferred
+    }
+
     // MARK: - Vector codec
 
     /// float16 halves the index (~1 KB/passage at 512 dims). Precision loss is

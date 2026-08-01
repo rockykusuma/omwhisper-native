@@ -45,6 +45,8 @@ private struct MemorySnapshotsView: View {
     @State private var storageInfo: (count: Int, bytes: Int64)?
     @State private var expandedID: Int64?
     @State private var errorMessage: String?
+    /// snapshot id -> the passage that matched, when the hit was semantic.
+    @State private var matchedPassages: [Int64: String] = [:]
     @State private var showClearConfirmation = false
 
     private let pageSize = 30
@@ -80,6 +82,7 @@ private struct MemorySnapshotsView: View {
                 ForEach(entries) { entry in
                     MemorySnapshotRow(
                         entry: entry,
+                        matchedPassage: entry.id.flatMap { matchedPassages[$0] },
                         isExpanded: expandedID == entry.id,
                         onToggleExpand: { expandedID = expandedID == entry.id ? nil : entry.id },
                         onCopy: { copy(entry) },
@@ -162,7 +165,13 @@ private struct MemorySnapshotsView: View {
     private func search() {
         guard let store = appState.memoryStore else { return }
         do {
-            entries = try store.search(searchText, limit: 100)
+            // Hybrid: keyword + semantic, fused. With no embedder available
+            // this returns exactly what store.search() returns.
+            let hits = try store.hybridSearch(searchText, embedder: appState.memoryEmbedder, limit: 100)
+            entries = SemanticIndexing.diversified(hits.map(\.snapshot), appName: { $0.appName })
+            matchedPassages = Dictionary(
+                hits.compactMap { h in h.snapshot.id.flatMap { id in h.matchedPassage.map { (id, $0) } } },
+                uniquingKeysWith: { a, _ in a })
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -203,6 +212,10 @@ private struct MemorySnapshotsView: View {
 /// expanded shows full content with Copy/Delete.
 private struct MemorySnapshotRow: View {
     let entry: MemorySnapshot
+    /// When a semantic hit, the passage that actually matched — far more useful
+    /// than the first two lines of a page, which for a browser snapshot are
+    /// usually sidebar chrome.
+    let matchedPassage: String?
     let isExpanded: Bool
     let onToggleExpand: () -> Void
     let onCopy: () -> Void
@@ -216,7 +229,7 @@ private struct MemorySnapshotRow: View {
                     Text(entry.windowTitle).foregroundStyle(Color.Porcelain.dim)
                 }
                 .font(.callout)
-                Text(entry.content)
+                Text(isExpanded ? entry.content : (matchedPassage ?? entry.content))
                     .lineLimit(isExpanded ? nil : 2)
                     .font(.body)
                     .foregroundStyle(Color.Porcelain.ink)

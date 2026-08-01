@@ -81,6 +81,20 @@ struct SemanticIndexingTests {
         #expect(Set(S.fuse(keyword: [1], semantic: [2])) == Set([1, 2]))
     }
 
+    // MARK: diversity
+
+    @Test func diversityDemotesButNeverDropsResults() {
+        let items = ["Arc", "Arc", "Arc", "Arc", "Arc", "Xcode"]
+        let out = S.diversified(items, maxRun: 3) { $0 }
+        #expect(out.count == items.count)                 // nothing lost
+        #expect(out.prefix(4) == ["Arc", "Arc", "Arc", "Xcode"])
+    }
+
+    @Test func diversityLeavesAlreadyVariedResultsAlone() {
+        let items = ["Arc", "Xcode", "Arc", "Teams"]
+        #expect(S.diversified(items, maxRun: 3) { $0 } == items)
+    }
+
     // MARK: vector codec + cosine
 
     @Test func vectorRoundTripsThroughFloat16() {
