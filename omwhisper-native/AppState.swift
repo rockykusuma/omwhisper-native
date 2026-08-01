@@ -40,6 +40,19 @@ private let latencyLog = Logger(subsystem: "com.omwhisper.mac", category: "Laten
 /// still launched under that path with only the argument-based check.
 nonisolated let isRunningUnderTests = NSClassFromString("XCTestCase") != nil
 
+/// True for Debug builds carrying the forked .dev bundle ID (see
+/// docs/superpowers/specs/2026-08-01-dev-build-isolation-design.md). Gates
+/// Sparkle: a dev build must never offer to replace itself from the live
+/// appcast. Data/Keychain isolation need no gate — they key off the live
+/// bundle ID directly.
+nonisolated let isDevBuild = (Bundle.main.bundleIdentifier ?? "").hasSuffix(".dev")
+
+/// The name this build shows the user — "OmWhisper-Dev" for the Debug fork,
+/// "OmWhisper" for Release. Read from the bundle so in-app branding (sidebar,
+/// hub window title) can never disagree with what Cmd-Tab and Finder show.
+nonisolated let appDisplayName =
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "OmWhisper"
+
 // nonisolated: plain data, no MainActor affinity — without this, the project's
 // MainActor-by-default setting also pins the synthesized Equatable conformance,
 // which then can't be used from a nonisolated context (e.g. exitPhase's tests).
@@ -143,15 +156,17 @@ final class AppState {
             }
         }
     }
-    /// Hub/menu-bar-panel appearance. `.system` (default) follows macOS; `.light`/
-    /// `.dark` override it. Drives the window's NSAppearance + SwiftUI colorScheme
-    /// (see HubShellView). access/withMutation needed for the same reason as
+    /// Hub/menu-bar-panel appearance. `.light` (default, R's call 2026-08-01 —
+    /// the Porcelain look IS the app's face; a dark-mode Mac otherwise never
+    /// sees it) — `.system`/`.dark` remain explicit choices in the picker.
+    /// Drives the window's NSAppearance + SwiftUI colorScheme (see
+    /// HubShellView). access/withMutation needed for the same reason as
     /// polishBackend — it backs a Picker that must re-highlight on change.
     var appearancePreference: AppearancePreference {
         get {
             access(keyPath: \.appearancePreference)
-            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.appearancePreference) else { return .system }
-            return AppearancePreference(rawValue: raw) ?? .system
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.appearancePreference) else { return .light }
+            return AppearancePreference(rawValue: raw) ?? .light
         }
         set {
             withMutation(keyPath: \.appearancePreference) {

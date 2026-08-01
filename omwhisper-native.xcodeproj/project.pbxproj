@@ -398,8 +398,10 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 2.0.4;
-				PRODUCT_BUNDLE_IDENTIFIER = com.omwhisper.mac;
-				PRODUCT_NAME = OmWhisper;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.omwhisper.mac.dev";
+				INFOPLIST_KEY_CFBundleDisplayName = "OmWhisper-Dev";
+				PRODUCT_NAME = "OmWhisper-Dev";
+				PRODUCT_MODULE_NAME = OmWhisper;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -471,7 +473,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmWhisper.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmWhisper";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OmWhisper-Dev.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OmWhisper-Dev";
 			};
 			name = Debug;
 		};

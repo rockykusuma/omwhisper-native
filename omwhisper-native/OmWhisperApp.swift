@@ -35,7 +35,7 @@ struct OmWhisperApp: App {
             delegate.openDesignGalleryAction = openWindow
             #endif
         }()
-        Window("OmWhisper", id: "hub") {
+        Window(appDisplayName, id: "hub") {
             HubShellView()
                 .environment(delegate.appState)
         }
@@ -81,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // a bad release reaches everyone before anyone can decline it. See
     // registerUpdaterDefaults() below.
     private let updaterController = SPUStandardUpdaterController(
-        startingUpdater: !isRunningUnderTests, updaterDelegate: nil, userDriverDelegate: nil
+        startingUpdater: !isRunningUnderTests && !isDevBuild, updaterDelegate: nil, userDriverDelegate: nil
     )
     // Set by OmWhisperApp.makeScene() so AppKit menu can open the hub/gallery scenes.
     var openHubAction: OpenWindowAction?
