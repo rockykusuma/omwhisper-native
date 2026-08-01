@@ -34,12 +34,33 @@ struct HubMeetingsSectionView: View {
         // A recording that finished while this view is open transcribes in the
         // background; picking up its transcript needs a reload once it lands.
         .task(id: appState.transcribingMeetingIDs) { await reload() }
+        // On the outer VStack, not `browser`: the settings bar (calendar-denied
+        // error) renders even when the list is empty and browser isn't shown.
+        .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK") { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
     }
 
     private func settingsBar(state: AppState) -> some View {
         HStack {
             Toggle("Detect and record meetings", isOn: Binding(
                 get: { state.meetingsEnabled }, set: { state.meetingsEnabled = $0 }
+            ))
+            .tint(Color.Porcelain.emerald)
+            .foregroundStyle(Color.Porcelain.ink)
+            Toggle("Match calendar events", isOn: Binding(
+                get: { state.meetingsCalendarEnabled },
+                set: { on in
+                    guard on else { state.meetingsCalendarEnabled = false; return }
+                    Task {
+                        if await MeetingCalendar.requestAccess() {
+                            state.meetingsCalendarEnabled = true
+                        } else {
+                            state.meetingsCalendarEnabled = false
+                            errorMessage = "Calendar access was denied — grant it in System Settings › Privacy & Security › Calendars."
+                        }
+                    }
+                }
             ))
             .tint(Color.Porcelain.emerald)
             .foregroundStyle(Color.Porcelain.ink)
@@ -70,9 +91,6 @@ struct HubMeetingsSectionView: View {
             Divider()
             detail
         }
-        .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK") { errorMessage = nil }
-        } message: { Text(errorMessage ?? "") }
     }
 
     private var meetingList: some View {
@@ -85,7 +103,7 @@ struct HubMeetingsSectionView: View {
                             meetingRow(meeting)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("\(meeting.appName), \(shortDate(meeting.startedAt))")
+                        .accessibilityLabel("\(meeting.title ?? meeting.appName), \(shortDate(meeting.startedAt))")
                         .accessibilityAddTraits(selectedID == meeting.id ? [.isButton, .isSelected] : .isButton)
                     }
                 }
@@ -103,7 +121,7 @@ struct HubMeetingsSectionView: View {
 
     private func meetingRow(_ meeting: Meeting) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(meeting.appName)
+            Text(meeting.title ?? meeting.appName)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.Porcelain.ink)
             Text("\(shortDate(meeting.startedAt)) · \(durationText(meeting.durationSeconds))")
@@ -249,18 +267,27 @@ private struct MeetingDetailView: View {
                     .background(Color.Porcelain.panel2)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(meeting.appName)
+                    Text(meeting.title ?? meeting.appName)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Color.Porcelain.ink)
                     Text(metaLine)
                         .font(.system(size: 11.5))
                         .foregroundStyle(Color.Porcelain.dim)
+                    if let attendees = meeting.attendees, !attendees.isEmpty {
+                        Text("With \(attendees.joined(separator: ", "))")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Color.Porcelain.dim)
+                            .lineLimit(1)
+                    }
                 }
                 Spacer()
             }
             HStack(spacing: 8) {
                 Button(busy ? "Working…" : (meeting.transcript == nil ? "Transcribe & Summarize" : "Re-transcribe")) { run() }
                     .disabled(busy)
+                if meeting.transcript != nil {
+                    Button("Regenerate summary") { regenerate() }.disabled(busy)
+                }
                 if !turns.isEmpty {
                     Button("Copy transcript") { copyTranscript() }
                 }
@@ -280,6 +307,8 @@ private struct MeetingDetailView: View {
     /// transcript isn't recorded, so it isn't claimed.
     private var metaLine: String {
         var parts = [shortDate(meeting.startedAt), durationText(meeting.durationSeconds)]
+        // Once a real title takes the headline, the app still deserves a mention.
+        if meeting.title != nil { parts.insert(meeting.appName, at: 0) }
         let speakers = Set(turns.map(\.speaker)).count
         if speakers > 1 { parts.append("\(speakers) speakers") }
         parts.append("Transcribed on this Mac")
@@ -292,7 +321,14 @@ private struct MeetingDetailView: View {
             VStack(alignment: .leading, spacing: 10) {
                 PorcelainEyebrow("Transcript")
                 VStack(spacing: 0) {
-                    ForEach(turns) { TranscriptTurnRow(turn: $0) }
+                    ForEach(turns) { turn in
+                        TranscriptTurnRow(
+                            turn: turn,
+                            displayName: speakerNames[turn.speaker] ?? turn.speaker,
+                            suggestions: meeting.attendees ?? [],
+                            onRename: turn.isYou ? nil : { rename(turn.speaker, to: $0) }
+                        )
+                    }
                 }
             }
         } else if let transcript = meeting.transcript, !transcript.isEmpty {
@@ -325,7 +361,33 @@ private struct MeetingDetailView: View {
 
     private func copyTranscript() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(meeting.transcript ?? "", forType: .string)
+        NSPasteboard.general.setString(
+            MeetingDiarization.applySpeakerNames(
+                meeting.transcript ?? "", names: speakerNames),
+            forType: .string)
+    }
+
+    private func regenerate() {
+        guard let id = meeting.id else { return }
+        working = true
+        errorMessage = nil
+        Task {
+            do { _ = try await appState.regenerateSummary(id: id) }
+            catch { errorMessage = error.localizedDescription }
+            await onChanged()
+            working = false
+        }
+    }
+
+    private var speakerNames: [String: String] { meeting.speakerNames ?? [:] }
+
+    private func rename(_ raw: String, to name: String) {
+        guard let id = meeting.id, let store = appState.meetingStore else { return }
+        var names = speakerNames
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { names.removeValue(forKey: raw) } else { names[raw] = trimmed }
+        try? store.setSpeakerNames(id: id, names.isEmpty ? nil : names)
+        Task { await onChanged() }
     }
 
     private func run() {
@@ -368,6 +430,15 @@ private struct MeetingDetailView: View {
 /// a call has more voices than the palette has hues — name plus position doesn't.
 private struct TranscriptTurnRow: View {
     let turn: TranscriptTurn
+    /// speakerNames-resolved label; equals turn.speaker when unmapped.
+    let displayName: String
+    /// Calendar attendees, offered as one-tap rename suggestions.
+    let suggestions: [String]
+    /// nil = not renameable ("You" — the recorder's own accent depends on it).
+    let onRename: ((String) -> Void)?
+
+    @State private var renaming = false
+    @State private var draft = ""
 
     var body: some View {
         // .firstTextBaseline, not .top: the label is 12.5pt and the body 15pt, so
@@ -376,10 +447,7 @@ private struct TranscriptTurnRow: View {
         // text of two sizes read as one row.
         HStack(alignment: .firstTextBaseline, spacing: 18) {
             VStack(alignment: .trailing, spacing: 1) {
-                Text(turn.speaker)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(turn.isYou ? Color.Porcelain.emerald : Color.Porcelain.ink)
-                    .multilineTextAlignment(.trailing)
+                speakerLabel
                 if let timecode = turn.timecode {
                     Text(timecode)
                         .font(.system(size: 10.5, design: .monospaced))
@@ -397,6 +465,64 @@ private struct TranscriptTurnRow: View {
         }
         .padding(.vertical, 11)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(turn.speaker)\(turn.timecode.map { " at \($0)" } ?? ""): \(turn.text)")
+        .accessibilityLabel("\(displayName)\(turn.timecode.map { " at \($0)" } ?? ""): \(turn.text)")
+    }
+
+    /// The non-renameable branch is exactly the "You" case and keeps the emerald
+    /// accent; renameable speakers keep ink, as before the rename affordance.
+    @ViewBuilder
+    private var speakerLabel: some View {
+        if let onRename {
+            Button {
+                draft = displayName == turn.speaker ? "" : displayName
+                renaming = true
+            } label: {
+                Text(displayName)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Color.Porcelain.ink)
+                    .multilineTextAlignment(.trailing)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Rename \(displayName)")
+            .popover(isPresented: $renaming, arrowEdge: .trailing) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Rename \(turn.speaker)")
+                        .font(.system(size: 12, weight: .semibold))
+                    TextField("Name", text: $draft)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                        .onSubmit { commit() }
+                    if !suggestions.isEmpty {
+                        // Calendar attendees as one-tap suggestions.
+                        HStack(spacing: 6) {
+                            ForEach(suggestions.prefix(4), id: \.self) { name in
+                                Button(name) { draft = name; commit() }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                            }
+                        }
+                    }
+                    HStack {
+                        Button("Clear") { draft = ""; commit() }
+                            .controlSize(.small)
+                        Spacer()
+                        Button("Save") { commit() }
+                            .keyboardShortcut(.defaultAction)
+                            .controlSize(.small)
+                    }
+                }
+                .padding(14)
+            }
+        } else {
+            Text(displayName)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Color.Porcelain.emerald)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func commit() {
+        renaming = false
+        onRename?(draft)
     }
 }
