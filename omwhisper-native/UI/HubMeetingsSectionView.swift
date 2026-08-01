@@ -17,6 +17,7 @@ struct HubMeetingsSectionView: View {
     @State private var selectedID: Int64?
     @State private var searchText = ""
     @State private var errorMessage: String?
+    @State private var showTemplates = false
 
     var body: some View {
         @Bindable var state = appState
@@ -39,6 +40,9 @@ struct HubMeetingsSectionView: View {
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK") { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .sheet(isPresented: $showTemplates) {
+            MeetingTemplatesSheet().environment(appState)
+        }
     }
 
     private func settingsBar(state: AppState) -> some View {
@@ -64,6 +68,10 @@ struct HubMeetingsSectionView: View {
             ))
             .tint(Color.Porcelain.emerald)
             .foregroundStyle(Color.Porcelain.ink)
+            Button("Templates…") { showTemplates = true }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.Porcelain.mint)
             Spacer()
             Button { state.toggleMeetingRecording() } label: {
                 HStack(spacing: 6) {
@@ -288,7 +296,17 @@ private struct MeetingDetailView: View {
                 Button(busy ? "Working…" : (meeting.transcript == nil ? "Transcribe & Summarize" : "Re-transcribe")) { run() }
                     .disabled(busy)
                 if meeting.transcript != nil {
-                    Button("Regenerate summary") { regenerate() }.disabled(busy)
+                    // Click = the default template; the menu picks one for this
+                    // run only, without changing the default.
+                    Menu("Regenerate summary") {
+                        ForEach(allTemplates) { template in
+                            Button(template.name) { regenerate(templateID: template.id) }
+                        }
+                    } primaryAction: {
+                        regenerate(templateID: nil)
+                    }
+                    .disabled(busy)
+                    .fixedSize()
                 }
                 if !turns.isEmpty {
                     Button("Copy transcript") { copyTranscript() }
@@ -403,12 +421,16 @@ private struct MeetingDetailView: View {
             forType: .string)
     }
 
-    private func regenerate() {
+    private var allTemplates: [PolishStyle] {
+        MeetingSummarizer.builtInTemplates + appState.customMeetingTemplates
+    }
+
+    private func regenerate(templateID: UUID?) {
         guard let id = meeting.id else { return }
         working = true
         errorMessage = nil
         Task {
-            do { _ = try await appState.regenerateSummary(id: id) }
+            do { _ = try await appState.regenerateSummary(id: id, templateID: templateID) }
             catch { errorMessage = error.localizedDescription }
             await onChanged()
             working = false
@@ -453,6 +475,94 @@ private struct MeetingDetailView: View {
     private func durationText(_ seconds: Double) -> String {
         let m = Int(seconds) / 60, s = Int(seconds) % 60
         return "\(m)m \(s)s"
+    }
+}
+
+/// Default-template picker + custom-template CRUD. Deliberately plain: a custom
+/// template is a name and a reduce-stage prompt — the same PolishStyle shape and
+/// storage pattern as the AI tab's custom styles, but a separate list, since a
+/// meeting-notes structure is not a dictation style.
+private struct MeetingTemplatesSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var newName = ""
+    @State private var newPrompt = ""
+
+    private var allTemplates: [PolishStyle] {
+        MeetingSummarizer.builtInTemplates + appState.customMeetingTemplates
+    }
+
+    var body: some View {
+        @Bindable var state = appState
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Summary templates")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.Porcelain.ink)
+
+            Picker("Default", selection: Binding(
+                get: { state.meetingTemplateID ?? MeetingSummarizer.meetingWriteStyle.id },
+                set: { state.meetingTemplateID = $0 == MeetingSummarizer.meetingWriteStyle.id ? nil : $0 }
+            )) {
+                ForEach(allTemplates) { Text($0.name).tag($0.id) }
+            }
+            .tint(Color.Porcelain.emerald)
+
+            if !appState.customMeetingTemplates.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(appState.customMeetingTemplates) { template in
+                        HStack {
+                            Text(template.name)
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.Porcelain.ink)
+                            Spacer()
+                            Button("Delete", role: .destructive) { remove(template) }
+                                .controlSize(.small)
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("New template")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(Color.Porcelain.dim)
+                TextField("Name", text: $newName)
+                    .porcelainField()
+                TextField("How should the notes be structured?", text: $newPrompt, axis: .vertical)
+                    .lineLimit(3...6)
+                    .porcelainField()
+                Button("Add template") { add() }
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty
+                        || newPrompt.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 440)
+        .background(Color.Porcelain.bg)
+    }
+
+    private func add() {
+        appState.customMeetingTemplates.append(PolishStyle(
+            id: UUID(),
+            name: newName.trimmingCharacters(in: .whitespaces),
+            prompt: newPrompt.trimmingCharacters(in: .whitespacesAndNewlines),
+            isBuiltIn: false))
+        newName = ""
+        newPrompt = ""
+    }
+
+    /// Deleting the default falls the default back to Standard, rather than
+    /// leaving a dangling ID (which resolves to Standard anyway, but silently).
+    private func remove(_ template: PolishStyle) {
+        appState.customMeetingTemplates.removeAll { $0.id == template.id }
+        if appState.meetingTemplateID == template.id { appState.meetingTemplateID = nil }
     }
 }
 
