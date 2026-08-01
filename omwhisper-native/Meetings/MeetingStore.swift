@@ -38,6 +38,21 @@ nonisolated enum MeetingStoreError: Error, LocalizedError {
     var errorDescription: String? { "That meeting could not be found." }
 }
 
+/// Parsing for user-typed meeting details. Separate from MeetingStore so the
+/// logic is testable without touching a database, matching how
+/// MeetingDiarization holds the pure half of the transcript pipeline.
+nonisolated enum MeetingDetails {
+    /// "Alice, Bob Kumar,  Priya " -> ["Alice", "Bob Kumar", "Priya"].
+    /// Empty entries are dropped, so trailing commas and stray spaces while
+    /// typing never produce blank attendees. A blank line yields [] — callers
+    /// store nil for that, never an empty array.
+    static func parseAttendees(_ line: String) -> [String] {
+        line.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+}
+
 nonisolated final class MeetingStore: Sendable {
     let dbQueue: DatabaseQueue
 
@@ -119,6 +134,21 @@ nonisolated final class MeetingStore: Sendable {
         try dbQueue.write { db in
             guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
             m.summary = summary
+            try m.update(db)
+        }
+    }
+
+    /// User-typed title/attendees. Blank input is normalised to nil here rather
+    /// than at the call site, so no caller can persist "" (which would render an
+    /// empty header instead of falling back to the app name) or [] (an empty
+    /// "With …" line). Never touches transcript/summary/speakerNames.
+    func setDetails(id: Int64, title: String?, attendees: [String]?) throws {
+        let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanAttendees = attendees?.filter { !$0.isEmpty }
+        try dbQueue.write { db in
+            guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
+            m.title = (cleanTitle?.isEmpty ?? true) ? nil : cleanTitle
+            m.attendees = (cleanAttendees?.isEmpty ?? true) ? nil : cleanAttendees
             try m.update(db)
         }
     }

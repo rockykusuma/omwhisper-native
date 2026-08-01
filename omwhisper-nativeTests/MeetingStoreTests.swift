@@ -137,6 +137,69 @@ struct MeetingStoreTests {
         #expect(try store.search("Planning", limit: 10).count == 1)
     }
 
+    @Test func parseAttendeesSplitsTrimsAndDropsEmpties() {
+        #expect(MeetingDetails.parseAttendees("Alice, Bob Kumar,  Priya ")
+            == ["Alice", "Bob Kumar", "Priya"])
+        #expect(MeetingDetails.parseAttendees("Alice,,Bob, ,") == ["Alice", "Bob"])
+    }
+
+    @Test func parseAttendeesOnBlankLineIsEmpty() {
+        #expect(MeetingDetails.parseAttendees("").isEmpty)
+        #expect(MeetingDetails.parseAttendees("   ,  , ").isEmpty)
+    }
+
+    @Test func parseAttendeesKeepsASingleName() {
+        #expect(MeetingDetails.parseAttendees("Alice") == ["Alice"])
+    }
+
+    @Test func setDetailsRoundTripsTitleAndAttendees() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Zoom")
+        try store.setDetails(id: id, title: "Q3 Planning", attendees: ["Alice", "Bob"])
+        let got = try store.get(id: id)
+        #expect(got?.title == "Q3 Planning")
+        #expect(got?.attendees == ["Alice", "Bob"])
+        // Title is FTS-indexed (SP1) — a typed title must be searchable too.
+        #expect(try store.search("Planning", limit: 10).count == 1)
+    }
+
+    /// A cleared title must fall back to appName in the UI, which keys off nil —
+    /// storing "" would render an empty header instead.
+    @Test func setDetailsNormalisesBlanksToNil() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Meet")
+        try store.setDetails(id: id, title: "Temp", attendees: ["X"])
+        try store.setDetails(id: id, title: "   ", attendees: [])
+        let got = try store.get(id: id)
+        #expect(got?.title == nil)
+        #expect(got?.attendees == nil)
+    }
+
+    @Test func setDetailsLeavesTranscriptAndSummaryAlone() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Teams")
+        try store.setTranscriptAndSummary(id: id, transcript: "**You:**\nhi", summary: "## Summary\ns")
+        try store.setDetails(id: id, title: "Retro", attendees: nil)
+        let got = try store.get(id: id)
+        #expect(got?.transcript == "**You:**\nhi")
+        #expect(got?.summary == "## Summary\ns")
+    }
+
+    /// Re-transcribing writes transcript, summary and speaker names — and must
+    /// leave user-typed details untouched. Guards the spec's promise against a
+    /// future refactor that merges these writes into one update.
+    @Test func retranscribeWritesDoNotClobberTypedDetails() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Zoom")
+        try store.setDetails(id: id, title: "Q3 Planning", attendees: ["Alice"])
+        // Exactly what transcribeMeeting does, in order.
+        try store.setSpeakerNames(id: id, nil)
+        try store.setTranscriptAndSummary(id: id, transcript: "**Speaker 1:**\nnew", summary: "new")
+        let got = try store.get(id: id)
+        #expect(got?.title == "Q3 Planning")
+        #expect(got?.attendees == ["Alice"])
+    }
+
     @Test func setSummaryUpdatesOnlyTheSummary() throws {
         let store = try makeStore()
         let id = try seed(store, app: "Zoom")
