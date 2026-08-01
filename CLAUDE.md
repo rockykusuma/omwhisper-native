@@ -206,8 +206,7 @@ are still in place before assuming the fix is elsewhere.
   Keychain key storage, smart dictation (Cmd+Shift+B).
 - **M4 — Backend flexibility (the USP)**: cloud streaming engine, Parakeet CoreML optional engine,
   per-backend selector UI.
-- **M5 — Beta → release → freeze**: parity audit, landing page + version.json migration, beta
-  soak, then freeze the Tauri repo.
+- **M5 — Beta → release**: feature audit, signing/notarization/appcast, landing page, beta soak.
 - **Phase S — Smriti integration** (decided 2026-07-07, see `docs/SMRITI_INTEGRATION_PLAN.md`):
   port Smriti's features into this app (smriti repo stays untouched; copy or rewrite here).
   S1 memory core (AX capture + FTS5 store) · S2 context-aware dictation (screen terms →
