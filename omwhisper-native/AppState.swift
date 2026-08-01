@@ -519,6 +519,38 @@ final class AppState {
         }
     }
 
+    /// Default summary template for meetings; nil = Standard. Stored as a UUID
+    /// string; an unknown ID (a deleted custom template) resolves to Standard
+    /// at use rather than failing the summary.
+    var meetingTemplateID: UUID? {
+        get {
+            access(keyPath: \.meetingTemplateID)
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.meetingTemplateID) else { return nil }
+            return UUID(uuidString: raw)
+        }
+        set {
+            withMutation(keyPath: \.meetingTemplateID) {
+                UserDefaults.standard.set(newValue?.uuidString, forKey: SettingsKeys.meetingTemplateID)
+            }
+        }
+    }
+
+    /// User-authored meeting templates — same storage pattern as
+    /// customPolishStyles, but a separate list: these shape meeting notes and
+    /// never appear in the AI tab's dictation-style picker, or vice versa.
+    var customMeetingTemplates: [PolishStyle] {
+        get {
+            access(keyPath: \.customMeetingTemplates)
+            guard let data = UserDefaults.standard.data(forKey: SettingsKeys.customMeetingTemplates) else { return [] }
+            return (try? JSONDecoder().decode([PolishStyle].self, from: data)) ?? []
+        }
+        set {
+            withMutation(keyPath: \.customMeetingTemplates) {
+                UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: SettingsKeys.customMeetingTemplates)
+            }
+        }
+    }
+
     /// Start the recorder and mark recording. Shared by the auto-detect closure
     /// and the manual toggle. On failure, resets the watcher so it isn't stuck
     /// showing .recording with no audio actually flowing.
@@ -645,10 +677,39 @@ final class AppState {
         }
     }
 
-    /// The view's path: transcribe both tracks on-device (AppleEngine) and, if
-    /// Apple Intelligence is on, summarize (SystemLLM) -- never Cloud/Ollama,
-    /// regardless of the dictation/polish backend. Transcript is always saved;
-    /// summary is best-effort. Returns the updated meeting.
+    /// Summary backends for meetings, in try-order. Ollama first when it's the
+    /// user's polish backend and configured (local, zero egress — "on-device"
+    /// does not mean "SystemLLM-only"), SystemLLM as the primary otherwise and
+    /// as the retry when Ollama fails mid-summary. Cloud NEVER appears here:
+    /// recorded calls don't egress even as text, whatever the polish backend is.
+    private func meetingSummaryBackends() -> [(polish: PolishBackend, chunkLimit: Int)] {
+        var candidates: [(polish: PolishBackend, chunkLimit: Int)] = []
+        if polishBackend == .ollama, !ollamaModel.isEmpty {
+            candidates.append((Ollama(baseURL: ollamaBaseURL, model: ollamaModel), MeetingSummarizer.ollamaChunkLimit))
+        }
+        if SystemLLM.isAvailable() {
+            candidates.append((systemLLM, MeetingSummarizer.chunkCharLimit))
+        }
+        return candidates
+    }
+
+    /// First candidate that produces a summary; nil when all fail or none exist.
+    private func generateMeetingSummary(transcript: String, template: PolishStyle) async -> String? {
+        for candidate in meetingSummaryBackends() {
+            if let summary = try? await MeetingSummarizer.generate(
+                transcript: transcript, polish: candidate.polish,
+                template: template, chunkLimit: candidate.chunkLimit
+            ), !summary.isEmpty {
+                return summary
+            }
+        }
+        return nil
+    }
+
+    /// The view's path: transcribe both tracks on-device (AppleEngine) and
+    /// summarize on-device -- SystemLLM, or Ollama when that's the selected
+    /// polish backend; never Cloud, whatever the dictation/polish backend.
+    /// Transcript is always saved; summary is best-effort. Returns the meeting.
     func transcribeMeeting(id: Int64) async throws -> Meeting {
         guard let store = meetingStore, let meeting = try store.get(id: id) else {
             throw MeetingStoreError.notFound
@@ -657,8 +718,10 @@ final class AppState {
             directory: URL(fileURLWithPath: meeting.directory), engine: AppleEngine(), whisper: whisperEngine
         )
         var summary: String?
-        if SystemLLM.isAvailable() {
-            summary = try? await MeetingSummarizer.generate(transcript: transcript, polish: systemLLM)
+        if !meetingSummaryBackends().isEmpty {
+            summary = await generateMeetingSummary(
+                transcript: transcript,
+                template: MeetingSummarizer.template(id: meetingTemplateID, custom: customMeetingTemplates))
         } else if !didNudgeFoundationModelsUnavailable {
             didNudgeFoundationModelsUnavailable = true
             errorMessage = "Apple Intelligence is off — enable it in Settings > AI to summarize meetings. Transcript saved without a summary."
@@ -673,18 +736,25 @@ final class AppState {
     /// Re-run the summary over the existing transcript with speaker names
     /// resolved — no ASR/diarization. The correct-then-regenerate loop: rename
     /// "Speaker 1" to "Alice", regenerate, and the summary says Alice.
-    func regenerateSummary(id: Int64) async throws -> Meeting {
+    /// `templateID` nil = the stored default; the detail view passes an explicit
+    /// one when the user picks a template for this run only.
+    func regenerateSummary(id: Int64, templateID: UUID? = nil) async throws -> Meeting {
         guard let store = meetingStore, let meeting = try store.get(id: id),
               let transcript = meeting.transcript else {
             throw MeetingStoreError.notFound
         }
-        guard SystemLLM.isAvailable() else {
-            errorMessage = "Apple Intelligence is off — enable it in Settings > AI to summarize meetings."
+        guard !meetingSummaryBackends().isEmpty else {
+            errorMessage = "No on-device summarizer available — turn on Apple Intelligence, or select Ollama in Settings > AI."
             return meeting
         }
         let resolved = MeetingDiarization.applySpeakerNames(
             transcript, names: meeting.speakerNames ?? [:])
-        let summary = try await MeetingSummarizer.generate(transcript: resolved, polish: systemLLM)
+        let template = MeetingSummarizer.template(
+            id: templateID ?? meetingTemplateID, custom: customMeetingTemplates)
+        guard let summary = await generateMeetingSummary(transcript: resolved, template: template) else {
+            errorMessage = "Summary generation failed — see Copy Debug Info in About, or try again."
+            return meeting
+        }
         try store.setTranscriptAndSummary(id: id, transcript: transcript, summary: summary)
         return try store.get(id: id) ?? meeting
     }
@@ -1944,6 +2014,8 @@ nonisolated enum SettingsKeys {
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let meetingsEnabled = "meetingsEnabled"
     static let meetingsCalendarEnabled = "meetingsCalendarEnabled"
+    static let meetingTemplateID = "meetingTemplateID"
+    static let customMeetingTemplates = "customMeetingTemplates"
     static let replyAssistEnabled = "replyAssistEnabled"
     static let memoryEnabled = "memoryEnabled"
     static let memoryPaused = "memoryPaused"
