@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct HubMemorySectionView: View {
     @Environment(AppState.self) private var appState
@@ -168,16 +169,21 @@ private struct ExclusionsEditor: View {
             // draws no chrome and no visible label -- it renders as blank space,
             // which is exactly how this shipped the first time.
             Menu {
+                // Running apps are the quick path -- usually you're excluding
+                // something you can see. Anything else comes from the real
+                // Applications folder, so an app you don't happen to have open
+                // (Messages, a banking app) doesn't have to be launched first.
                 ForEach(addableApps, id: \.bundleID) { app in
                     Button(app.name) { addApp(app.bundleID) }
                 }
+                if !addableApps.isEmpty { Divider() }
+                Button("Choose from Applications…") { chooseApp() }
             } label: {
                 Label("Add app…", systemImage: "plus.circle")
             }
             .menuStyle(.button)
             .tint(Color.Porcelain.emerald)
             .fixedSize()
-            .disabled(addableApps.isEmpty)
         }
     }
 
@@ -195,13 +201,35 @@ private struct ExclusionsEditor: View {
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    /// An excluded app that isn't running right now has no resolvable name --
-    /// show its bundle ID rather than dropping the row, so the rule stays
-    /// visible and removable.
+    /// Pick any installed app, not just a running one. NSOpenPanel scoped to
+    /// applications IS the Mac's own app list -- browsing /Applications by hand
+    /// or enumerating it into a 200-item menu would both be worse.
+    private func chooseApp() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Exclude"
+        panel.message = "Choose an app whose windows should never be captured."
+        guard panel.runModal() == .OK, let url = panel.url,
+              let bundleID = Bundle(url: url)?.bundleIdentifier else { return }
+        addApp(bundleID)
+    }
+
+    /// Name for an excluded app. Falls back through running app -> installed app
+    /// on disk -> the raw bundle ID, so an app you excluded but don't have open
+    /// still reads as "Messages" rather than "com.apple.MobileSMS", and a rule
+    /// for an uninstalled app stays visible and removable instead of vanishing.
     static func displayName(for bundleID: String) -> String {
-        NSWorkspace.shared.runningApplications
-            .first { $0.bundleIdentifier == bundleID }?
-            .localizedName ?? bundleID
+        if let running = NSWorkspace.shared.runningApplications
+            .first(where: { $0.bundleIdentifier == bundleID })?.localizedName {
+            return running
+        }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            return FileManager.default.displayName(atPath: url.path)
+        }
+        return bundleID
     }
 
     private func addApp(_ bundleID: String) {
