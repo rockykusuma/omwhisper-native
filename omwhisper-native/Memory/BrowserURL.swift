@@ -42,7 +42,7 @@ nonisolated enum BrowserURL {
     static func url(bundleId: String, window: AXUIElement) -> String? {
         guard isBrowser(bundleId) else { return nil }
 
-        if let url = findWebAreaURL(window, depth: 0) {
+        if let url = webAreaURL(window) {
             return url
         }
         if let typed = findAddressBarValue(window, depth: 0) {
@@ -70,19 +70,32 @@ nonisolated enum BrowserURL {
 
     // MARK: - AX tree walks (shallow, breadth-limited)
 
-    private static func findWebAreaURL(_ element: AXUIElement, depth: Int) -> String? {
+    /// The first AXWebArea in this window's tree, if any.
+    ///
+    /// Internal rather than private: WindowSnapshotReader targets its text walk
+    /// at this subtree so Memory captures page content instead of the sidebar
+    /// and tab strip (see the web-area capture spec). One finder, two callers.
+    ///
+    /// Not browser-only in practice — Electron apps (Teams, Slack, VS Code,
+    /// Claude) expose a web area too, which is why no allowlist is involved.
+    static func findWebArea(_ element: AXUIElement, depth: Int = 0) -> AXUIElement? {
         guard depth < 30 else { return nil }
-        let role = (copyAttribute(element, kAXRoleAttribute) as? String) ?? ""
-        if role == "AXWebArea",
-           let url = copyAttribute(element, "AXURL") {
-            if let cfURL = url as? URL { return cfURL.absoluteString }
-            if let s = url as? String, !s.isEmpty { return s }
+        if (copyAttribute(element, kAXRoleAttribute) as? String) == "AXWebArea" {
+            return element
         }
         guard let children = copyAttribute(element, kAXChildrenAttribute) as? [AXUIElement]
         else { return nil }
         for child in children {
-            if let found = findWebAreaURL(child, depth: depth + 1) { return found }
+            if let found = findWebArea(child, depth: depth + 1) { return found }
         }
+        return nil
+    }
+
+    /// The AXURL of the window's web area, if it has one.
+    private static func webAreaURL(_ window: AXUIElement) -> String? {
+        guard let area = findWebArea(window), let url = copyAttribute(area, "AXURL") else { return nil }
+        if let cfURL = url as? URL { return cfURL.absoluteString }
+        if let s = url as? String, !s.isEmpty { return s }
         return nil
     }
 
