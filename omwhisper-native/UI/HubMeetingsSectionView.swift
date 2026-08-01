@@ -231,6 +231,9 @@ private struct MeetingDetailView: View {
     @State private var errorMessage: String?
     @State private var editingSummary = false
     @State private var summaryDraft = ""
+    @State private var editingDetails = false
+    @State private var titleDraft = ""
+    @State private var attendeesDraft = ""
 
     /// Busy for either reason: this view kicked off a transcribe, or the meeting
     /// is still being auto-transcribed from when its recording stopped.
@@ -311,6 +314,11 @@ private struct MeetingDetailView: View {
                 if !turns.isEmpty {
                     Button("Copy transcript") { copyTranscript() }
                 }
+                Button("Edit details") { beginEditingDetails() }
+                    .disabled(busy)
+                    .popover(isPresented: $editingDetails, arrowEdge: .bottom) {
+                        detailsEditor
+                    }
                 Button("Delete", role: .destructive) { delete() }.disabled(busy)
                 if busy { ProgressView().controlSize(.small) }
             }
@@ -402,6 +410,57 @@ private struct MeetingDetailView: View {
         }
         .padding(18)
         .omCard()
+    }
+
+    /// Prefill from what's stored, so editing corrects rather than retypes. An
+    /// unset title prefills empty, not appName — appName is a display fallback,
+    /// not a value the user chose, and pre-filling it would silently turn every
+    /// edit into "the app name is now the title".
+    private func beginEditingDetails() {
+        titleDraft = meeting.title ?? ""
+        attendeesDraft = (meeting.attendees ?? []).joined(separator: ", ")
+        editingDetails = true
+    }
+
+    private var detailsEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Meeting details")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.Porcelain.ink)
+            TextField("Title", text: $titleDraft)
+                .frame(width: 260)
+                .onSubmit { saveDetails() }
+            TextField("Attendees, comma separated", text: $attendeesDraft)
+                .frame(width: 260)
+                .onSubmit { saveDetails() }
+            Text("Attendees appear as one-tap names when renaming speakers.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(Color.Porcelain.dim)
+                .frame(width: 260, alignment: .leading)
+            HStack {
+                Button("Cancel") { editingDetails = false }
+                    .controlSize(.small)
+                Spacer()
+                Button("Save") { saveDetails() }
+                    .keyboardShortcut(.defaultAction)
+                    .controlSize(.small)
+            }
+        }
+        .padding(14)
+    }
+
+    private func saveDetails() {
+        editingDetails = false
+        guard let id = meeting.id, let store = appState.meetingStore else { return }
+        do {
+            try store.setDetails(
+                id: id,
+                title: titleDraft,
+                attendees: MeetingDetails.parseAttendees(attendeesDraft))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        Task { await onChanged() }
     }
 
     private func saveSummary() {
