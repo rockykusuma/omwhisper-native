@@ -1,7 +1,7 @@
 # Memory — Semantic Search — Design
 
 **Date:** 2026-08-01
-**Status:** Approved (brainstorming), pending the embedding spike, then an implementation plan
+**Status:** Approved; spike complete (`2026-08-01-memory-embedding-spike.md`). Pending an implementation plan.
 **Area:** S1/S5 Memory. First of two sub-projects; the unified timeline across memory /
 history / meetings is a separate spec, not designed here.
 
@@ -98,22 +98,13 @@ Pure and directly testable — the project's convention:
 - Migration: a v1 database with rows survives, stays keyword-searchable, gains empty passages.
 - `semanticSearch` against an in-memory store with stub vectors — deterministic, no model.
 
-The embedding model is settled by the **spike**, not by unit tests, and its result is written
-back into this spec before implementation starts.
+The embedding model was settled by the spike, not by unit tests.
 
-## The spike (runs first)
-
-Measured on the real `memory.db` copy, both candidates, same passages, same queries:
-
-1. **Retrieval quality** — a set of real queries where the wanted snapshot is known, including
-   the paraphrase cases keyword search fails ("pricing" → "cost structure"). Report whether
-   the target appears in the top 5.
-2. **Cost per snapshot** — embedding ~6 passages must be comfortable inside a 5-second poll.
-3. **Model availability** — whether `NLContextualEmbedding` needs an asset download, and what
-   happens on a machine that lacks it.
-
-Written up like `HOTWORD_SPIKE.md`: a named winner, the numbers behind it, and any
-configuration that silently does nothing if set wrong.
+**One evaluation lesson to carry into implementation:** the spike's first metric — top-5
+recall of one specific snapshot ID — read 0/5 while the top hit was exactly right, because
+the corpus is full of near-duplicates and substring markers matched pinned browser tabs
+(`dev.azure.com` in 175/600 rows). Any future retrieval evaluation must judge **topical
+correctness of the visible results**, not identity of one row.
 
 ## Out of scope
 
