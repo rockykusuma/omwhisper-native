@@ -235,6 +235,10 @@ private struct MeetingDetailView: View {
     @State private var editingDetails = false
     @State private var titleDraft = ""
     @State private var attendeesDraft = ""
+    @State private var question = ""
+    @State private var answer: String?
+    @State private var asking = false
+    @State private var draft: String?
 
     /// Busy for either reason: this view kicked off a transcribe, or the meeting
     /// is still being auto-transcribed from when its recording stopped.
@@ -255,6 +259,7 @@ private struct MeetingDetailView: View {
                     if let summary = meeting.summary, !summary.isEmpty {
                         summaryCard(summary)
                     }
+                    if meeting.transcript != nil { askCard }
                     transcriptBody
                     if let errorMessage {
                         Text(errorMessage).font(.caption).foregroundStyle(Color.omError)
@@ -269,6 +274,34 @@ private struct MeetingDetailView: View {
             }
         }
         .background(Color.Porcelain.bg)
+        // Shown for review before it reaches anyone: the draft is only ever
+        // copied, never sent.
+        .sheet(isPresented: Binding(get: { draft != nil }, set: { if !$0 { draft = nil } })) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Follow-up draft")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.Porcelain.ink)
+                ScrollView {
+                    Text(draft ?? "")
+                        .font(.system(size: 13))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(width: 460, height: 280)
+                HStack {
+                    Button("Close") { draft = nil }
+                    Spacer()
+                    Button("Copy") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(draft ?? "", forType: .string)
+                        draft = nil
+                    }
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(20)
+            .background(Color.Porcelain.bg)
+        }
     }
 
     private var header: some View {
@@ -319,6 +352,8 @@ private struct MeetingDetailView: View {
                         Divider()
                         Button("Export as Markdown…") { exportMeeting(.markdown, ext: "md") }
                         Button("Export as Text…") { exportMeeting(.text, ext: "txt") }
+                        Divider()
+                        Button("Draft follow-up email…") { makeDraft() }
                     }
                     .fixedSize()
                 }
@@ -490,6 +525,52 @@ private struct MeetingDetailView: View {
 
     private var allTemplates: [PolishStyle] {
         MeetingSummarizer.builtInTemplates + appState.customMeetingTemplates
+    }
+
+    /// One question, one answer — no thread. Anything more conversational
+    /// belongs in an MCP client with a real model behind it (SP3 spec).
+    private var askCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            PorcelainEyebrow("Ask about this meeting")
+            HStack(spacing: 8) {
+                TextField("What did we decide about…", text: $question)
+                    .porcelainField()
+                    .onSubmit { ask() }
+                Button(asking ? "Asking…" : "Ask") { ask() }
+                    .disabled(asking || question.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            if let answer {
+                Text(answer)
+                    .font(.system(size: 14))
+                    .lineSpacing(4)
+                    .foregroundStyle(Color.Porcelain.ink)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(18)
+        .omCard()
+    }
+
+    private func ask() {
+        guard let id = meeting.id else { return }
+        let q = question.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return }
+        asking = true
+        answer = nil
+        Task {
+            answer = await appState.askAboutMeeting(id: id, question: q)
+            asking = false
+        }
+    }
+
+    private func makeDraft() {
+        guard let id = meeting.id else { return }
+        working = true
+        Task {
+            draft = await appState.draftFollowUp(id: id)
+            working = false
+        }
     }
 
     private func copySummary() {
