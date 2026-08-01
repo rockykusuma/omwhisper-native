@@ -36,6 +36,9 @@ final class MemoryCapture {
     var captureIntervalSeconds: TimeInterval = 5
     var retentionDays: Int = 90
     var excludedDomains: [String] = []
+    /// The user's app / window-title exclusions. Checked before the text walk,
+    /// unlike excludedDomains above, which needs a URL and so runs after.
+    var exclusions: MemoryExclusions = .none
 
     private var pollTimer: Timer?
     private var pruneTimer: Timer?
@@ -72,7 +75,7 @@ final class MemoryCapture {
         // a missing Accessibility grant (the AX walk can't read other apps'
         // trees), which produces no error, just nothing. Log it so the daemon is
         // observable (`log stream --predicate 'category == "MemoryCapture"'`).
-        let snapshots = WindowSnapshotReader.captureVisible()
+        let snapshots = WindowSnapshotReader.captureVisible(exclusions: exclusions)
         guard !snapshots.isEmpty else {
             memoryLog.debug("tick — no snapshots (no focused window, excluded, empty text, or missing Accessibility permission)")
             return

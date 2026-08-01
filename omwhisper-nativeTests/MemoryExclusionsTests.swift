@@ -49,4 +49,15 @@ struct MemoryExclusionsTests {
         #expect(e.excludes(bundleID: "com.apple.TextEdit", windowTitle: "Salary review"))
         #expect(!e.excludes(bundleID: "com.apple.TextEdit", windowTitle: "Untitled"))
     }
+
+    // MARK: - The hardcoded floor is additive, not replaced
+
+    @Test func hardcodedFloorStillAppliesWithEmptyUserLists() {
+        // If a refactor ever routes capture through MemoryExclusions ALONE,
+        // these stop being excluded and secrets start getting captured.
+        #expect(ScreenContextReader.isExcluded(bundleID: "com.1password.1password", windowTitle: "Vault"))
+        #expect(ScreenContextReader.isExcluded(bundleID: "com.apple.Safari", windowTitle: "Private Browsing"))
+        #expect(ScreenContextReader.isExcluded(bundleID: "com.apple.TextEdit", windowTitle: ".env"))
+        #expect(!MemoryExclusions.none.excludes(bundleID: "com.1password.1password", windowTitle: "Vault"))
+    }
 }

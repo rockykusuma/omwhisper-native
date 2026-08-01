@@ -31,7 +31,10 @@ nonisolated enum WindowSnapshotReader {
 
     /// nil when there's nothing meaningful, the app/window is excluded, or
     /// the walk hits its deadline before finding anything. Never throws.
-    static func captureFrontmost(timeBudget: TimeInterval = 2.0) -> Snapshot? {
+    static func captureFrontmost(
+        exclusions: MemoryExclusions = .none,
+        timeBudget: TimeInterval = 2.0
+    ) -> Snapshot? {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier else { return nil }
 
@@ -52,7 +55,8 @@ nonisolated enum WindowSnapshotReader {
             appElement: appElement,
             bundleID: bundleID,
             appName: app.localizedName ?? bundleID,
-            deadline: Date().addingTimeInterval(timeBudget)
+            deadline: Date().addingTimeInterval(timeBudget),
+            exclusions: exclusions
         )
     }
 
@@ -64,10 +68,18 @@ nonisolated enum WindowSnapshotReader {
         appElement: AXUIElement,
         bundleID: String,
         appName: String,
-        deadline: Date
+        deadline: Date,
+        exclusions: MemoryExclusions = .none
     ) -> Snapshot? {
         let title = (ScreenContextReader.copyAttribute(windowElement, kAXTitleAttribute) as? String) ?? ""
+        // Hardcoded floor first, then the user's own list. Both run BEFORE
+        // collectText, so an excluded window's text is never read -- not read
+        // and then discarded.
         guard !ScreenContextReader.isExcluded(bundleID: bundleID, windowTitle: title) else { return nil }
+        guard !exclusions.excludes(bundleID: bundleID, windowTitle: title) else {
+            snapshotLog.debug("user-excluded: \(appName, privacy: .public)")
+            return nil
+        }
 
         // Walk the page, not the window. Measured on the real store, 58% of a
         // median Arc snapshot was sidebar and pinned-tab chrome -- indexing that
@@ -121,13 +133,15 @@ nonisolated enum WindowSnapshotReader {
     /// cannot push a capture past MemoryCapture's 5s poll -- windows that don't
     /// fit are simply picked up next tick.
     static func captureVisible(
+        exclusions: MemoryExclusions = .none,
         totalBudget: TimeInterval = 3.0,
         focusedBudget: TimeInterval = 2.0,
         perWindowBudget: TimeInterval = 1.0
     ) -> [Snapshot] {
         let tickDeadline = Date().addingTimeInterval(totalBudget)
         var snapshots: [Snapshot] = []
-        if let focused = captureFrontmost(timeBudget: min(focusedBudget, totalBudget)) {
+        if let focused = captureFrontmost(exclusions: exclusions,
+                                          timeBudget: min(focusedBudget, totalBudget)) {
             snapshots.append(focused)
         }
 
@@ -158,7 +172,7 @@ nonisolated enum WindowSnapshotReader {
                 break
             }
             let deadline = min(Date().addingTimeInterval(perWindowBudget), tickDeadline)
-            if let snapshot = capture(descriptor: descriptor, deadline: deadline) {
+            if let snapshot = capture(descriptor: descriptor, deadline: deadline, exclusions: exclusions) {
                 snapshots.append(snapshot)
             }
         }
@@ -167,9 +181,19 @@ nonisolated enum WindowSnapshotReader {
 
     /// AX-reads a specific CG window. AX exposes no window number, so the link
     /// is geometric: find the app's AX window whose frame matches the CG bounds.
-    private static func capture(descriptor: VisibleWindows.Descriptor, deadline: Date) -> Snapshot? {
+    private static func capture(
+        descriptor: VisibleWindows.Descriptor,
+        deadline: Date,
+        exclusions: MemoryExclusions = .none
+    ) -> Snapshot? {
         guard let app = NSRunningApplication(processIdentifier: descriptor.pid),
               let bundleID = app.bundleIdentifier else { return nil }
+        // An excluded app is skipped before we even open its AX tree. Redundant
+        // with the check inside capture(window:…) by design -- if the two ever
+        // disagree the inner one still holds, so the failure mode is a wasted
+        // AX call, never a leak.
+        guard !exclusions.apps.contains(bundleID),
+              !ScreenContextReader.excludedBundleIDs.contains(bundleID) else { return nil }
 
         let appElement = AXUIElementCreateApplication(descriptor.pid)
         AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
