@@ -32,7 +32,8 @@ The app itself only ever phones home to check for updates.
 ## Requirements
 
 **macOS 26 (Tahoe) or later**, on **Apple Silicon**. Signed with a Developer ID and notarized.
-macOS only — there is no Windows build.
+
+A native Windows app is in development in a separate repository; this one is macOS only.
 
 ## Install
 
