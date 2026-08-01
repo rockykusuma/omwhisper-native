@@ -74,3 +74,22 @@ scope.
 
 A useful secondary check: re-run a semantic query that previously returned chrome
 ("Footer © 2026 GitHub, Inc.") and confirm the matched passage is now real page text.
+
+## Result (2026-08-01)
+
+**Qualitative: confirmed.** Same app, same store, before and after:
+
+| | First 130 chars | Length |
+|---|---|---|
+| Before | `youtube.com Personal UpgradeSkills Utilities Updates AI Tools OmWhisper Personal Work GCP Vercel Documentation Projects \| rockykusuma's Org ImprovMX Resend…` | 10,130 |
+| After | `ORCA Docs Changelog Enterprise Star 34.9k Download Search docs ⌘ K Start Here What is Orca? Install Your first 3-agent session Worktrees…` | 4,573 |
+
+The Arc sidebar is gone and the snapshot is less than half the size, which is a direct
+measure of how much of it was chrome. Note the *page's own* navigation ("Changelog Enterprise
+Star 34.9k") survives — it lives inside the web area. That is per-site chrome, which this
+change never claimed to remove.
+
+**Quantitative: still owed.** The 58%-median comparison needs ~30 new Arc snapshots, and
+content-hash dedup means those only accumulate during real browsing. Run Step 3 of the plan
+after a normal browsing session. Until then the improvement is demonstrated but not
+quantified — and the claim in this spec is the qualitative one only.
