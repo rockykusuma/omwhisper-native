@@ -10,10 +10,19 @@
 import Foundation
 
 nonisolated enum AppSupportDirectory {
+    /// Pure: the Application Support folder name for a bundle ID. Falls back to
+    /// the production ID so a nil bundle ID (bare test runners) never invents a
+    /// new location. Keyed to the LIVE bundle ID so the .dev Debug fork gets its
+    /// own data root and can never open the installed app's databases (see
+    /// docs/superpowers/specs/2026-08-01-dev-build-isolation-design.md).
+    static func folderName(bundleID: String?) -> String {
+        bundleID ?? "com.omwhisper.mac"
+    }
+
     static func resolve() -> URL? {
         let dir = try? FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        ).appendingPathComponent("com.omwhisper.mac", isDirectory: true)
+        ).appendingPathComponent(folderName(bundleID: Bundle.main.bundleIdentifier), isDirectory: true)
         if let dir {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }

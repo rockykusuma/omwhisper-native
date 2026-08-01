@@ -374,9 +374,12 @@ final class MeetingRecorder: @unchecked Sendable {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmm"
         let stamp = formatter.string(from: Date())
-        let base = try FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        ).appendingPathComponent("com.omwhisper.mac", isDirectory: true)
+        // Shared bundle-ID-aware root, not an inline lookup — keeps dev-build
+        // recordings out of the installed app's data directory.
+        guard let root = AppSupportDirectory.resolve() else {
+            throw error("makeMeetingDirectory: no Application Support directory", -1)
+        }
+        let base = root
             .appendingPathComponent("meetings", isDirectory: true)
             .appendingPathComponent("\(stamp)_\(appName)", isDirectory: true)
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)

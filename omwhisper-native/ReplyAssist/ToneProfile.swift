@@ -32,10 +32,12 @@ nonisolated enum ToneProfile {
         """
 
     static func toneFileURL() throws -> URL {
-        try FileManager.default.url(
-            for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
-        ).appendingPathComponent("com.omwhisper.mac", isDirectory: true)
-            .appendingPathComponent("tone.md")
+        // Shared bundle-ID-aware root, not an inline lookup — keeps the dev
+        // build's tone.md out of the installed app's data directory.
+        guard let root = AppSupportDirectory.resolve() else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return root.appendingPathComponent("tone.md")
     }
 
     /// Concatenates up to `sampleCap` entries' text (newline-joined), capped
