@@ -20,12 +20,14 @@ enum MCPLauncher {
         let appSupportDir = AppSupportDirectory.resolve()
         var historyStore: HistoryStore?
         var memoryStore: MemoryStore?
+        var meetingStore: MeetingStore?
         if let appSupportDir {
             historyStore = try? HistoryStore.open(atPath: appSupportDir.appendingPathComponent("history.db").path)
             memoryStore = try? MemoryStore.open(atPath: appSupportDir.appendingPathComponent("memory.db").path)
+            meetingStore = try? MeetingStore.open(atPath: appSupportDir.appendingPathComponent("meetings.db").path)
         }
 
-        MCPServer(historyStore: historyStore, memoryStore: memoryStore).run()
+        MCPServer(historyStore: historyStore, memoryStore: memoryStore, meetingStore: meetingStore).run()
         exit(0)
     }
 }

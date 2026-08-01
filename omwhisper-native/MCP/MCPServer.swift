@@ -17,11 +17,14 @@ import Foundation
 nonisolated final class MCPServer {
     private let historyStore: HistoryStore?
     private let memoryStore: MemoryStore?
+    private let meetingStore: MeetingStore?
     private let protocolVersion = "2024-11-05"
 
-    init(historyStore: HistoryStore?, memoryStore: MemoryStore?) {
+    /// meetingStore defaults to nil so pre-SP3 call sites keep compiling.
+    init(historyStore: HistoryStore?, memoryStore: MemoryStore?, meetingStore: MeetingStore? = nil) {
         self.historyStore = historyStore
         self.memoryStore = memoryStore
+        self.meetingStore = meetingStore
     }
 
     /// Blocking read-eval loop over stdin. Returns on EOF.
@@ -157,9 +160,55 @@ nonisolated final class MCPServer {
             let rows = Array(try historyStore.search(query).prefix(limit))
             return render(rows, emptyMessage: "No transcriptions match \"\(query)\".")
 
+        case "search_meetings":
+            guard let query = args["query"] as? String, !query.isEmpty else {
+                throw ToolError(message: "search_meetings requires a non-empty 'query' string")
+            }
+            guard let meetingStore else { return "Meetings are not available." }
+            let limit = clamp(args["limit"], default: 10, max: 50)
+            let rows = try meetingStore.search(query, limit: limit)
+            guard !rows.isEmpty else { return "No meetings match \"\(query)\"." }
+            return rows.map(Self.meetingSummaryLine).joined(separator: "\n")
+
+        case "get_meeting":
+            guard let idValue = args["id"], let id = Int64("\(idValue)") else {
+                throw ToolError(message: "get_meeting requires an integer 'id'")
+            }
+            guard let meetingStore else { return "Meetings are not available." }
+            guard let meeting = try meetingStore.get(id: id) else {
+                throw ToolError(message: "No meeting with id \(id).")
+            }
+            return Self.meetingDetail(meeting)
+
         default:
             throw ToolError(message: "unknown tool: \(name)")
         }
+    }
+
+    /// One line per meeting for search results — enough to choose one, then
+    /// get_meeting(id) for the full text. Mirrors render()'s compact style.
+    private static func meetingSummaryLine(_ m: Meeting) -> String {
+        "id: \(m.id ?? 0) | \(m.startedAt) | \(m.title ?? m.appName) | \(Int(m.durationSeconds / 60))m"
+    }
+
+    /// Full detail. Speaker names are resolved (SP1) so a caller sees "Alice",
+    /// not "Speaker 1" — the raw diarization labels are meaningless outside
+    /// this app, and an assistant can't answer "what did Alice say" from them.
+    private static func meetingDetail(_ m: Meeting) -> String {
+        let attendees = (m.attendees ?? []).joined(separator: ", ")
+        let transcript = MeetingDiarization.applySpeakerNames(
+            m.transcript ?? "", names: m.speakerNames ?? [:])
+        return """
+            id: \(m.id ?? 0)
+            title: \(m.title ?? m.appName)
+            app: \(m.appName)
+            started: \(m.startedAt)
+            duration: \(Int(m.durationSeconds / 60))m
+            \(attendees.isEmpty ? "" : "attendees: \(attendees)\n")
+            \(m.summary.map { "SUMMARY\n\($0)\n" } ?? "")
+            TRANSCRIPT
+            \(transcript.isEmpty ? "(not transcribed)" : transcript)
+            """
     }
 
     /// Compact listing: id + metadata + content preview.
@@ -193,6 +242,29 @@ nonisolated final class MCPServer {
     // Swift 6 can't prove [String: Any]'s Sendability statically, but there's
     // no actual shared-mutable-state risk here.
     private nonisolated(unsafe) static let toolDefinitions: [[String: Any]] = [
+        [
+            "name": "search_meetings",
+            "description": "Full-text search across recorded meetings (title, transcript, summary, app). Returns one line per meeting with its id — call get_meeting(id) for the full transcript and summary.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "query": ["type": "string", "description": "Search terms (FTS5 match, terms are ORed)"],
+                    "limit": ["type": "integer", "description": "Max results (default 10, max 50)"],
+                ],
+                "required": ["query"],
+            ],
+        ],
+        [
+            "name": "get_meeting",
+            "description": "Full detail for one recorded meeting: title, date, duration, attendees, summary, and the speaker-labelled transcript with any renamed speakers applied.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "id": ["type": "integer", "description": "Meeting id from search_meetings"],
+                ],
+                "required": ["id"],
+            ],
+        ],
         [
             "name": "search_memory",
             "description": "Full-text search across everything OmWhisper has captured from the screen (window text captured locally, when Memory is enabled). Returns matching snapshots with id, timestamp, app, window title, and a content preview. Use get_snapshot(id) for full text.",

@@ -153,4 +153,77 @@ struct MCPServerTests {
             // expected
         }
     }
+
+    // MARK: meetings (SP3)
+
+    private func makeMeetingStore() throws -> MeetingStore {
+        try MeetingStore(DatabaseQueue())
+    }
+
+    @Test("search_meetings requires a non-empty query")
+    func searchMeetingsRequiresQuery() {
+        let server = MCPServer(historyStore: nil, memoryStore: nil, meetingStore: nil)
+        do {
+            _ = try server.callTool(name: "search_meetings", args: [:])
+            Issue.record("expected callTool to throw for a missing query")
+        } catch {
+            // expected
+        }
+    }
+
+    @Test("search_meetings reports when meetings are unavailable")
+    func searchMeetingsHandlesNilStore() throws {
+        let server = MCPServer(historyStore: nil, memoryStore: nil, meetingStore: nil)
+        let out = try server.callTool(name: "search_meetings", args: ["query": "roadmap"])
+        #expect(out.localizedCaseInsensitiveContains("not available"))
+    }
+
+    @Test("search_meetings finds a meeting by transcript text")
+    func searchMeetingsFindsByTranscript() throws {
+        let store = try makeMeetingStore()
+        let id = try store.insert(Meeting(
+            id: nil, startedAt: "2026-08-01T10:00:00Z", appName: "Zoom",
+            directory: "/tmp/omw-mcp-test", durationSeconds: 600,
+            transcript: nil, summary: nil, createdAt: "2026-08-01T10:00:00Z",
+            title: "Q3 Planning"))
+        try store.setTranscriptAndSummary(
+            id: id, transcript: "**Speaker 1:** [0:01]\nwe discussed the pricing model", summary: nil)
+        let server = MCPServer(historyStore: nil, memoryStore: nil, meetingStore: store)
+        let out = try server.callTool(name: "search_meetings", args: ["query": "pricing"])
+        #expect(out.contains("Q3 Planning"))
+        #expect(try server.callTool(name: "search_meetings", args: ["query": "unrelated"])
+            .localizedCaseInsensitiveContains("no meetings"))
+    }
+
+    /// The tool must serve renamed speakers, not raw diarization labels — an
+    /// assistant answering "what did Alice say" can't work from "Speaker 1".
+    @Test("get_meeting returns detail with speaker names resolved")
+    func getMeetingResolvesSpeakerNames() throws {
+        let store = try makeMeetingStore()
+        let id = try store.insert(Meeting(
+            id: nil, startedAt: "2026-08-01T10:00:00Z", appName: "Teams",
+            directory: "/tmp/omw-mcp-test2", durationSeconds: 300,
+            transcript: nil, summary: nil, createdAt: "2026-08-01T10:00:00Z",
+            title: "Standup", attendees: ["Alice"]))
+        try store.setTranscriptAndSummary(
+            id: id, transcript: "**Speaker 1:** [0:01]\nblocked on the build", summary: "## Summary\nshort")
+        try store.setSpeakerNames(id: id, ["Speaker 1": "Alice"])
+        let server = MCPServer(historyStore: nil, memoryStore: nil, meetingStore: store)
+        let out = try server.callTool(name: "get_meeting", args: ["id": id])
+        #expect(out.contains("Alice"))
+        #expect(!out.contains("Speaker 1"))
+        #expect(out.contains("Standup"))
+    }
+
+    @Test("get_meeting throws for an unknown id")
+    func getMeetingUnknownID() throws {
+        let store = try makeMeetingStore()
+        let server = MCPServer(historyStore: nil, memoryStore: nil, meetingStore: store)
+        do {
+            _ = try server.callTool(name: "get_meeting", args: ["id": 999])
+            Issue.record("expected callTool to throw for an unknown id")
+        } catch {
+            // expected
+        }
+    }
 }
