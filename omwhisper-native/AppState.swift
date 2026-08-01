@@ -759,6 +759,56 @@ final class AppState {
         return try store.get(id: id) ?? meeting
     }
 
+    /// One-shot question about a single meeting. Same on-device backend
+    /// selection as summaries (Ollama when selected, else SystemLLM, never
+    /// Cloud). Returns nil when no backend is available or the call fails —
+    /// errorMessage is already set, so the caller just renders nothing.
+    func askAboutMeeting(id: Int64, question: String) async -> String? {
+        guard let store = meetingStore, let meeting = try? store.get(id: id),
+              let transcript = meeting.transcript, !transcript.isEmpty else {
+            errorMessage = "That meeting has no transcript to answer from."
+            return nil
+        }
+        guard let candidate = meetingSummaryBackends().first else {
+            errorMessage = "No on-device summarizer available — turn on Apple Intelligence, or select Ollama in Settings > AI."
+            return nil
+        }
+        let resolved = MeetingDiarization.applySpeakerNames(
+            transcript, names: meeting.speakerNames ?? [:])
+        do {
+            return try await MeetingSummarizer.answer(
+                question: question, transcript: resolved,
+                polish: candidate.polish, chunkLimit: candidate.chunkLimit)
+        } catch {
+            errorMessage = "Couldn't answer that — \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    /// Draft a follow-up email from the meeting's summary, falling back to the
+    /// transcript when there's no summary yet. Returns nil on failure.
+    func draftFollowUp(id: Int64) async -> String? {
+        guard let store = meetingStore, let meeting = try? store.get(id: id) else { return nil }
+        let source = meeting.summary ?? MeetingDiarization.applySpeakerNames(
+            meeting.transcript ?? "", names: meeting.speakerNames ?? [:])
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Nothing to draft from yet — transcribe the meeting first."
+            return nil
+        }
+        guard let candidate = meetingSummaryBackends().first else {
+            errorMessage = "No on-device summarizer available — turn on Apple Intelligence, or select Ollama in Settings > AI."
+            return nil
+        }
+        do {
+            return try await candidate.polish.polish(
+                String(source.prefix(candidate.chunkLimit)),
+                style: MeetingSummarizer.followUpStyle, targetLanguage: nil)
+        } catch {
+            errorMessage = "Couldn't draft the follow-up — \(error.localizedDescription)"
+            return nil
+        }
+    }
+
     /// access(keyPath:)/withMutation(keyPath:) for the same reason as
     /// meetingsEnabled — this Toggle needs to reflect external state changes.
     var replyAssistEnabled: Bool {

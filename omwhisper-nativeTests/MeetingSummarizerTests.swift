@@ -84,6 +84,41 @@ struct MeetingSummarizerTests {
         }
     }
 
+    /// Records every (style, text) pair so the map/reduce shape can be asserted.
+    private struct CapturingPolish: PolishBackend {
+        let capture: @Sendable (UUID, String) -> Void
+        let reply: String
+        func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {
+            capture(style.id, text)
+            return reply
+        }
+    }
+
+    @Test func answerPutsTheQuestionInBothStages() async throws {
+        let seen = OSAllocatedUnfairLock(initialState: [(UUID, String)]())
+        let fake = CapturingPolish(capture: { id, text in seen.withLock { $0.append((id, text)) } },
+                                   reply: "not discussed")
+        _ = try await MeetingSummarizer.answer(
+            question: "what did we decide about pricing",
+            transcript: "**You:** [0:00]\nhello", polish: fake)
+        let calls = seen.withLock { $0 }
+        #expect(calls.count >= 2)
+        // Extraction stage carries the question, and so does the final answer stage.
+        #expect(calls.first!.1.localizedCaseInsensitiveContains("pricing"))
+        #expect(calls.last!.1.localizedCaseInsensitiveContains("pricing"))
+    }
+
+    @Test func answerOnEmptyTranscriptSaysSo() async throws {
+        let fake = CapturingPolish(capture: { _, _ in }, reply: "x")
+        let out = try await MeetingSummarizer.answer(
+            question: "anything?", transcript: "   ", polish: fake)
+        #expect(out.localizedCaseInsensitiveContains("nothing"))
+    }
+
+    @Test func followUpStyleIsHiddenFromTemplates() {
+        #expect(!MeetingSummarizer.builtInTemplates.contains { $0.id == MeetingSummarizer.followUpStyle.id })
+    }
+
     @Test func chunkLimitParameterIsHonored() {
         // 12k-limit chunking packs a long transcript into far fewer groups.
         let words = Array(repeating: "word", count: 4_000).joined(separator: " ")

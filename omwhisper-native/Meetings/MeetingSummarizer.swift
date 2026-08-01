@@ -123,6 +123,46 @@ nonisolated enum MeetingSummarizer {
         isBuiltIn: true
     )
 
+    // MARK: Hidden styles — machinery, never user-selectable templates, so
+    // deliberately absent from builtInTemplates (a test pins that).
+
+    static let questionExtractStyle = PolishStyle(
+        id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000010")!,
+        name: "Meeting Question Extract",
+        prompt: """
+            From the meeting transcript below, extract ONLY the lines and facts \
+            relevant to the question given above it. Copy who said what. If \
+            nothing in this portion is relevant, reply exactly: NOTHING RELEVANT. \
+            No preamble.
+            """,
+        isBuiltIn: true
+    )
+
+    static let questionAnswerStyle = PolishStyle(
+        id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000011")!,
+        name: "Meeting Question Answer",
+        prompt: """
+            Answer the question using ONLY the extracted meeting notes provided. \
+            Two or three sentences, specific, naming who said what where it \
+            matters. If the notes do not contain the answer, say exactly: \
+            "That wasn't discussed in this meeting." Never speculate.
+            """,
+        isBuiltIn: true
+    )
+
+    static let followUpStyle = PolishStyle(
+        id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000012")!,
+        name: "Meeting Follow-up Email",
+        prompt: """
+            Write a short follow-up email from these meeting notes, as the person \
+            who recorded the meeting. Start with a "Subject:" line, then the body: \
+            a one-line thanks, 2-4 bullets of what was decided, and the action \
+            items with owners. Plain and professional, no filler, no invented \
+            commitments. Output only the email.
+            """,
+        isBuiltIn: true
+    )
+
     /// Standard first — it's the default, and the UI lists them in this order.
     static let builtInTemplates: [PolishStyle] = [
         meetingWriteStyle, standupTemplate, clientCallTemplate, oneOnOneTemplate, interviewTemplate,
@@ -135,6 +175,39 @@ nonisolated enum MeetingSummarizer {
         return builtInTemplates.first { $0.id == id }
             ?? custom.first { $0.id == id }
             ?? meetingWriteStyle
+    }
+
+    /// One-shot Q&A over a transcript: map each chunk to whatever is relevant to
+    /// the question, then answer from those extracts. Same map-reduce shape and
+    /// per-backend chunk sizing as generate(). No conversation state is kept —
+    /// anything more conversational belongs in an MCP client with a real model
+    /// behind it (see the SP3 spec).
+    static func answer(
+        question: String,
+        transcript: String,
+        polish: PolishBackend,
+        chunkLimit: Int = chunkCharLimit
+    ) async throws -> String {
+        let chunks = chunk(transcript, limit: chunkLimit)
+        guard !chunks.isEmpty else { return "There's nothing transcribed to answer from." }
+
+        var extracts: [String] = []
+        for group in chunks {
+            let extract = try await polish.polish(
+                "QUESTION: \(question)\n\nTRANSCRIPT:\n\(group)",
+                style: questionExtractStyle, targetLanguage: nil)
+            let trimmed = extract.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, !trimmed.localizedCaseInsensitiveContains("NOTHING RELEVANT") {
+                extracts.append(trimmed)
+            }
+        }
+        guard !extracts.isEmpty else { return "That wasn't discussed in this meeting." }
+
+        let material = String(extracts.joined(separator: "\n").prefix(chunkLimit))
+        let out = try await polish.polish(
+            "QUESTION: \(question)\n\nNOTES:\n\(material)",
+            style: questionAnswerStyle, targetLanguage: nil)
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Pure: greedily pack words into <=limit-char groups so no content is lost
