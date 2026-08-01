@@ -96,6 +96,24 @@ struct AppMarkdownTests {
         #expect(sections[0].lines == ["Just a plain summary."])
     }
 
+    /// The live-caught empty-summary-card bug: the model wrote the body on the
+    /// SAME line as the heading ("## Summary — text…" — our own prompt's
+    /// template reads that way), the whole paragraph became the section title,
+    /// lines stayed empty, and the empty-section filter dropped everything —
+    /// a real 422-char summary rendered as a blank white card.
+    @Test func headingWithBodyOnSameLineKeepsTheBody() {
+        let markdown = """
+            ## Summary — The team discussed the release and agreed to ship.
+            ## Action Items — None.
+            """
+        let sections = M.sections(from: markdown)
+        #expect(sections.count == 2)
+        #expect(sections[0].title == "Summary")
+        #expect(sections[0].lines == ["The team discussed the release and agreed to ship."])
+        #expect(sections[1].title == "Action Items")
+        #expect(sections[1].lines == ["None."])
+    }
+
     @Test func bulletBodyStripsMarkersOnly() {
         #expect(M.bulletBody("* Ship the build") == "Ship the build")
         #expect(M.bulletBody("- Ship the build") == "Ship the build")

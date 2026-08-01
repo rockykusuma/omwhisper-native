@@ -99,10 +99,28 @@ nonisolated enum AppMarkdown {
         for raw in markdown.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("## ") {
+                var heading = String(line.dropFirst(3))
+                // Models also write the BODY on the heading line itself
+                // ("## Summary — The team discussed…" — the summarizer prompt's
+                // own template reads that way). Split it off, or the whole
+                // paragraph becomes the title, the section has no lines, and
+                // the empty-section filter below silently drops the content —
+                // the live blank-summary-card bug.
+                var firstLine: String?
+                for separator in [" — ", " – ", ": "] {
+                    if let range = heading.range(of: separator) {
+                        firstLine = String(heading[range.upperBound...])
+                            .trimmingCharacters(in: .whitespaces)
+                        heading = String(heading[..<range.lowerBound])
+                        break
+                    }
+                }
                 // Models like to write "## Summary —"; keep just the title.
-                let title = String(line.dropFirst(3))
-                    .trimmingCharacters(in: CharacterSet(charactersIn: " —-–:"))
+                let title = heading.trimmingCharacters(in: CharacterSet(charactersIn: " —-–:"))
                 sections.append(Section(id: sections.count, title: title, lines: []))
+                if let firstLine, !firstLine.isEmpty {
+                    sections[sections.count - 1].lines.append(firstLine)
+                }
             } else if !line.isEmpty {
                 if sections.isEmpty {
                     sections.append(Section(id: 0, title: nil, lines: []))
