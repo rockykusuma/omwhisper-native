@@ -16,7 +16,12 @@ import Foundation
 
 nonisolated enum MeetingSummarizer {
     static let chunkCharLimit = 1_800
-    static let reduceCharLimit = 1_800
+
+    /// Ollama takes ~10x bigger chunks than SystemLLM's 1,800-char envelope --
+    /// an hour-long call goes from ~40 lossy chunks to ~6, which is the whole
+    /// point of routing meeting summaries through it. Fits its 30s timeout.
+    /// ponytail: tune only if live testing shows timeouts.
+    static let ollamaChunkLimit = 12_000
 
     static let chunkSummaryStyle = PolishStyle(
         id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000001")!,
@@ -33,23 +38,104 @@ nonisolated enum MeetingSummarizer {
         isBuiltIn: true
     )
 
+    /// Shared by every template. The "never on the heading line" rule is not
+    /// cosmetic: the old prompt's own "## Summary — 2-4 sentences" example
+    /// taught the model to write the body on the heading line, which the
+    /// section parser read as one giant title and then dropped as empty —
+    /// a real 422-char summary rendered as a blank card (fixed 2026-08-01).
+    private static let sharedRules = """
+        "You" in the notes means the person who recorded the meeting; \
+        "Speaker 1", "Speaker 2", … (or their real names) are the other \
+        participants. Never credit the recorder with a plan, opinion or \
+        commitment another speaker voiced — if a note doesn't say the recorder \
+        said it, they didn't. Never put content on the same line as a "## " \
+        heading: headings sit alone, bodies start on the next line. Be \
+        specific, no filler, no speculation beyond the notes. Omit any section \
+        with nothing real to say.
+        """
+
     static let meetingWriteStyle = PolishStyle(
         id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000002")!,
-        name: "Meeting Summary",
+        name: "Standard",
         prompt: """
             You are writing a private summary of a meeting from bullet-point notes. \
-            "You" in the notes means the person who recorded the meeting; \
-            "Speaker 1", "Speaker 2", … are the other participants. Write concise \
-            markdown with:
-            ## Summary — 2-4 sentences on what the meeting was about and any decisions.
-            ## Action items — a bullet list of concrete follow-ups (who owns each, if \
-            clear). Omit this section entirely if there were none.
-            Rules: be specific, no filler, no speculation beyond the notes. Never \
-            credit the recorder with a plan, opinion or commitment that another \
-            speaker voiced — if a note doesn't say the recorder said it, they didn't.
+            Write concise markdown with a "## Summary" heading followed by 2-4 \
+            sentences on what the meeting was about and any decisions, then an \
+            "## Action items" heading followed by a bullet list of concrete \
+            follow-ups (who owns each, if clear). \(sharedRules)
             """,
         isBuiltIn: true
     )
+
+    // MARK: Templates — only the reduce-stage prompt varies; the map (chunk)
+    // stage is shared. Fixed UUIDs (…0003-0006) so a stored default survives
+    // relaunches, same hidden-style pattern as Chronicler/Reply Assist. These
+    // are never added to PolishStyles.builtIns (the dictation-style picker).
+
+    static let standupTemplate = PolishStyle(
+        id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000003")!,
+        name: "Standup",
+        prompt: """
+            You are writing private standup notes from bullet-point meeting notes. \
+            Write concise markdown under these headings: "## Updates" (one bullet \
+            per person — what they did or are doing), "## Blockers" (who is blocked \
+            and on what), "## Action items" (concrete follow-ups with owners). \
+            \(sharedRules)
+            """,
+        isBuiltIn: true
+    )
+
+    static let clientCallTemplate = PolishStyle(
+        id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000004")!,
+        name: "Client call",
+        prompt: """
+            You are writing private notes on a client call from bullet-point meeting \
+            notes. Write concise markdown under these headings: "## Summary" (what \
+            the call was about), "## Client needs" (what they asked for, worried \
+            about, or objected to), "## Commitments" (what was promised, by whom, by \
+            when), "## Next steps". \(sharedRules)
+            """,
+        isBuiltIn: true
+    )
+
+    static let oneOnOneTemplate = PolishStyle(
+        id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000005")!,
+        name: "1:1",
+        prompt: """
+            You are writing private notes on a one-on-one conversation from \
+            bullet-point meeting notes. Write concise markdown under these headings: \
+            "## Topics" (what was discussed), "## Feedback" (given or received, \
+            attributed correctly), "## Action items" (who follows up on what). \
+            \(sharedRules)
+            """,
+        isBuiltIn: true
+    )
+
+    static let interviewTemplate = PolishStyle(
+        id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000006")!,
+        name: "Interview",
+        prompt: """
+            You are writing private interview notes from bullet-point meeting notes. \
+            Write concise markdown under these headings: "## Candidate" (role and \
+            background as discussed), "## Strengths" (with the evidence mentioned), \
+            "## Concerns" (gaps or doubts raised), "## Next steps". \(sharedRules)
+            """,
+        isBuiltIn: true
+    )
+
+    /// Standard first — it's the default, and the UI lists them in this order.
+    static let builtInTemplates: [PolishStyle] = [
+        meetingWriteStyle, standupTemplate, clientCallTemplate, oneOnOneTemplate, interviewTemplate,
+    ]
+
+    /// Resolve a stored template choice. nil or unknown (a deleted custom
+    /// template) falls back to Standard rather than failing the summary.
+    static func template(id: UUID?, custom: [PolishStyle]) -> PolishStyle {
+        guard let id else { return meetingWriteStyle }
+        return builtInTemplates.first { $0.id == id }
+            ?? custom.first { $0.id == id }
+            ?? meetingWriteStyle
+    }
 
     /// Pure: greedily pack words into <=limit-char groups so no content is lost
     /// even for a single long line. A single word longer than limit forms its
@@ -71,10 +157,16 @@ nonisolated enum MeetingSummarizer {
         return groups
     }
 
-    /// Effectful: map each chunk → chunk-summary, reduce → markdown summary.
-    /// Returns "" for an empty transcript. Propagates the first polish() failure.
-    static func generate(transcript: String, polish: PolishBackend) async throws -> String {
-        let chunks = chunk(transcript)
+    /// Effectful: map each chunk → chunk-summary, reduce → markdown summary
+    /// shaped by `template`. Returns "" for an empty transcript. Propagates the
+    /// first polish() failure.
+    static func generate(
+        transcript: String,
+        polish: PolishBackend,
+        template: PolishStyle = meetingWriteStyle,
+        chunkLimit: Int = chunkCharLimit
+    ) async throws -> String {
+        let chunks = chunk(transcript, limit: chunkLimit)
         guard !chunks.isEmpty else { return "" }
 
         var chunkSummaries: [String] = []
@@ -83,8 +175,27 @@ nonisolated enum MeetingSummarizer {
             chunkSummaries.append(summary)
         }
 
-        let reduceInput = String(chunkSummaries.joined(separator: "\n").prefix(reduceCharLimit))
-        let out = try await polish.polish(reduceInput, style: meetingWriteStyle, targetLanguage: nil)
+        // Collapse until the summaries fit one reduce call. A long meeting
+        // produces more chunk summaries than the limit, and this used to be a
+        // bare `prefix(limit)` — which silently DROPPED everything past it,
+        // i.e. the back half of the meeting, since chunks are time-ordered.
+        // Re-summarize the summaries (a second map-reduce level) instead, so
+        // the ending survives into the final write. Same fix Chronicler already
+        // carries for the same reason. The count guard prevents a non-
+        // converging loop when a single summary exceeds the limit on its own;
+        // the prefix below is then the last-resort cap.
+        while chunkSummaries.joined(separator: "\n").count > chunkLimit && chunkSummaries.count > 1 {
+            let groups = chunk(chunkSummaries.joined(separator: "\n"), limit: chunkLimit)
+            guard groups.count < chunkSummaries.count else { break }
+            var collapsed: [String] = []
+            for group in groups {
+                collapsed.append(try await polish.polish(group, style: chunkSummaryStyle, targetLanguage: nil))
+            }
+            chunkSummaries = collapsed
+        }
+
+        let reduceInput = String(chunkSummaries.joined(separator: "\n").prefix(chunkLimit))
+        let out = try await polish.polish(reduceInput, style: template, targetLanguage: nil)
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
