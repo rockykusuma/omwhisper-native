@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 import GRDB
 @testable import OmWhisper
 
@@ -128,5 +129,71 @@ struct ChroniclerTests {
 private struct StubPolishBackend: PolishBackend {
     func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {
         style.id == Chronicler.chunkSummaryStyle.id ? "- did some work" : "STUB CHRONICLE"
+    }
+}
+
+/// Counts polish() calls so a chunk-limit change is measurable. A class with a
+/// lock rather than a struct: PolishBackend is Sendable and polish() is
+/// non-mutating, so there is nowhere to put a counter otherwise. Matches
+/// AudioCapture's established lock-not-actor-isolation pattern.
+private final class CountingPolishBackend: PolishBackend, @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: 0)
+    var callCount: Int { lock.withLock { $0 } }
+
+    func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {
+        lock.withLock { $0 += 1 }
+        return style.id == Chronicler.chunkSummaryStyle.id ? "- did some work" : "STUB CHRONICLE"
+    }
+}
+
+@Suite("Chronicler chunk limit")
+struct ChronicleChunkLimitTests {
+    /// One snapshot per row, each comfortably under the per-snapshot cap, but
+    /// enough of them that 1,800-char chunking needs several passes.
+    private func seededStore(count: Int) throws -> MemoryStore {
+        let store = try MemoryStore(DatabaseQueue())
+        for i in 0..<count {
+            try store.upsert(
+                appName: "App\(i)", bundleID: "com.example.app\(i)",
+                windowTitle: "Window \(i)",
+                content: String(repeating: "alpha beta gamma delta ", count: 20) + "row\(i)",
+                url: ""
+            )
+        }
+        return store
+    }
+
+    @Test("a bigger chunk limit means fewer model calls")
+    func biggerChunkLimitMeansFewerModelCalls() async throws {
+        let day = Chronicler.dayString()
+
+        let small = CountingPolishBackend()
+        _ = try await Chronicler.generate(day: day, store: try seededStore(count: 12),
+                                          polish: small, chunkLimit: Chronicler.chunkCharLimit)
+
+        let big = CountingPolishBackend()
+        _ = try await Chronicler.generate(day: day, store: try seededStore(count: 12),
+                                          polish: big, chunkLimit: 12_000)
+
+        // The assertion that fails if chunkLimit is accepted and ignored.
+        // "it still produced a chronicle" would pass either way.
+        #expect(big.callCount < small.callCount,
+                "12k limit made \(big.callCount) calls, 1.8k made \(small.callCount)")
+        #expect(big.callCount >= 1)
+    }
+
+    @Test("omitting the limit behaves exactly as the old default did")
+    func defaultLimitIsUnchanged() async throws {
+        let day = Chronicler.dayString()
+
+        let explicit = CountingPolishBackend()
+        _ = try await Chronicler.generate(day: day, store: try seededStore(count: 12),
+                                          polish: explicit, chunkLimit: Chronicler.chunkCharLimit)
+
+        let byDefault = CountingPolishBackend()
+        _ = try await Chronicler.generate(day: day, store: try seededStore(count: 12),
+                                          polish: byDefault)
+
+        #expect(byDefault.callCount == explicit.callCount)
     }
 }
