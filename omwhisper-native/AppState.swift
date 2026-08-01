@@ -40,6 +40,13 @@ private let latencyLog = Logger(subsystem: "com.omwhisper.mac", category: "Laten
 /// still launched under that path with only the argument-based check.
 nonisolated let isRunningUnderTests = NSClassFromString("XCTestCase") != nil
 
+/// True for Debug builds carrying the forked .dev bundle ID (see
+/// docs/superpowers/specs/2026-08-01-dev-build-isolation-design.md). Gates
+/// Sparkle: a dev build must never offer to replace itself from the live
+/// appcast. Data/Keychain isolation need no gate — they key off the live
+/// bundle ID directly.
+nonisolated let isDevBuild = (Bundle.main.bundleIdentifier ?? "").hasSuffix(".dev")
+
 // nonisolated: plain data, no MainActor affinity — without this, the project's
 // MainActor-by-default setting also pins the synthesized Equatable conformance,
 // which then can't be used from a nonisolated context (e.g. exitPhase's tests).
