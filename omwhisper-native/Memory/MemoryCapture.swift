@@ -68,34 +68,42 @@ final class MemoryCapture {
 
     private func tick() {
         guard !isSuppressed(), let store else { return }
-        // Silent nil here is the #1 reason "nothing was captured" -- most often a
-        // missing Accessibility grant (captureFrontmost can't read other apps'
-        // AX trees), which produces no error, just nil. Log it so the daemon is
+        // Silent empty here is the #1 reason "nothing was captured" -- most often
+        // a missing Accessibility grant (the AX walk can't read other apps'
+        // trees), which produces no error, just nothing. Log it so the daemon is
         // observable (`log stream --predicate 'category == "MemoryCapture"'`).
-        guard let snapshot = WindowSnapshotReader.captureFrontmost() else {
-            memoryLog.debug("tick — no snapshot (no focused window, excluded, empty text, or missing Accessibility permission)")
-            return
-        }
-        guard !Self.isDomainExcluded(url: snapshot.url, excludedDomains: excludedDomains) else {
-            memoryLog.debug("tick — skipped excluded domain")
+        let snapshots = WindowSnapshotReader.captureVisible()
+        guard !snapshots.isEmpty else {
+            memoryLog.debug("tick — no snapshots (no focused window, excluded, empty text, or missing Accessibility permission)")
             return
         }
 
-        let content = String(snapshot.content.prefix(Self.maxContentLength))
-        do {
-            try store.upsert(
-                appName: snapshot.appName, bundleID: snapshot.bundleID, windowTitle: snapshot.windowTitle,
-                content: content, url: snapshot.url ?? ""
-            )
-            memoryLog.debug("tick — captured \(snapshot.appName, privacy: .public)")
-            // Let the semantic indexer catch up. It works from "snapshots with
-            // no passages yet", so this is just a nudge -- the same code path
-            // that backfills, which means a missed nudge self-heals rather than
-            // leaving a permanently unindexed snapshot.
-            onSnapshotStored()
-        } catch {
-            memoryLog.error("tick — upsert failed: \(error)")
+        var stored = 0
+        for snapshot in snapshots {
+            // Per window, never per tick: a password manager or excluded domain on
+            // the second display must be filtered independently of the first.
+            guard !Self.isDomainExcluded(url: snapshot.url, excludedDomains: excludedDomains) else {
+                memoryLog.debug("tick — skipped excluded domain")
+                continue
+            }
+            let content = String(snapshot.content.prefix(Self.maxContentLength))
+            do {
+                try store.upsert(
+                    appName: snapshot.appName, bundleID: snapshot.bundleID, windowTitle: snapshot.windowTitle,
+                    content: content, url: snapshot.url ?? ""
+                )
+                stored += 1
+                memoryLog.debug("tick — captured \(snapshot.appName, privacy: .public)")
+            } catch {
+                memoryLog.error("tick — upsert failed: \(error)")
+            }
         }
+
+        // Let the semantic indexer catch up. It works from "snapshots with no
+        // passages yet", so this is just a nudge -- the same code path that
+        // backfills, which means a missed nudge self-heals rather than leaving a
+        // permanently unindexed snapshot.
+        if stored > 0 { onSnapshotStored() }
     }
 
     private func pruneNow() {
