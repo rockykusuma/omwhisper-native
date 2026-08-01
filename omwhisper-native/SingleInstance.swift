@@ -23,7 +23,10 @@ nonisolated enum SingleInstance {
     /// Cross-process ping the losing launch sends so the winner surfaces itself.
     /// A menu-bar app that just exits silently reads as "it didn't launch", which
     /// is exactly what makes someone launch it a third time.
-    static let openHubNotification = Notification.Name("com.omwhisper.mac.openHub")
+    /// Derived from the live bundle ID so the .dev build and the installed app
+    /// have separate channels — they can't hear each other's pings.
+    static let openHubNotification = Notification.Name(
+        "\(Bundle.main.bundleIdentifier ?? "com.omwhisper.mac").openHub")
 
     /// First PID in `pids` that isn't us. Split out and tested because getting
     /// the self-exclusion wrong means the app refuses to ever launch again --
