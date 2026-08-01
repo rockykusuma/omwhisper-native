@@ -156,15 +156,17 @@ final class AppState {
             }
         }
     }
-    /// Hub/menu-bar-panel appearance. `.system` (default) follows macOS; `.light`/
-    /// `.dark` override it. Drives the window's NSAppearance + SwiftUI colorScheme
-    /// (see HubShellView). access/withMutation needed for the same reason as
+    /// Hub/menu-bar-panel appearance. `.light` (default, R's call 2026-08-01 —
+    /// the Porcelain look IS the app's face; a dark-mode Mac otherwise never
+    /// sees it) — `.system`/`.dark` remain explicit choices in the picker.
+    /// Drives the window's NSAppearance + SwiftUI colorScheme (see
+    /// HubShellView). access/withMutation needed for the same reason as
     /// polishBackend — it backs a Picker that must re-highlight on change.
     var appearancePreference: AppearancePreference {
         get {
             access(keyPath: \.appearancePreference)
-            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.appearancePreference) else { return .system }
-            return AppearancePreference(rawValue: raw) ?? .system
+            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.appearancePreference) else { return .light }
+            return AppearancePreference(rawValue: raw) ?? .light
         }
         set {
             withMutation(keyPath: \.appearancePreference) {
