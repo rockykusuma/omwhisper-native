@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct HubMeetingsSectionView: View {
     @Environment(AppState.self) private var appState
@@ -312,7 +313,14 @@ private struct MeetingDetailView: View {
                     .fixedSize()
                 }
                 if !turns.isEmpty {
-                    Button("Copy transcript") { copyTranscript() }
+                    Menu("Share") {
+                        Button("Copy transcript") { copyTranscript() }
+                        Button("Copy summary") { copySummary() }
+                        Divider()
+                        Button("Export as Markdown…") { exportMeeting(.markdown, ext: "md") }
+                        Button("Export as Text…") { exportMeeting(.text, ext: "txt") }
+                    }
+                    .fixedSize()
                 }
                 Button("Edit details") { beginEditingDetails() }
                     .disabled(busy)
@@ -482,6 +490,24 @@ private struct MeetingDetailView: View {
 
     private var allTemplates: [PolishStyle] {
         MeetingSummarizer.builtInTemplates + appState.customMeetingTemplates
+    }
+
+    private func copySummary() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(meeting.summary ?? "", forType: .string)
+    }
+
+    /// Same NSSavePanel shape as HistoryView.export — one established pattern
+    /// for "write a file the user names".
+    private func exportMeeting(_ format: MeetingExportFormat, ext: String) {
+        let content = MeetingDetails.export(meeting, format: format)
+        let panel = NSSavePanel()
+        let base = (meeting.title ?? meeting.appName).replacingOccurrences(of: "/", with: "-")
+        panel.nameFieldStringValue = "\(base).\(ext)"
+        panel.allowedContentTypes = [UTType(filenameExtension: ext) ?? .plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try content.write(to: url, atomically: true, encoding: .utf8) }
+        catch { errorMessage = error.localizedDescription }
     }
 
     private func regenerate(templateID: UUID?) {

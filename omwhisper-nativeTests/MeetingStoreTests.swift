@@ -200,6 +200,53 @@ struct MeetingStoreTests {
         #expect(got?.attendees == ["Alice"])
     }
 
+    @Test func exportMarkdownCarriesHeaderSummaryAndResolvedTranscript() throws {
+        let store = try makeStore()
+        let id = try store.insert(Meeting(
+            id: nil, startedAt: "2026-08-01T10:00:00Z", appName: "Zoom",
+            directory: "/tmp/omw-export", durationSeconds: 900,
+            transcript: nil, summary: nil, createdAt: "2026-08-01T10:00:00Z",
+            title: "Q3 Planning", attendees: ["Alice", "Bob"]))
+        try store.setTranscriptAndSummary(
+            id: id, transcript: "**Speaker 1:** [0:01]\nhello", summary: "## Summary\nshort")
+        try store.setSpeakerNames(id: id, ["Speaker 1": "Alice"])
+        let meeting = try #require(try store.get(id: id))
+
+        let md = MeetingDetails.export(meeting, format: .markdown)
+        #expect(md.contains("# Q3 Planning"))
+        #expect(md.contains("Alice, Bob"))
+        #expect(md.contains("## Summary"))
+        #expect(md.contains("**Alice:**"))     // renamed, not "Speaker 1"
+        #expect(!md.contains("Speaker 1"))
+    }
+
+    /// Plain text must not leak markdown syntax — that's the whole point of
+    /// offering it as a separate format.
+    @Test func exportTextStripsMarkdownMarkers() throws {
+        let store = try makeStore()
+        let id = try store.insert(Meeting(
+            id: nil, startedAt: "2026-08-01T10:00:00Z", appName: "Zoom",
+            directory: "/tmp/omw-export2", durationSeconds: 60,
+            transcript: nil, summary: nil, createdAt: "2026-08-01T10:00:00Z",
+            title: "Retro"))
+        try store.setTranscriptAndSummary(
+            id: id, transcript: "**You:** [0:01]\nhi", summary: "## Summary\nshort")
+        let meeting = try #require(try store.get(id: id))
+
+        let txt = MeetingDetails.export(meeting, format: .text)
+        #expect(txt.contains("Retro"))
+        #expect(txt.contains("You:"))
+        #expect(!txt.contains("**"))
+        #expect(!txt.contains("## "))
+    }
+
+    @Test func exportUsesAppNameWhenUntitled() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Webex")
+        let meeting = try #require(try store.get(id: id))
+        #expect(MeetingDetails.export(meeting, format: .markdown).contains("# Webex"))
+    }
+
     @Test func setSummaryUpdatesOnlyTheSummary() throws {
         let store = try makeStore()
         let id = try seed(store, app: "Zoom")

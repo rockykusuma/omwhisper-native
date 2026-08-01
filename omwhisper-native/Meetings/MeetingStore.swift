@@ -38,10 +38,43 @@ nonisolated enum MeetingStoreError: Error, LocalizedError {
     var errorDescription: String? { "That meeting could not be found." }
 }
 
-/// Parsing for user-typed meeting details. Separate from MeetingStore so the
+nonisolated enum MeetingExportFormat { case markdown, text }
+
+/// Parsing and rendering for meeting details. Separate from MeetingStore so the
 /// logic is testable without touching a database, matching how
 /// MeetingDiarization holds the pure half of the transcript pipeline.
 nonisolated enum MeetingDetails {
+    /// One meeting as a self-contained document: header, summary, transcript
+    /// with speaker renames applied. Pure — the save panel lives in the view.
+    static func export(_ meeting: Meeting, format: MeetingExportFormat) -> String {
+        let transcript = MeetingDiarization.applySpeakerNames(
+            meeting.transcript ?? "", names: meeting.speakerNames ?? [:])
+        var out = "# \(meeting.title ?? meeting.appName)\n\n"
+        out += "\(meeting.startedAt) · \(Int(meeting.durationSeconds / 60))m · \(meeting.appName)\n"
+        if let attendees = meeting.attendees, !attendees.isEmpty {
+            out += "With \(attendees.joined(separator: ", "))\n"
+        }
+        if let summary = meeting.summary, !summary.isEmpty {
+            out += "\n\(summary)\n"
+        }
+        out += "\n## Transcript\n\n\(transcript.isEmpty ? "(not transcribed)" : transcript)\n"
+        return format == .markdown ? out : stripMarkdown(out)
+    }
+
+    /// Markdown -> plain text: drop heading hashes and bold markers, keep the
+    /// words and the line structure. Deliberately not a markdown parser — the
+    /// input is only ever what export() just wrote plus model-written summary
+    /// markdown, and both use exactly these two markers.
+    private static func stripMarkdown(_ text: String) -> String {
+        text.components(separatedBy: .newlines)
+            .map { line -> String in
+                var l = line
+                while l.hasPrefix("#") { l.removeFirst() }
+                return l.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "**", with: "")
+            }
+            .joined(separator: "\n")
+    }
+
     /// "Alice, Bob Kumar,  Priya " -> ["Alice", "Bob Kumar", "Priya"].
     /// Empty entries are dropped, so trailing commas and stray spaces while
     /// typing never produce blank attendees. A blank line yields [] — callers
