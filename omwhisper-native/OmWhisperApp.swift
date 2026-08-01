@@ -35,7 +35,7 @@ struct OmWhisperApp: App {
             delegate.openDesignGalleryAction = openWindow
             #endif
         }()
-        Window("OmWhisper", id: "hub") {
+        Window(appDisplayName, id: "hub") {
             HubShellView()
                 .environment(delegate.appState)
         }

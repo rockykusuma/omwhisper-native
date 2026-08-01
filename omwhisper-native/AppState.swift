@@ -47,6 +47,12 @@ nonisolated let isRunningUnderTests = NSClassFromString("XCTestCase") != nil
 /// bundle ID directly.
 nonisolated let isDevBuild = (Bundle.main.bundleIdentifier ?? "").hasSuffix(".dev")
 
+/// The name this build shows the user — "OmWhisper-Dev" for the Debug fork,
+/// "OmWhisper" for Release. Read from the bundle so in-app branding (sidebar,
+/// hub window title) can never disagree with what Cmd-Tab and Finder show.
+nonisolated let appDisplayName =
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "OmWhisper"
+
 // nonisolated: plain data, no MainActor affinity — without this, the project's
 // MainActor-by-default setting also pins the synthesized Equatable conformance,
 // which then can't be used from a nonisolated context (e.g. exitPhase's tests).

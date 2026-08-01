@@ -252,7 +252,7 @@ struct HubShellView: View {
         HStack(spacing: 11) {
             OmBrandJewel(appState: appState, size: 38)
             VStack(alignment: .leading, spacing: 1) {
-                Text("OmWhisper")
+                Text(appDisplayName)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color.Porcelain.ink)
                 // Read the version; do not hardcode it. This said "2.0" while the

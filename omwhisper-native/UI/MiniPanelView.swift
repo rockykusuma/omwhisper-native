@@ -60,7 +60,7 @@ struct MiniPanelView: View {
         HStack(spacing: 10) {
             OmBrandJewel(appState: appState, size: 40)
             VStack(alignment: .leading, spacing: 1) {
-                Text("OmWhisper")
+                Text(appDisplayName)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.Porcelain.ink)
                 Text(statusLine)
