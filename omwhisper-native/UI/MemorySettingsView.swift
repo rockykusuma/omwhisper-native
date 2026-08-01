@@ -20,7 +20,7 @@ struct MemorySettingsView: View {
                 Toggle("Pause capture", isOn: $state.memoryPaused)
                 Stepper("Keep for \(state.memoryRetentionDays) days", value: $state.memoryRetentionDays, in: 1...365)
             }
-            Text("Periodically captures the frontmost window's visible text into a private, local, searchable memory — never leaves this Mac, off by default. Password managers and private/incognito browsing are always excluded.")
+            Text("Periodically captures visible windows' text — the one you're working in, plus the frontmost window on each other display — into a private, local, searchable memory. Never leaves this Mac, off by default. Password managers and private/incognito browsing are always excluded.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

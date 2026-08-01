@@ -87,7 +87,7 @@ struct HubMemorySectionView: View {
         VStack(spacing: 8) {
             Spacer()
             Text("🧠").font(.system(size: 40))
-            Text("Periodically captures the frontmost window's visible text into a private, local, searchable memory — never leaves this Mac. Password managers and private/incognito browsing are always excluded.")
+            Text("Periodically captures visible windows' text — the one you're working in, plus the frontmost window on each other display — into a private, local, searchable memory. Never leaves this Mac. Password managers and private/incognito browsing are always excluded.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
