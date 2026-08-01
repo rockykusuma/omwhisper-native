@@ -497,6 +497,12 @@ final class AppState {
             try meetingRecorder.start(appName: appName, preferredMicUID: audioInputDeviceUID)
             meetingStartedAt = Date()
             meetingAppName = appName
+            // Watcher pid in both auto and manual flows (enterRecording sets it
+            // before this runs); frontmost as a last resort for manual recordings
+            // of unrecognized apps.
+            let pid = meetingWatcher.recordingPID
+                ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+            meetingWindowTitle = pid.flatMap { CallDetection.callWindowTitle(pid: $0) }
             isRecordingMeeting = true
         } catch {
             log.error("meeting recording failed to start: \(error)")
@@ -554,6 +560,9 @@ final class AppState {
                 """
             errorMessage = "Recording captured no audio — grant “System Audio Recording” in System Settings."
         }
+        let title = meetingWindowTitle.flatMap {
+            CallDetection.cleanedMeetingTitle(windowTitle: $0, appName: meetingAppName ?? "Meeting")
+        }
         do {
             let id = try store.insert(Meeting(
                 id: nil,
@@ -562,7 +571,8 @@ final class AppState {
                 directory: dir.path,
                 durationSeconds: duration,
                 transcript: transcript, summary: nil,
-                createdAt: iso.string(from: Date())
+                createdAt: iso.string(from: Date()),
+                title: title
             ))
             // Transcribe straight away rather than waiting for the user to open the
             // meeting and press a button. Skipped when `transcript` is already set —
@@ -575,6 +585,7 @@ final class AppState {
         }
         meetingStartedAt = nil
         meetingAppName = nil
+        meetingWindowTitle = nil
     }
 
     /// Meetings currently being transcribed. Drives the list's "Transcribing…"
@@ -1015,6 +1026,9 @@ final class AppState {
     @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
     @ObservationIgnored private var meetingStartedAt: Date?
     @ObservationIgnored private var meetingAppName: String?
+    /// Raw call-window title captured at record start (the window is often gone
+    /// by stop time — auto-stop fires BECAUSE it disappeared). Cleaned at insert.
+    @ObservationIgnored private var meetingWindowTitle: String?
     /// True whenever a meeting is being recorded — auto-detected OR manual.
     /// Observable (not @ObservationIgnored) so the hub button and mini-panel row
     /// reflect it. Flipped only in beginRecording/endRecording.

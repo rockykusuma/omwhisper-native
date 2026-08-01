@@ -46,4 +46,23 @@ struct CallDetectionTests {
         #expect(!CallDetection.hasCallLikeTitle("Inbox — Slack"))
         #expect(!CallDetection.hasCallLikeTitle(""))
     }
+
+    @Test func cleanedTitleTakesFirstSegmentOfBrowserTitle() {
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Q3 Planning - Google Meet - Google Chrome", appName: "Chrome") == "Q3 Planning")
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Weekly Sync – Zoom", appName: "Zoom") == "Weekly Sync")
+    }
+
+    @Test func cleanedTitleRejectsUselessTitles() {
+        #expect(CallDetection.cleanedMeetingTitle(windowTitle: "Zoom", appName: "Zoom") == nil)
+        #expect(CallDetection.cleanedMeetingTitle(windowTitle: "  ", appName: "Teams") == nil)
+        #expect(CallDetection.cleanedMeetingTitle(windowTitle: "zoom - Meeting", appName: "Zoom") == nil)
+    }
+
+    @Test func cleanedTitleKeepsPlainTitles() {
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Design review with hardware team", appName: "Teams")
+            == "Design review with hardware team")
+    }
 }

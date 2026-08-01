@@ -35,7 +35,8 @@ final class MeetingWatcher {
     private var pollTimer: Timer?
     private var activeSince: ContinuousClock.Instant?
     /// The pid of the app whose call we're recording — for the AX window auto-stop.
-    private var recordingPID: pid_t?
+    /// private(set): AppState reads it at record start to capture the window title.
+    private(set) var recordingPID: pid_t?
     /// pid captured at prompt time, promoted to recordingPID if consent is accepted.
     private var pendingCallPID: pid_t?
     /// True once we've observed the recorded call's window during this recording.

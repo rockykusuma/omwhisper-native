@@ -75,6 +75,40 @@ nonisolated enum CallDetection {
         return false
     }
 
+    /// The recorded call's window title, for use as the meeting's display title:
+    /// prefer a call-like-titled window, else the longest non-empty title
+    /// (browser tabs put the meeting name in long titles). Same AX enumeration
+    /// as hasActiveCallWindow; nil when AX yields nothing.
+    static func callWindowTitle(pid: pid_t) -> String? {
+        let app = AXUIElementCreateApplication(pid)
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement] else { return nil }
+        var titles: [String] = []
+        for window in windows {
+            var titleRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
+               let title = titleRef as? String,
+               !title.trimmingCharacters(in: .whitespaces).isEmpty {
+                titles.append(title)
+            }
+        }
+        return titles.first(where: hasCallLikeTitle) ?? titles.max { $0.count < $1.count }
+    }
+
+    /// Pure: raw window title → meeting display title. Takes the first
+    /// " – "/" - " segment (browsers suffix the product and browser names),
+    /// nil when nothing usable remains — empty, or just the app's own name.
+    static func cleanedMeetingTitle(windowTitle: String, appName: String) -> String? {
+        let first = windowTitle
+            .components(separatedBy: " – ").first!
+            .components(separatedBy: " - ").first!
+            .trimmingCharacters(in: .whitespaces)
+        guard !first.isEmpty,
+              first.localizedCaseInsensitiveCompare(appName) != .orderedSame else { return nil }
+        return first
+    }
+
     /// The first running recognized call app that appears to be in a call, as
     /// (name, pid). Non-verification apps (Zoom/FaceTime) count on being run
     /// while the mic is active (the watcher only calls this when the mic is on);
