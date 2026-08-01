@@ -14,6 +14,7 @@
 
 import EventKit
 import Foundation
+import os
 
 nonisolated enum MeetingCalendar {
     struct Match: Equatable {
@@ -26,8 +27,17 @@ nonisolated enum MeetingCalendar {
     }
 
     /// Triggers the system prompt on first call (macOS 14+ full-access API).
+    /// The error is logged, never swallowed silently: a missing entitlement or
+    /// usage string fails with no prompt and no TCC entry, and the log line is
+    /// the only thing that distinguishes that from the user clicking Deny.
     static func requestAccess() async -> Bool {
-        (try? await EKEventStore().requestFullAccessToEvents()) ?? false
+        do {
+            return try await EKEventStore().requestFullAccessToEvents()
+        } catch {
+            Logger(subsystem: "com.omwhisper.mac", category: "MeetingCalendar")
+                .error("requestFullAccessToEvents failed: \(error)")
+            return false
+        }
     }
 
     /// Pure: index of the candidate with the greatest positive time-overlap

@@ -4,5 +4,10 @@
 <dict>
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- Hardened Runtime gates EventKit like it gates the mic (the M1 lesson):
+	     without this, requestFullAccessToEvents fails silently — no prompt,
+	     no TCC entry. Pairs with NSCalendarsFullAccessUsageDescription. -->
+	<key>com.apple.security.personal-information.calendars</key>
+	<true/>
 </dict>
 </plist>
