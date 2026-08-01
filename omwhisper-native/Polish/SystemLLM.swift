@@ -25,8 +25,39 @@ nonisolated struct SystemLLM: PolishBackend {
         var errorDescription: String? { "Polish timed out" }
     }
 
-    static func isAvailable() -> Bool {
-        SystemLanguageModel.default.availability == .available
+    static func isAvailable() -> Bool { unavailableReason() == nil }
+
+    /// nil when Foundation Models can actually be used; otherwise a sentence
+    /// naming the real cause.
+    ///
+    /// `availability == .available` alone is NOT a sufficient gate, and that
+    /// was a real shipped bug: on an `en_IN` Mac availability reports
+    /// `.available` while `supportedLanguages` contains only 23 locales --
+    /// `en-US`, `en-GB` and `en-AU`, but not `en-IN` -- so every generation
+    /// threw `unsupportedLanguageOrLocale`. Chronicles surfaced that as a raw
+    /// alert; polish surfaced nothing at all, because its fail-safe pastes the
+    /// original text, so Smart Dictation silently did nothing for months.
+    /// Measured on the real machine, not inferred.
+    static func unavailableReason() -> String? {
+        let model = SystemLanguageModel.default
+        switch model.availability {
+        case .unavailable(.deviceNotEligible):
+            return "Apple Intelligence isn't supported on this Mac."
+        case .unavailable(.appleIntelligenceNotEnabled):
+            return "Apple Intelligence is turned off — enable it in System Settings."
+        case .unavailable(.modelNotReady):
+            return "Apple Intelligence is still downloading its model."
+        case .unavailable:
+            return "Apple Intelligence is unavailable."
+        case .available:
+            break
+        }
+
+        let current = Locale.current.language
+        guard !model.supportedLanguages.contains(current) else { return nil }
+        let name = Locale.current.localizedString(forIdentifier: Locale.current.identifier)
+            ?? Locale.current.identifier
+        return "Apple Intelligence doesn't support your Mac's language (\(name))."
     }
 
     func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {

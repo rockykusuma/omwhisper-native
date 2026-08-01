@@ -724,7 +724,7 @@ final class AppState {
                 template: MeetingSummarizer.template(id: meetingTemplateID, custom: customMeetingTemplates))
         } else if !didNudgeFoundationModelsUnavailable {
             didNudgeFoundationModelsUnavailable = true
-            errorMessage = "Apple Intelligence is off — enable it in Settings > AI to summarize meetings. Transcript saved without a summary."
+            errorMessage = systemUnavailableMessage("summarize meetings") + " Transcript saved without a summary."
         }
         // Fresh diarization labels are not stable across runs — a mapping made
         // for the old labels would rename the wrong people. Reset it.
@@ -744,7 +744,7 @@ final class AppState {
             throw MeetingStoreError.notFound
         }
         guard !meetingSummaryBackends().isEmpty else {
-            errorMessage = "No on-device summarizer available — turn on Apple Intelligence, or select Ollama in Settings > AI."
+            errorMessage = systemUnavailableMessage("summarize on-device")
             return meeting
         }
         let resolved = MeetingDiarization.applySpeakerNames(
@@ -770,7 +770,7 @@ final class AppState {
             return nil
         }
         guard let candidate = meetingSummaryBackends().first else {
-            errorMessage = "No on-device summarizer available — turn on Apple Intelligence, or select Ollama in Settings > AI."
+            errorMessage = systemUnavailableMessage("summarize on-device")
             return nil
         }
         let resolved = MeetingDiarization.applySpeakerNames(
@@ -796,7 +796,7 @@ final class AppState {
             return nil
         }
         guard let candidate = meetingSummaryBackends().first else {
-            errorMessage = "No on-device summarizer available — turn on Apple Intelligence, or select Ollama in Settings > AI."
+            errorMessage = systemUnavailableMessage("summarize on-device")
             return nil
         }
         do {
@@ -955,6 +955,15 @@ final class AppState {
 
     /// One place that builds the value, so the two setters above cannot drift
     /// (each one only knows its own new value; the other must be read fresh).
+    /// Why the on-device model can't do `action`, plus what to do instead.
+    /// Built from SystemLLM's real reason rather than assuming "it's switched
+    /// off" -- on an unsupported-language Mac, Apple Intelligence IS on, and
+    /// telling the user to enable it sends them somewhere that looks correct.
+    func systemUnavailableMessage(_ action: String) -> String {
+        let cause = SystemLLM.unavailableReason() ?? "The on-device model is unavailable."
+        return "\(cause) Select Ollama in Settings › AI to \(action)."
+    }
+
     private func currentMemoryExclusions(apps: [String]? = nil, keywords: [String]? = nil) -> MemoryExclusions {
         MemoryExclusions(
             apps: Set(apps ?? memoryExcludedApps),
@@ -964,6 +973,14 @@ final class AppState {
 
     func regenerateChronicle(day: String) async throws -> Chronicler.ChronicleResult {
         guard let memoryStore else { throw Chronicler.ChroniclerError.noSnapshots }
+        // Chronicles are System-only (their chunking is tuned to SystemLLM's
+        // envelope), so an unusable on-device model means no chronicle at all.
+        // Say why here rather than letting FoundationModels' raw error surface.
+        guard SystemLLM.isAvailable() else {
+            throw Chronicler.ChroniclerError.backendUnavailable(
+                systemUnavailableMessage("write chronicles — but chronicles don't use Ollama yet")
+            )
+        }
         return try await Chronicler.generate(day: day, store: memoryStore, polish: systemLLM)
     }
 
@@ -1947,7 +1964,7 @@ final class AppState {
         if polishBackend == .system, !SystemLLM.isAvailable() {
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
-                errorMessage = "Apple Intelligence is off — enable it in Settings > AI to use polish, or pasted raw text for now."
+                errorMessage = systemUnavailableMessage("polish") + " Pasted raw text for now."
             }
             return original
         }
@@ -1980,7 +1997,7 @@ final class AppState {
         if polishBackend == .system, !SystemLLM.isAvailable() {
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
-                errorMessage = "Apple Intelligence is off — enable it in Settings > AI to structure brain-dumps, or pasted raw text for now."
+                errorMessage = systemUnavailableMessage("structure brain-dumps") + " Pasted raw text for now."
             }
             return original
         }

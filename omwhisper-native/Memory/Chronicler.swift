@@ -24,7 +24,17 @@ nonisolated enum Chronicler {
 
     enum ChroniclerError: Error, LocalizedError, Equatable {
         case noSnapshots
-        var errorDescription: String? { "No captured activity for that day." }
+        /// Carries the caller's already-composed explanation, so the user sees
+        /// why the on-device model can't run rather than the framework's raw
+        /// "An unsupported language or locale was used".
+        case backendUnavailable(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .noSnapshots: "No captured activity for that day."
+            case .backendUnavailable(let reason): reason
+            }
+        }
     }
 
     static let perSnapshotLimit = 500
