@@ -23,6 +23,12 @@ nonisolated struct Meeting: Codable, FetchableRecord, MutablePersistableRecord, 
     var transcript: String?
     var summary: String?
     var createdAt: String
+    // v2 (SP1 meeting identity). All optional with nil defaults so v1 rows and
+    // existing call sites are untouched. attendees/speakerNames are stored as
+    // JSON TEXT (GRDB encodes Codable collection properties as JSON).
+    var title: String? = nil
+    var attendees: [String]? = nil
+    var speakerNames: [String: String]? = nil
 
     mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
@@ -56,6 +62,29 @@ nonisolated final class MeetingStore: Sendable {
                 t.column("appName")
             }
         }
+        migrator.registerMigration("meetingIdentity") { db in
+            try db.alter(table: Meeting.databaseTableName) { t in
+                t.add(column: "title", .text)
+                t.add(column: "attendees", .text)
+                t.add(column: "speakerNames", .text)
+            }
+            // Recreate the FTS mirror to index title. synchronize() installed
+            // triggers on `meetings` whose bodies reference meetings_fts; their
+            // exact names are GRDB-internal, so find them via sqlite_master.
+            let triggers = try String.fetchAll(db, sql: """
+                SELECT name FROM sqlite_master
+                WHERE type = 'trigger' AND sql LIKE '%meetings_fts%'
+                """)
+            for name in triggers { try db.execute(sql: "DROP TRIGGER \"\(name)\"") }
+            try db.drop(table: "meetings_fts")
+            try db.create(virtualTable: "meetings_fts", using: FTS5()) { t in
+                t.synchronize(withTable: Meeting.databaseTableName)
+                t.column("transcript")
+                t.column("summary")
+                t.column("appName")
+                t.column("title")
+            }
+        }
         try migrator.migrate(dbQueue)
     }
 
@@ -80,6 +109,17 @@ nonisolated final class MeetingStore: Sendable {
             guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
             m.transcript = transcript
             m.summary = summary
+            try m.update(db)
+        }
+    }
+
+    /// Replace the whole raw-label → display-name mapping (nil clears it).
+    /// Re-transcribing produces fresh, unstable diarization labels, so callers
+    /// reset this rather than trying to migrate names across runs.
+    func setSpeakerNames(id: Int64, _ names: [String: String]?) throws {
+        try dbQueue.write { db in
+            guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
+            m.speakerNames = names
             try m.update(db)
         }
     }
