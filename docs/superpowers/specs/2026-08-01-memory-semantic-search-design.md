@@ -24,11 +24,13 @@ existing 90-day retention bounding steady state near 26k.
 2. **Passages of ~1,000 chars**, not whole snapshots. A 6,350-char page collapsed to one
    vector is mush, and chunking is what lets the UI show *which* passage matched.
    ~6 passages/snapshot → ~40k vectors today.
-3. **Spike both embedding models before committing.** `NLEmbedding.sentenceEmbedding` and
-   `NLContextualEmbedding` both exist in the macOS 26 SDK (verified in the headers, not
-   assumed), but which retrieves better on real snapshots cannot be read off an API. Measure
-   first — the same discipline that killed a wrong Windows assumption in twenty minutes, and
-   the discipline whose absence let "vocabulary biasing works" stand unmeasured for weeks.
+3. **Embedder: `NLEmbedding.sentenceEmbedding`** — settled by the spike
+   (`2026-08-01-memory-embedding-spike.md`, run 2026-08-01 on a copy of the real store).
+   Comparable quality to `NLContextualEmbedding`, no model asset to download, and far cheaper
+   on short text. ~218 ms/snapshot for full content; backfill of the existing 6,076 snapshots
+   ≈ 20 minutes in the background. **Model choice is weakly evidenced** — if real-world
+   quality disappoints, try a CoreML retrieval-trained bi-encoder before concluding semantic
+   search cannot work; Apple's APIs are general-purpose similarity, not retrieval-trained.
 4. **Hybrid, never a replacement.** Keyword search stays and still wins for names, error
    codes and IDs. If embeddings are unavailable or fail, search degrades silently to exactly
    today's behaviour.
@@ -37,6 +39,7 @@ existing 90-day retention bounding steady state near 26k.
 
 | Piece | Responsibility |
 |---|---|
+| `BoilerplateFilter` | Pure. Strips tokens that recur across snapshots **of the same app**. The spike measured 58% of a median Arc snapshot as sidebar/pinned-tab chrome, and Arc is 59% of the corpus. Computing this globally instead of per-app found 32 tokens instead of 93 and barely helped — so per-app is load-bearing, not an optimisation. |
 | `PassageChunker` | Pure. Snapshot text → ~1,000-char passages split on paragraph/sentence boundaries, never mid-word. Where the real logic lives; fully unit-tested. |
 | `MemoryEmbedding` | Protocol with one method, text → `[Float]?`. The spike's winner implements it; the loser stays swappable. Returns nil on failure rather than throwing. |
 | `MemoryStore` v2 | New `passages` table — `snapshotId`, `ordinal`, `text`, `vector BLOB` — with cascade delete so pruning a snapshot takes its passages. |
@@ -54,6 +57,11 @@ lists, needs no tuning, and is a pure function that tests exactly.
 
 The result row shows the **matching passage** rather than a generic preview — the
 quality-of-life win that only chunking makes possible.
+
+**Results must be diversified.** The spike found one query whose entire top 3 was the same app
+(`Claude` windows): plausible content, but three near-identical rows are a worse answer than
+three distinct sources. Cap consecutive hits from the same app/window, or collapse
+near-duplicates before display.
 
 ## Indexing
 
