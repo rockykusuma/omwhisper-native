@@ -32,6 +32,20 @@ nonisolated struct MemoryChronicle: Codable, FetchableRecord, PersistableRecord,
     var createdAt: String
 }
 
+/// One ~1000-char chunk of a snapshot plus its embedding. Separate rows rather
+/// than one vector per snapshot: a 6,350-char page collapsed to a single point
+/// retrieves badly, and passages are what let the UI show which part matched.
+nonisolated struct MemoryPassage: Codable, FetchableRecord, MutablePersistableRecord, Identifiable {
+    static let databaseTableName = "passages"
+    var id: Int64?
+    var snapshotId: Int64
+    var ordinal: Int
+    var text: String
+    var vector: Data          // float16, see SemanticIndexing.encode
+
+    mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+}
+
 nonisolated final class MemoryStore: Sendable {
     /// internal, not private -- MemoryStoreTests reaches in to backdate a
     /// row directly, the only way to exercise prune()'s real deletion path
@@ -73,6 +87,20 @@ nonisolated final class MemoryStore: Sendable {
                 t.column("snapshotCount", .integer).notNull()
                 t.column("createdAt", .text).notNull()
             }
+        }
+        migrator.registerMigration("createPassages") { db in
+            try db.create(table: MemoryPassage.databaseTableName) { t in
+                t.autoIncrementedPrimaryKey("id")
+                // Cascade: prune() deletes snapshots directly, and an orphaned
+                // vector index would grow forever.
+                t.column("snapshotId", .integer).notNull()
+                    .references(MemorySnapshot.databaseTableName, onDelete: .cascade)
+                t.column("ordinal", .integer).notNull()
+                t.column("text", .text).notNull()
+                t.column("vector", .blob).notNull()
+            }
+            try db.create(index: "passages_snapshot", on: MemoryPassage.databaseTableName,
+                          columns: ["snapshotId"])
         }
         try migrator.migrate(dbQueue)
     }
@@ -119,6 +147,87 @@ nonisolated final class MemoryStore: Sendable {
                 content: content, url: url, contentHash: hash, now: now
             )
             try row.save(db)
+        }
+    }
+
+    // MARK: - Passages (semantic search)
+
+    /// Replace every passage for a snapshot. Replace, not append: re-indexing
+    /// after a content change must not leave the old vectors behind.
+    func replacePassages(snapshotId: Int64, passages: [(text: String, vector: Data)]) throws {
+        try dbQueue.write { db in
+            try MemoryPassage.filter(Column("snapshotId") == snapshotId).deleteAll(db)
+            for (i, p) in passages.enumerated() {
+                var row = MemoryPassage(id: nil, snapshotId: snapshotId, ordinal: i,
+                                        text: p.text, vector: p.vector)
+                try row.insert(db)
+            }
+        }
+    }
+
+    /// Every vector, for the in-memory cosine scan. At ~40k passages this is a
+    /// few tens of MB and a few million float ops -- an ANN index would be
+    /// complexity for no measurable gain at this scale.
+    func allPassageVectors() throws -> [(snapshotId: Int64, ordinal: Int, vector: Data, text: String)] {
+        try dbQueue.read { db in
+            try MemoryPassage.fetchAll(db).map {
+                ($0.snapshotId, $0.ordinal, $0.vector, $0.text)
+            }
+        }
+    }
+
+    /// Backfill driver: snapshots with no passages yet, oldest first. This query
+    /// IS the cursor, so an interrupted backfill simply resumes.
+    func snapshotsMissingPassages(limit: Int) throws -> [MemorySnapshot] {
+        try dbQueue.read { db in
+            try MemorySnapshot.fetchAll(db, sql: """
+                SELECT snapshots.* FROM snapshots
+                LEFT JOIN passages ON passages.snapshotId = snapshots.id
+                WHERE passages.id IS NULL
+                ORDER BY snapshots.id ASC
+                LIMIT ?
+                """, arguments: [limit])
+        }
+    }
+
+    /// Keyword and semantic ranked independently, then fused. `embedder == nil`,
+    /// an unembeddable query, or an empty passage table all fall through to
+    /// exactly today's keyword behaviour -- a user who never enables this must
+    /// see no change.
+    func hybridSearch(_ query: String, embedder: MemoryEmbedder?, limit: Int = 20) throws
+        -> [(snapshot: MemorySnapshot, matchedPassage: String?)] {
+        let keywordHits = try search(query, limit: limit)
+        let keywordIDs = keywordHits.compactMap(\.id)
+
+        guard let embedder, let qv = embedder.vector(query) else {
+            return keywordHits.map { ($0, nil) }
+        }
+
+        // Best-scoring passage per snapshot.
+        var best: [Int64: (score: Float, text: String)] = [:]
+        for row in try allPassageVectors() {
+            let score = SemanticIndexing.cosine(qv, SemanticIndexing.decode(row.vector))
+            if score > (best[row.snapshotId]?.score ?? -1) {
+                best[row.snapshotId] = (score, row.text)
+            }
+        }
+        guard !best.isEmpty else { return keywordHits.map { ($0, nil) } }
+
+        let semanticIDs = best.sorted { $0.value.score > $1.value.score }
+            .prefix(limit).map(\.key)
+        let fused = SemanticIndexing.fuse(keyword: keywordIDs, semantic: Array(semanticIDs))
+
+        var byID = Dictionary(uniqueKeysWithValues: keywordHits.compactMap { s in s.id.map { ($0, s) } })
+        let missing = fused.filter { byID[$0] == nil }
+        if !missing.isEmpty {
+            try dbQueue.read { db in
+                for s in try MemorySnapshot.fetchAll(db, keys: missing) {
+                    if let id = s.id { byID[id] = s }
+                }
+            }
+        }
+        return fused.prefix(limit).compactMap { id in
+            byID[id].map { ($0, best[id]?.text) }
         }
     }
 

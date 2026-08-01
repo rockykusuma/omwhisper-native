@@ -242,4 +242,99 @@ struct MemoryStoreTests {
         let store = try makeStore()
         #expect(try store.getSnapshot(id: 999) == nil)
     }
+
+    // MARK: - passages (semantic search)
+
+    @Test func passagesRoundTripAndReplaceCleanly() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Arc", bundleID: "com.arc", windowTitle: "T",
+                         content: "radiology appointment booking", url: "")
+        let snap = try #require(try store.fetchPage(offset: 0, limit: 1).first)
+        let id = try #require(snap.id)
+
+        try store.replacePassages(snapshotId: id, passages: [("first", Data([1, 2])), ("second", Data([3, 4]))])
+        #expect(try store.allPassageVectors().count == 2)
+
+        // Replacing is not appending — re-indexing a snapshot must not duplicate.
+        try store.replacePassages(snapshotId: id, passages: [("only", Data([5, 6]))])
+        let rows = try store.allPassageVectors()
+        #expect(rows.count == 1)
+        #expect(rows.first?.text == "only")
+    }
+
+    /// Deleting a snapshot must take its passages: the prune runs daily and an
+    /// orphaned vector index would grow without bound.
+    @Test func deletingASnapshotDeletesItsPassages() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Arc", bundleID: "com.arc", windowTitle: "T",
+                         content: "some content", url: "")
+        let id = try #require(try store.fetchPage(offset: 0, limit: 1).first?.id)
+        try store.replacePassages(snapshotId: id, passages: [("p", Data([1, 2]))])
+        try store.delete(id: id)
+        #expect(try store.allPassageVectors().isEmpty)
+    }
+
+    @Test func snapshotsMissingPassagesDrivesBackfill() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "A", bundleID: "a", windowTitle: "1", content: "one", url: "")
+        try store.upsert(appName: "A", bundleID: "a", windowTitle: "2", content: "two", url: "")
+        #expect(try store.snapshotsMissingPassages(limit: 10).count == 2)
+
+        let first = try #require(try store.snapshotsMissingPassages(limit: 10).first?.id)
+        try store.replacePassages(snapshotId: first, passages: [("p", Data([1, 2]))])
+        #expect(try store.snapshotsMissingPassages(limit: 10).count == 1)
+    }
+
+    // MARK: - hybrid search
+
+    /// A stub embedder makes semantic ranking deterministic and model-free:
+    /// the vector is just term-presence, so "cost" and "pricing" can be made
+    /// to look alike without shipping a model into the test.
+    private struct StubEmbedder: MemoryEmbedder {
+        var dimension: Int { 3 }
+        func vector(_ text: String) -> [Float]? {
+            let t = text.lowercased()
+            return [t.contains("cost") || t.contains("pricing") ? 1 : 0,
+                    t.contains("hearing") ? 1 : 0,
+                    t.contains("build") ? 1 : 0]
+        }
+    }
+
+    private func indexAll(_ store: MemoryStore, _ emb: MemoryEmbedder) throws {
+        for s in try store.snapshotsMissingPassages(limit: 100) {
+            guard let id = s.id else { continue }
+            let vecs = SemanticIndexing.passages(s.content).compactMap { p -> (String, Data)? in
+                guard let v = emb.vector(p) else { return nil }
+                return (p, SemanticIndexing.encode(v))
+            }
+            try store.replacePassages(snapshotId: id, passages: vecs)
+        }
+    }
+
+    @Test func hybridFindsAParaphraseKeywordSearchCannot() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Arc", bundleID: "a", windowTitle: "Costs",
+                         content: "our cost structure for next year", url: "")
+        try store.upsert(appName: "Arc", bundleID: "a", windowTitle: "Aids",
+                         content: "hearing aid firmware notes", url: "")
+        let emb = StubEmbedder()
+        try indexAll(store, emb)
+
+        // "pricing" appears nowhere in the corpus — keyword search finds nothing.
+        #expect(try store.search("pricing").isEmpty)
+        let hits = try store.hybridSearch("pricing", embedder: emb, limit: 5)
+        #expect(hits.first?.snapshot.windowTitle == "Costs")
+        #expect(hits.first?.matchedPassage?.contains("cost structure") == true)
+    }
+
+    /// The non-negotiable: with no embedder, behaviour is exactly today's.
+    @Test func hybridWithoutEmbedderEqualsKeywordSearch() throws {
+        let store = try makeStore()
+        try store.upsert(appName: "Arc", bundleID: "a", windowTitle: "T",
+                         content: "quarterly revenue report", url: "")
+        let hybrid = try store.hybridSearch("revenue", embedder: nil, limit: 5).map(\.snapshot.id)
+        let keyword = try store.search("revenue").map(\.id)
+        #expect(hybrid == keyword)
+        #expect(!hybrid.isEmpty)
+    }
 }
