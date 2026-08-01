@@ -648,6 +648,28 @@ final class AppState {
             didNudgeFoundationModelsUnavailable = true
             errorMessage = "Apple Intelligence is off — enable it in Settings > AI to summarize meetings. Transcript saved without a summary."
         }
+        // Fresh diarization labels are not stable across runs — a mapping made
+        // for the old labels would rename the wrong people. Reset it.
+        try store.setSpeakerNames(id: id, nil)
+        try store.setTranscriptAndSummary(id: id, transcript: transcript, summary: summary)
+        return try store.get(id: id) ?? meeting
+    }
+
+    /// Re-run the summary over the existing transcript with speaker names
+    /// resolved — no ASR/diarization. The correct-then-regenerate loop: rename
+    /// "Speaker 1" to "Alice", regenerate, and the summary says Alice.
+    func regenerateSummary(id: Int64) async throws -> Meeting {
+        guard let store = meetingStore, let meeting = try store.get(id: id),
+              let transcript = meeting.transcript else {
+            throw MeetingStoreError.notFound
+        }
+        guard SystemLLM.isAvailable() else {
+            errorMessage = "Apple Intelligence is off — enable it in Settings > AI to summarize meetings."
+            return meeting
+        }
+        let resolved = MeetingDiarization.applySpeakerNames(
+            transcript, names: meeting.speakerNames ?? [:])
+        let summary = try await MeetingSummarizer.generate(transcript: resolved, polish: systemLLM)
         try store.setTranscriptAndSummary(id: id, transcript: transcript, summary: summary)
         return try store.get(id: id) ?? meeting
     }
