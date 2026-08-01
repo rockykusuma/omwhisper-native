@@ -386,6 +386,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OmWhisper;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "OmWhisper reads your calendar only to title recorded meetings and list their attendees. Nothing is written or sent anywhere.";
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "OmWhisper needs system audio access to record the other side of your meetings, with your consent each time.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";
@@ -428,6 +429,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OmWhisper;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "OmWhisper reads your calendar only to title recorded meetings and list their attendees. Nothing is written or sent anywhere.";
 				INFOPLIST_KEY_NSAudioCaptureUsageDescription = "OmWhisper needs system audio access to record the other side of your meetings, with your consent each time.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2026 Rakesh Kusuma. MIT License.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OmWhisper needs microphone access to transcribe your speech. Audio stays on this Mac unless you choose a cloud backend.";

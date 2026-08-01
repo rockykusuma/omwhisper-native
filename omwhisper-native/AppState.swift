@@ -489,6 +489,21 @@ final class AppState {
         }
     }
 
+    /// Match finished recordings to calendar events for a real title + attendee
+    /// names. Off by default; the Meetings UI requests Calendar permission when
+    /// this is switched on (denied → the UI flips it back off).
+    var meetingsCalendarEnabled: Bool {
+        get {
+            access(keyPath: \.meetingsCalendarEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.meetingsCalendarEnabled) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.meetingsCalendarEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.meetingsCalendarEnabled)
+            }
+        }
+    }
+
     /// Start the recorder and mark recording. Shared by the auto-detect closure
     /// and the manual toggle. On failure, resets the watcher so it isn't stuck
     /// showing .recording with no audio actually flowing.
@@ -560,8 +575,14 @@ final class AppState {
                 """
             errorMessage = "Recording captured no audio — grant “System Audio Recording” in System Settings."
         }
-        let title = meetingWindowTitle.flatMap {
+        var title = meetingWindowTitle.flatMap {
             CallDetection.cleanedMeetingTitle(windowTitle: $0, appName: meetingAppName ?? "Meeting")
+        }
+        var attendees: [String]?
+        if meetingsCalendarEnabled, let started = meetingStartedAt,
+           let match = MeetingCalendar.match(start: started, end: Date()) {
+            if !match.title.isEmpty { title = match.title }
+            if !match.attendees.isEmpty { attendees = match.attendees }
         }
         do {
             let id = try store.insert(Meeting(
@@ -572,7 +593,8 @@ final class AppState {
                 durationSeconds: duration,
                 transcript: transcript, summary: nil,
                 createdAt: iso.string(from: Date()),
-                title: title
+                title: title,
+                attendees: attendees
             ))
             // Transcribe straight away rather than waiting for the user to open the
             // meeting and press a button. Skipped when `transcript` is already set —
@@ -1884,6 +1906,7 @@ nonisolated enum SettingsKeys {
     static let hasImportedLegacyHistory = "hasImportedLegacyHistory"
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let meetingsEnabled = "meetingsEnabled"
+    static let meetingsCalendarEnabled = "meetingsCalendarEnabled"
     static let replyAssistEnabled = "replyAssistEnabled"
     static let memoryEnabled = "memoryEnabled"
     static let memoryPaused = "memoryPaused"
