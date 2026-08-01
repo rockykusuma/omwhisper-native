@@ -37,23 +37,36 @@ struct HubMemorySectionView: View {
         }
     }
 
+    /// Labeled inline controls, matching HubMeetingsSectionView's bar -- the
+    /// hub's other capture feature already reads this way, down to the plain
+    /// text button ("Templates…" there, "Exclusions…" here).
+    ///
+    /// These used to live behind a bare `ellipsis.circle` glyph. Two reasons
+    /// that was wrong: Exclusions is a privacy control and was undiscoverable
+    /// (nothing hinted it existed), and a Stepper inside an NSMenu is a clumsy
+    /// control to operate.
     private var settingsBar: some View {
         @Bindable var state = appState
-        return HStack {
+        return HStack(spacing: 14) {
             Toggle("Remember what's on screen", isOn: $state.memoryEnabled)
-            Spacer()
+                .tint(Color.Porcelain.emerald)
+                .foregroundStyle(Color.Porcelain.ink)
             if state.memoryEnabled {
-                Menu {
-                    Toggle("Pause capture", isOn: $state.memoryPaused)
-                    Stepper("Keep for \(state.memoryRetentionDays) days", value: $state.memoryRetentionDays, in: 1...365)
-                    Divider()
-                    Button("Exclusions…") { showExclusions = true }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                }
-                .menuStyle(.borderlessButton)
-                .frame(width: 24)
-                .accessibilityLabel("Memory settings")
+                Toggle("Pause", isOn: $state.memoryPaused)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                Button("Exclusions…") { showExclusions = true }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.Porcelain.mint)
+                Spacer()
+                Stepper("Keep for \(state.memoryRetentionDays) days",
+                        value: $state.memoryRetentionDays, in: 1...365)
+                    .foregroundStyle(Color.Porcelain.dim)
+                    .font(.system(size: 12))
+                    .fixedSize()
+            } else {
+                Spacer()
             }
         }
         .padding(10)
