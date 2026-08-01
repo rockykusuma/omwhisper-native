@@ -72,4 +72,35 @@ nonisolated enum VisibleWindows {
         }
         return picked
     }
+
+    // MARK: - Enumeration (effectful)
+
+    /// On-screen windows, front-to-back. Deliberately reads only the four keys
+    /// that need NO permission -- kCGWindowName is gated behind Screen Recording
+    /// and comes back empty without it, so titles come from AX instead.
+    static func onScreen() -> [Descriptor] {
+        guard let info = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else { return [] }
+
+        return info.compactMap { entry in
+            guard let windowID = entry[kCGWindowNumber as String] as? CGWindowID,
+                  let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
+                  let layer = entry[kCGWindowLayer as String] as? Int,
+                  let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
+            else { return nil }
+            return Descriptor(windowID: windowID, pid: pid, bounds: bounds, layer: layer)
+        }
+    }
+
+    /// Active displays in CGDisplayBounds' space -- the SAME top-left-origin
+    /// space as the window bounds above. NSScreen.frame is not interchangeable.
+    static func activeDisplays() -> [Display] {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return [] }
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &ids, &count) == .success else { return [] }
+        return ids.prefix(Int(count)).map { Display(id: $0, bounds: CGDisplayBounds($0)) }
+    }
 }

@@ -112,4 +112,105 @@ nonisolated enum WindowSnapshotReader {
             url: url
         )
     }
+
+    // MARK: - Multi-display capture
+
+    /// The focused window, plus the frontmost window on each OTHER display.
+    ///
+    /// `totalBudget` is shared across the whole tick, so attaching more monitors
+    /// cannot push a capture past MemoryCapture's 5s poll -- windows that don't
+    /// fit are simply picked up next tick.
+    static func captureVisible(
+        totalBudget: TimeInterval = 3.0,
+        focusedBudget: TimeInterval = 2.0,
+        perWindowBudget: TimeInterval = 1.0
+    ) -> [Snapshot] {
+        let tickDeadline = Date().addingTimeInterval(totalBudget)
+        var snapshots: [Snapshot] = []
+        if let focused = captureFrontmost(timeBudget: min(focusedBudget, totalBudget)) {
+            snapshots.append(focused)
+        }
+
+        let displays = VisibleWindows.activeDisplays()
+        // One display means the focused window already covered everything
+        // visible -- skip enumeration entirely so the common case pays nothing.
+        guard displays.count > 1 else { return snapshots }
+
+        let windows = VisibleWindows.onScreen()
+        // The focused window is the frontmost normal window of the frontmost app.
+        // Derived from the CG list rather than AX geometry so the display lookup
+        // uses one coordinate space throughout.
+        let focusedPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let focusedDisplayID = windows
+            .first { $0.pid == focusedPID && $0.layer == 0 }
+            .flatMap { VisibleWindows.display(containing: $0.bounds, in: displays) }
+
+        let selected = VisibleWindows.select(
+            windows: windows,
+            displays: displays,
+            focusedDisplayID: focusedDisplayID,
+            ownPID: ProcessInfo.processInfo.processIdentifier
+        )
+
+        for (index, descriptor) in selected.enumerated() {
+            guard Date() < tickDeadline else {
+                snapshotLog.debug("tick budget spent, \(selected.count - index) window(s) deferred")
+                break
+            }
+            let deadline = min(Date().addingTimeInterval(perWindowBudget), tickDeadline)
+            if let snapshot = capture(descriptor: descriptor, deadline: deadline) {
+                snapshots.append(snapshot)
+            }
+        }
+        return snapshots
+    }
+
+    /// AX-reads a specific CG window. AX exposes no window number, so the link
+    /// is geometric: find the app's AX window whose frame matches the CG bounds.
+    private static func capture(descriptor: VisibleWindows.Descriptor, deadline: Date) -> Snapshot? {
+        guard let app = NSRunningApplication(processIdentifier: descriptor.pid),
+              let bundleID = app.bundleIdentifier else { return nil }
+
+        let appElement = AXUIElementCreateApplication(descriptor.pid)
+        AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        guard let windows = ScreenContextReader.copyAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement],
+              let windowElement = windows.first(where: { frameMatches(descriptor.bounds, $0) })
+        else {
+            snapshotLog.debug("no AX window matching bounds: \(app.localizedName ?? bundleID, privacy: .public)")
+            return nil
+        }
+
+        return capture(
+            window: windowElement,
+            appElement: appElement,
+            bundleID: bundleID,
+            appName: app.localizedName ?? bundleID,
+            deadline: deadline
+        )
+    }
+
+    /// AX window position/size are in the same top-left-origin screen space as
+    /// CG window bounds. 2pt tolerance absorbs rounding, not a different window.
+    private static func frameMatches(_ bounds: CGRect, _ window: AXUIElement) -> Bool {
+        guard let origin = axValue(window, kAXPositionAttribute, .cgPoint, CGPoint.zero),
+              let size = axValue(window, kAXSizeAttribute, .cgSize, CGSize.zero)
+        else { return false }
+
+        return abs(origin.x - bounds.origin.x) < 2 && abs(origin.y - bounds.origin.y) < 2
+            && abs(size.width - bounds.width) < 2 && abs(size.height - bounds.height) < 2
+    }
+
+    /// Unwraps an AXValue-typed attribute. The CFGetTypeID check is not
+    /// ceremony: this runs every 5s against arbitrary third-party apps, and a
+    /// force-cast of an attribute that came back as something else would trap
+    /// the whole daemon.
+    private static func axValue<T>(
+        _ element: AXUIElement, _ attribute: String, _ type: AXValueType, _ empty: T
+    ) -> T? {
+        guard let raw = ScreenContextReader.copyAttribute(element, attribute),
+              CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var out = empty
+        guard AXValueGetValue(raw as! AXValue, type, &out) else { return nil }
+        return out
+    }
 }
