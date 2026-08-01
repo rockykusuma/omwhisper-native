@@ -867,9 +867,14 @@ final class AppState {
                 // Catch up on everything captured before this feature existed.
                 indexPendingMemory()
                 chronicleScheduler.store = memoryStore
-                chronicleScheduler.polish = systemLLM
+                chronicleScheduler.generate = { [weak self] day in
+                    _ = try await self?.generateChronicle(day: day)
+                }
+                // Suppressed only when NO backend can write one. This used to be
+                // `polishBackend != .system`, which disabled the nightly chronicle
+                // for every Ollama user even though Ollama can write it.
                 chronicleScheduler.isSuppressed = { [weak self] in
-                    self?.polishBackend != .system || !SystemLLM.isAvailable()
+                    self?.chronicleBackends().isEmpty ?? true
                 }
                 chronicleScheduler.start()
             } else {
