@@ -163,11 +163,20 @@ private struct ExclusionsEditor: View {
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)
             }
-            Menu("Add app…") {
+            // .menuStyle(.button) + tint + fixedSize, matching AISettingsView's
+            // "Fill from provider…" menu. A bare Menu inside a Porcelain card
+            // draws no chrome and no visible label -- it renders as blank space,
+            // which is exactly how this shipped the first time.
+            Menu {
                 ForEach(addableApps, id: \.bundleID) { app in
                     Button(app.name) { addApp(app.bundleID) }
                 }
+            } label: {
+                Label("Add app…", systemImage: "plus.circle")
             }
+            .menuStyle(.button)
+            .tint(Color.Porcelain.emerald)
+            .fixedSize()
             .disabled(addableApps.isEmpty)
         }
     }
