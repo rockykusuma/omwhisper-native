@@ -861,6 +861,7 @@ final class AppState {
                 memoryCapture.captureIntervalSeconds = 5
                 memoryCapture.retentionDays = memoryRetentionDays
                 memoryCapture.excludedDomains = memoryExcludedDomains
+                memoryCapture.exclusions = currentMemoryExclusions()
                 memoryCapture.onSnapshotStored = { [weak self] in self?.indexPendingMemory() }
                 memoryCapture.start()
                 // Catch up on everything captured before this feature existed.
@@ -919,6 +920,46 @@ final class AppState {
             }
             memoryCapture.excludedDomains = newValue
         }
+    }
+
+    /// Bundle IDs whose windows are never captured into memory. Adds to the
+    /// hardcoded floor in ScreenContextReader.isExcluded; never replaces it.
+    /// Empty by default.
+    var memoryExcludedApps: [String] {
+        get {
+            access(keyPath: \.memoryExcludedApps)
+            return UserDefaults.standard.stringArray(forKey: SettingsKeys.memoryExcludedApps) ?? []
+        }
+        set {
+            withMutation(keyPath: \.memoryExcludedApps) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.memoryExcludedApps)
+            }
+            memoryCapture.exclusions = currentMemoryExclusions(apps: newValue)
+        }
+    }
+
+    /// Case-insensitive substrings; a window whose title contains any of them is
+    /// never captured. Matches the TITLE only, never page content. Empty by default.
+    var memoryExcludedTitleKeywords: [String] {
+        get {
+            access(keyPath: \.memoryExcludedTitleKeywords)
+            return UserDefaults.standard.stringArray(forKey: SettingsKeys.memoryExcludedTitleKeywords) ?? []
+        }
+        set {
+            withMutation(keyPath: \.memoryExcludedTitleKeywords) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.memoryExcludedTitleKeywords)
+            }
+            memoryCapture.exclusions = currentMemoryExclusions(keywords: newValue)
+        }
+    }
+
+    /// One place that builds the value, so the two setters above cannot drift
+    /// (each one only knows its own new value; the other must be read fresh).
+    private func currentMemoryExclusions(apps: [String]? = nil, keywords: [String]? = nil) -> MemoryExclusions {
+        MemoryExclusions(
+            apps: Set(apps ?? memoryExcludedApps),
+            titleKeywords: keywords ?? memoryExcludedTitleKeywords
+        )
     }
 
     func regenerateChronicle(day: String) async throws -> Chronicler.ChronicleResult {
@@ -2095,6 +2136,8 @@ nonisolated enum SettingsKeys {
     static let memoryPaused = "memoryPaused"
     static let memoryRetentionDays = "memoryRetentionDays"
     static let memoryExcludedDomains = "memoryExcludedDomains"
+    static let memoryExcludedApps = "memoryExcludedApps"
+    static let memoryExcludedTitleKeywords = "memoryExcludedTitleKeywords"
     static let autoDeleteAfterDays = "autoDeleteAfterDays"
     static let mcpAccessEnabled = "mcpAccessEnabled"
     static let engineKind = "engineKind"
