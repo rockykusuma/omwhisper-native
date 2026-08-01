@@ -29,7 +29,26 @@ nonisolated enum ScreenContextReader {
 
     static func isExcluded(bundleID: String, windowTitle: String) -> Bool {
         if excludedBundleIDs.contains(bundleID) { return true }
+        if isDotEnvTitle(windowTitle) { return true }
         return excludedTitleSubstrings.contains { windowTitle.localizedCaseInsensitiveContains($0) }
+    }
+
+    /// True when the title names a dotenv file -- `.env`, `.env.local`,
+    /// `.env.production` -- however the editor decorates it (VS Code appends
+    /// the project, vim appends the cwd, Finder-opened files are bare).
+    ///
+    /// Matched at a path/word boundary rather than as a plain substring, so
+    /// `.environment-setup.md` is not swept up. Deliberately hardcoded beside
+    /// the password managers rather than exposed as a setting: a file whose
+    /// entire purpose is holding secrets should not be capturable by
+    /// forgetting to configure something.
+    static func isDotEnvTitle(_ windowTitle: String) -> Bool {
+        windowTitle
+            .split(whereSeparator: { $0.isWhitespace || $0 == "/" || $0 == "\\" })
+            .contains {
+                let token = $0.lowercased()
+                return token == ".env" || token.hasPrefix(".env.")
+            }
     }
 
     /// nil when there's nothing meaningful, the app/window is excluded, or the
