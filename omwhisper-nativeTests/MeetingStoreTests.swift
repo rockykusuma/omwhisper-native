@@ -137,6 +137,16 @@ struct MeetingStoreTests {
         #expect(try store.search("Planning", limit: 10).count == 1)
     }
 
+    @Test func setSummaryUpdatesOnlyTheSummary() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Zoom")
+        try store.setTranscriptAndSummary(id: id, transcript: "**You:**\nhi", summary: "old")
+        try store.setSummary(id: id, "## Summary\nedited by hand")
+        let got = try store.get(id: id)
+        #expect(got?.summary == "## Summary\nedited by hand")
+        #expect(got?.transcript == "**You:**\nhi")
+    }
+
     @Test func setSpeakerNamesNilClears() throws {
         let store = try makeStore()
         let id = try seed(store, app: "Meet")

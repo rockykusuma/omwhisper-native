@@ -113,6 +113,16 @@ nonisolated final class MeetingStore: Sendable {
         }
     }
 
+    /// Summary only — the user editing their notes must never touch the
+    /// transcript, which is the record of what was actually said.
+    func setSummary(id: Int64, _ summary: String?) throws {
+        try dbQueue.write { db in
+            guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
+            m.summary = summary
+            try m.update(db)
+        }
+    }
+
     /// Replace the whole raw-label → display-name mapping (nil clears it).
     /// Re-transcribing produces fresh, unstable diarization labels, so callers
     /// reset this rather than trying to migrate names across runs.

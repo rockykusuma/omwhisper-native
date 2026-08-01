@@ -221,6 +221,8 @@ private struct MeetingDetailView: View {
 
     @State private var working = false
     @State private var errorMessage: String?
+    @State private var editingSummary = false
+    @State private var summaryDraft = ""
 
     /// Busy for either reason: this view kicked off a transcribe, or the meeting
     /// is still being auto-transcribed from when its recording stopped.
@@ -353,10 +355,44 @@ private struct MeetingDetailView: View {
         }
     }
 
+    /// Editing is raw markdown in monospace, deliberately: markdown IS the
+    /// stored format (it's what FTS indexes and what the summarizer writes), so
+    /// a rich editor would just be a lossy layer over it. Regenerate overwrites
+    /// edits — no merge logic, same as every other tool in this space.
     private func summaryCard(_ summary: String) -> some View {
-        MarkdownSections(markdown: summary, fallbackTitle: "Summary")
-            .padding(18)
-            .omCard()
+        VStack(alignment: .trailing, spacing: 10) {
+            if editingSummary {
+                TextEditor(text: $summaryDraft)
+                    .font(.system(size: 13, design: .monospaced))
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 160)
+                HStack(spacing: 8) {
+                    Button("Cancel") { editingSummary = false }
+                    Button("Save") { saveSummary() }.keyboardShortcut(.defaultAction)
+                }
+            } else {
+                MarkdownSections(markdown: summary, fallbackTitle: "Summary")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Edit") {
+                    summaryDraft = summary
+                    editingSummary = true
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.Porcelain.mint)
+            }
+        }
+        .padding(18)
+        .omCard()
+    }
+
+    private func saveSummary() {
+        guard let id = meeting.id, let store = appState.meetingStore else { return }
+        let trimmed = summaryDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        do { try store.setSummary(id: id, trimmed.isEmpty ? nil : trimmed) }
+        catch { errorMessage = error.localizedDescription }
+        editingSummary = false
+        Task { await onChanged() }
     }
 
     private func copyTranscript() {
