@@ -47,8 +47,25 @@ nonisolated enum WindowSnapshotReader {
             snapshotLog.debug("no focused window: \(app.localizedName ?? bundleID, privacy: .public)")
             return nil
         }
-        let windowElement = window as! AXUIElement
+        return capture(
+            window: window as! AXUIElement,
+            appElement: appElement,
+            bundleID: bundleID,
+            appName: app.localizedName ?? bundleID,
+            deadline: Date().addingTimeInterval(timeBudget)
+        )
+    }
 
+    /// Reads one already-resolved window. Takes a `deadline` rather than a
+    /// budget so a single capture tick can share one allowance across several
+    /// windows without their walks compounding past the poll interval.
+    static func capture(
+        window windowElement: AXUIElement,
+        appElement: AXUIElement,
+        bundleID: String,
+        appName: String,
+        deadline: Date
+    ) -> Snapshot? {
         let title = (ScreenContextReader.copyAttribute(windowElement, kAXTitleAttribute) as? String) ?? ""
         guard !ScreenContextReader.isExcluded(bundleID: bundleID, windowTitle: title) else { return nil }
 
@@ -60,7 +77,6 @@ nonisolated enum WindowSnapshotReader {
         let webArea = BrowserURL.findWebArea(windowElement)
         var lines: [String] = []
         var budget = 50_000
-        let deadline = Date().addingTimeInterval(timeBudget)
         ScreenContextReader.collectText(webArea ?? windowElement, depth: 0,
                                         into: &lines, budget: &budget, deadline: deadline)
 
@@ -71,7 +87,7 @@ nonisolated enum WindowSnapshotReader {
         // walk: a snapshot that is 100% chrome is worse than no snapshot, and
         // the 5s poll retries almost immediately.
         if webArea != nil, content.isEmpty {
-            snapshotLog.debug("web area empty, skipping tick: \(app.localizedName ?? bundleID, privacy: .public)")
+            snapshotLog.debug("web area empty, skipping tick: \(appName, privacy: .public)")
             return nil
         }
         guard !content.isEmpty else {
@@ -83,14 +99,14 @@ nonisolated enum WindowSnapshotReader {
             // / Claude / …) never get this heavier, more side-effectful flag.
             // Idempotent; a genuine wall just stays empty.
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
-            snapshotLog.debug("empty content, escalating a11y: \(app.localizedName ?? bundleID, privacy: .public)")
+            snapshotLog.debug("empty content, escalating a11y: \(appName, privacy: .public)")
             return nil
         }
 
         let url = BrowserURL.url(bundleId: bundleID, window: windowElement)
         return Snapshot(
             bundleID: bundleID,
-            appName: app.localizedName ?? bundleID,
+            appName: appName,
             windowTitle: title,
             content: content,
             url: url
