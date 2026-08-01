@@ -809,6 +809,20 @@ final class AppState {
         }
     }
 
+    /// Embed whatever snapshots don't have passages yet — the same call serves
+    /// the one-time backfill and the per-capture trickle. Fire-and-forget: while
+    /// it runs, and if it fails, Memory search simply stays keyword-only, which
+    /// is exactly the behaviour before this feature existed.
+    private func indexPendingMemory() {
+        guard !isIndexingMemory, let store = memoryStore, let indexer = memoryIndexer else { return }
+        isIndexingMemory = true
+        Task.detached(priority: .utility) { [weak self] in
+            do { _ = try indexer.processPending(store: store) }
+            catch { log.error("memory indexing failed: \(error)") }
+            await MainActor.run { self?.isIndexingMemory = false }
+        }
+    }
+
     /// access(keyPath:)/withMutation(keyPath:) for the same reason as
     /// meetingsEnabled — this Toggle needs to reflect external state changes.
     var replyAssistEnabled: Bool {
@@ -847,7 +861,10 @@ final class AppState {
                 memoryCapture.captureIntervalSeconds = 5
                 memoryCapture.retentionDays = memoryRetentionDays
                 memoryCapture.excludedDomains = memoryExcludedDomains
+                memoryCapture.onSnapshotStored = { [weak self] in self?.indexPendingMemory() }
                 memoryCapture.start()
+                // Catch up on everything captured before this feature existed.
+                indexPendingMemory()
                 chronicleScheduler.store = memoryStore
                 chronicleScheduler.polish = systemLLM
                 chronicleScheduler.isSuppressed = { [weak self] in
@@ -1216,6 +1233,13 @@ final class AppState {
     @ObservationIgnored private let replyStreamTypist = ReplyStreamTypist()
     @ObservationIgnored private var isReplyAssistDrafting = false
     @ObservationIgnored private let memoryCapture = MemoryCapture()
+    /// nil when no embedding model is available — search then stays keyword-only,
+    /// which is exactly the pre-semantic behaviour.
+    @ObservationIgnored let memoryEmbedder: MemoryEmbedder? = AppleEmbedder()
+    @ObservationIgnored private let memoryIndexer = MemoryIndexer()
+    /// Guards against overlapping index runs: capture nudges every 5s, and the
+    /// first run has thousands of snapshots to get through.
+    @ObservationIgnored private var isIndexingMemory = false
     @ObservationIgnored private let chronicleScheduler = ChronicleScheduler()
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/

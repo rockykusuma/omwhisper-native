@@ -30,6 +30,9 @@ final class MemoryCapture {
 
     var store: MemoryStore?
     var isSuppressed: () -> Bool = { false }
+    /// Fired after a snapshot is written, so the semantic indexer can catch up.
+    /// A no-op by default, matching the other injected collaborators here.
+    var onSnapshotStored: () -> Void = {}
     var captureIntervalSeconds: TimeInterval = 5
     var retentionDays: Int = 90
     var excludedDomains: [String] = []
@@ -85,6 +88,11 @@ final class MemoryCapture {
                 content: content, url: snapshot.url ?? ""
             )
             memoryLog.debug("tick — captured \(snapshot.appName, privacy: .public)")
+            // Let the semantic indexer catch up. It works from "snapshots with
+            // no passages yet", so this is just a nudge -- the same code path
+            // that backfills, which means a missed nudge self-heals rather than
+            // leaving a permanently unindexed snapshot.
+            onSnapshotStored()
         } catch {
             memoryLog.error("tick — upsert failed: \(error)")
         }
