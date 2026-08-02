@@ -23,3 +23,28 @@ struct OverlayStyleTests {
         #expect(OverlayStyle(rawValue: "bogus") == nil)
     }
 }
+
+@Suite("Overlay transcript visibility")
+struct OverlayTranscriptVisibilityTests {
+    @Test("Polish Selected shows no transcript — those fields hold the LAST dictation")
+    func hidesStaleTranscriptDuringPolishSelected() {
+        // dictation stays .idle throughout Polish Selected by design, so
+        // finalizedTranscript still holds whatever was dictated before it.
+        #expect(!OverlayView.showsTranscript(dictation: .idle, phase: .polishing, isPreview: false))
+    }
+
+    @Test("the settings preview still shows its demo text")
+    func previewKeepsItsTranscript() {
+        // The preview runs at .idle and fills the transcript deliberately —
+        // a bare "hide when idle" rule would silently empty it.
+        #expect(OverlayView.showsTranscript(dictation: .idle, phase: .polishing, isPreview: true))
+    }
+
+    @Test("a real dictation always shows its transcript")
+    func dictationAlwaysShows() {
+        for state in [DictationState.starting, .recording] {
+            #expect(OverlayView.showsTranscript(dictation: state, phase: .polishing, isPreview: false),
+                    "hid the transcript during \(state)")
+        }
+    }
+}

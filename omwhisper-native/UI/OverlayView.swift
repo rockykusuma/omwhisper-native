@@ -14,6 +14,22 @@
 import SwiftUI
 
 struct OverlayView: View {
+    /// Polish Selected Text shows the HUD WITHOUT starting a dictation session
+    /// -- `dictation` stays .idle by design -- so `finalizedTranscript` still
+    /// holds whatever was last DICTATED. Rendering it made the HUD look like
+    /// that stale text was what was being polished.
+    ///
+    /// The settings preview also runs at .idle but fills the transcript on
+    /// purpose, so it must keep showing: a bare "hide when idle" rule would
+    /// silently empty the Preview button's demo.
+    nonisolated static func showsTranscript(
+        dictation: DictationState, phase: OverlayPhase, isPreview: Bool
+    ) -> Bool {
+        if isPreview { return true }
+        if dictation != .idle { return true }
+        return phase != .polishing
+    }
+
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -121,6 +137,10 @@ private struct FullStyleOverlay: View {
     }
 
     private var transcriptText: Text {
+        guard OverlayView.showsTranscript(dictation: appState.dictation,
+                                   phase: appState.overlayPhase,
+                                   isPreview: appState.overlayPreview != nil)
+        else { return Text("") }
         var text = AttributedString(appState.finalizedTranscript)
         text.foregroundColor = .omGlyphCore
         var volatile = AttributedString(appState.volatileTranscript)
