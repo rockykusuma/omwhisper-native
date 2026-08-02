@@ -73,6 +73,22 @@ struct DegradationTests {
         Degradation.reset(.polish)
     }
 
+    @Test("configuration states are not failures")
+    func configurationDoesNotCount() {
+        // If Disabled counted, the alert would fire for people who deliberately
+        // switched polish off — and within a week nobody would read it.
+        Degradation.reset(.polish)
+        for reason in Degradation.configurationReasons {
+            Degradation.recordUnlessConfiguration(.polish, reason: reason)
+        }
+        #expect(Degradation.state(.polish).streak == 0,
+                "a configuration reason incremented the streak")
+
+        Degradation.recordUnlessConfiguration(.polish, reason: "backend timed out")
+        #expect(Degradation.state(.polish).streak == 1)
+        Degradation.reset(.polish)
+    }
+
     @Test("features are independent")
     func featuresDoNotShareCounters() {
         Degradation.reset(.polish)

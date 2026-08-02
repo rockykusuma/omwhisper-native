@@ -865,6 +865,9 @@ final class AppState {
                 memoryCapture.excludedDomains = memoryExcludedDomains
                 memoryCapture.exclusions = currentMemoryExclusions()
                 memoryCapture.onSnapshotStored = { [weak self] in self?.indexPendingMemory() }
+                memoryCapture.onDegradation = { [weak self] in
+                    self?.escalateDegradationIfNeeded(.memoryCapture)
+                }
                 memoryCapture.start()
                 // Catch up on everything captured before this feature existed.
                 indexPendingMemory()
@@ -2038,13 +2041,18 @@ final class AppState {
         // The one-time nudge fires only when System is selected but off — not for
         // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
         if polishBackend == .system, !SystemLLM.isAvailable() {
+            Degradation.record(.polish, reason: SystemLLM.unavailableReason() ?? "on-device model unavailable")
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
                 errorMessage = systemUnavailableMessage("polish") + " Pasted raw text for now."
             }
+            escalateDegradationIfNeeded(.polish)
             return original
         }
-        guard let backend = activePolishBackend() else { return original }
+        guard let backend = activePolishBackend() else {
+            Degradation.recordUnlessConfiguration(.polish, reason: "backend disabled")
+            return original
+        }
         let style: PolishStyle
         let target: String?
         if crossLingualEnabled {
@@ -2054,16 +2062,31 @@ final class AppState {
             style = CrossLingual.style(spokenLanguage: spokenLanguageName, activeStyle: activePolishStyle)
             target = nil
         } else {
-            guard let active = activePolishStyle else { return original }
+            guard let active = activePolishStyle else {
+                Degradation.recordUnlessConfiguration(.polish, reason: "no active style")
+                return original
+            }
             style = active
             target = active.requiresTargetLanguage ? translateTargetLanguage : nil
         }
         do {
-            return try await backend.polish(original, style: style, targetLanguage: target)
+            let polished = try await backend.polish(original, style: style, targetLanguage: target)
+            Degradation.recordSuccess(.polish)
+            return polished
         } catch {
             log.error("polishedText — polish failed: \(error)")
+            Degradation.record(.polish, reason: error.localizedDescription)
+            escalateDegradationIfNeeded(.polish)
             return original
         }
+    }
+
+    /// Raises the one-time alert when a feature has clearly stopped working.
+    /// `escalationMessage` marks it warned, so this cannot fire twice for one
+    /// streak however often it is called.
+    private func escalateDegradationIfNeeded(_ feature: Degradation.Feature) {
+        guard let message = Degradation.escalationMessage(feature) else { return }
+        errorMessage = message
     }
 
     /// Structure a brain-dump ramble into the active shape via the active backend,

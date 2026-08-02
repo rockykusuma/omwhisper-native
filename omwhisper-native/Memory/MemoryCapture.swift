@@ -36,6 +36,9 @@ final class MemoryCapture {
     var captureIntervalSeconds: TimeInterval = 5
     var retentionDays: Int = 90
     var excludedDomains: [String] = []
+    /// Fired when a tick captured nothing, so AppState can escalate. A no-op by
+    /// default, matching the other injected collaborators here.
+    var onDegradation: () -> Void = {}
     /// The user's app / window-title exclusions. Checked before the text walk,
     /// unlike excludedDomains above, which needs a URL and so runs after.
     var exclusions: MemoryExclusions = .none
@@ -78,6 +81,11 @@ final class MemoryCapture {
         let snapshots = WindowSnapshotReader.captureVisible(exclusions: exclusions)
         guard !snapshots.isEmpty else {
             memoryLog.debug("tick — no snapshots (no focused window, excluded, empty text, or missing Accessibility permission)")
+            // Capture returning nothing is the same silent shape as polish
+            // pasting raw: a missing Accessibility grant produces no error at
+            // all, just nils, so nothing ever said capture had stopped.
+            Degradation.record(.memoryCapture, reason: "nothing captured — check Accessibility permission")
+            onDegradation()
             return
         }
 
@@ -106,7 +114,10 @@ final class MemoryCapture {
         // passages yet", so this is just a nudge -- the same code path that
         // backfills, which means a missed nudge self-heals rather than leaving a
         // permanently unindexed snapshot.
-        if stored > 0 { onSnapshotStored() }
+        if stored > 0 {
+            onSnapshotStored()
+            Degradation.recordSuccess(.memoryCapture)
+        }
     }
 
     private func pruneNow() {
