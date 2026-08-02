@@ -139,6 +139,17 @@ struct MemoryChroniclesView: View {
         }
     }
 
+    /// Stored ISO8601 (UTC) → the user's local date and time. Same shape as
+    /// HubMeetingsSectionView's timestamps. Falls back to the raw string rather
+    /// than showing nothing if it ever fails to parse.
+    static func writtenAt(_ iso: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f.string(from: date)
+    }
+
     private func chronicleHeader(_ chronicle: MemoryChronicle) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "calendar")
@@ -151,7 +162,9 @@ struct MemoryChroniclesView: View {
                 Text(chronicle.day)
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.Porcelain.ink)
-                Text("\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")  ·  Written on this Mac")
+                // `day` alone can't say WHEN this was written — regenerating
+                // today's chronicle twice looks identical without it.
+                Text("\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")  ·  Written \(Self.writtenAt(chronicle.createdAt))  ·  on this Mac")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Color.Porcelain.dim)
             }

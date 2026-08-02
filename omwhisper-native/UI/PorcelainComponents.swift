@@ -330,12 +330,18 @@ struct MarkdownSections: View {
                                     .fill(Color.Porcelain.emerald)
                                     .frame(width: 5, height: 5)
                                     .padding(.top, 6)
-                                Text(bullet)
+                                // Text(.init(_:)) parses INLINE markdown (**bold**,
+                                // `code`, links). AppMarkdown's header warns off
+                                // Text(.init(wholeDocument)) because SwiftUI does no
+                                // block layout — that argument doesn't apply per line,
+                                // and without this the model's own **bold** rendered
+                                // as literal asterisks in every summary.
+                                Text(.init(bullet))
                                     .font(.system(size: 13.5))
                                     .foregroundStyle(Color.Porcelain.ink)
                             }
                         } else {
-                            Text(line)
+                            Text(.init(line))
                                 .font(.system(size: 14))
                                 .lineSpacing(4)
                                 .foregroundStyle(Color.Porcelain.ink)
