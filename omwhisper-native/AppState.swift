@@ -685,7 +685,9 @@ final class AppState {
     private func meetingSummaryBackends() -> [(polish: PolishBackend, chunkLimit: Int)] {
         var candidates: [(polish: PolishBackend, chunkLimit: Int)] = []
         if polishBackend == .ollama, !ollamaModel.isEmpty {
-            candidates.append((Ollama(baseURL: ollamaBaseURL, model: ollamaModel), MeetingSummarizer.ollamaChunkLimit))
+            candidates.append((Ollama(baseURL: ollamaBaseURL, model: ollamaModel,
+                                      timeout: Ollama.longFormTimeout),
+                               MeetingSummarizer.ollamaChunkLimit))
         }
         if SystemLLM.isAvailable() {
             candidates.append((systemLLM, MeetingSummarizer.chunkCharLimit))
@@ -983,7 +985,8 @@ final class AppState {
     private func chronicleBackends() -> [(polish: PolishBackend, chunkLimit: Int)] {
         var candidates: [(polish: PolishBackend, chunkLimit: Int)] = []
         if polishBackend == .ollama, !ollamaModel.isEmpty {
-            candidates.append((Ollama(baseURL: ollamaBaseURL, model: ollamaModel),
+            candidates.append((Ollama(baseURL: ollamaBaseURL, model: ollamaModel,
+                                      timeout: Ollama.longFormTimeout),
                                Chronicler.ollamaChunkLimit))
         }
         if SystemLLM.isAvailable() {

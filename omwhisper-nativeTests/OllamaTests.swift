@@ -42,3 +42,28 @@ struct OllamaTests {
         #expect(Ollama.parseModelNames(Data(#"{"models":[]}"#.utf8)) == [])
     }
 }
+
+@Suite("Ollama timeouts")
+struct OllamaTimeoutTests {
+    @Test("a timeout does not claim Ollama is down")
+    func timeoutIsNotReportedAsUnreachable() {
+        let timedOut = Ollama.OllamaError.timedOut(300).errorDescription ?? ""
+        // Measured: gemma4:8b takes 36.4s from cold vs 5s warm, and Ollama
+        // evicts after ~5 min idle. Every URLSession failure used to become
+        // "Couldn't reach Ollama. Is it running?" — sending people to check a
+        // service that was already up.
+        #expect(!timedOut.localizedCaseInsensitiveContains("is it running"))
+        #expect(timedOut.contains("300"))
+        #expect(Ollama.OllamaError.unreachable.errorDescription?
+            .localizedCaseInsensitiveContains("is it running") == true)
+    }
+
+    @Test("long-form work gets more room than the paste path")
+    func longFormTimeoutExceedsDictation() {
+        // Dictation can give up — its fallback pastes the user's own words.
+        // A meeting summary has no fallback and the user is deliberately waiting.
+        #expect(Ollama.longFormTimeout > Ollama.dictationTimeout)
+        #expect(Ollama.dictationTimeout == 30)
+        #expect(Ollama(baseURL: "http://x", model: "m").timeout == Ollama.dictationTimeout)
+    }
+}

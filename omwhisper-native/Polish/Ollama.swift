@@ -17,18 +17,33 @@ import Foundation
 nonisolated struct Ollama: PolishBackend {
     var baseURL: String
     var model: String
+    /// Seconds. Defaults to the dictation figure -- see `dictationTimeout`.
+    var timeout: TimeInterval = dictationTimeout
 
-    // ponytail: fixed 30s ceiling — Ollama's first response can include a model
-    // load; the paste path's raw-text fallback already covers a timeout. Promote
-    // to a user setting only if people with big models ask.
-    private static let timeout: TimeInterval = 30
+    /// The paste path can afford to give up: its raw-text fallback means a slow
+    /// model costs the polish, not the words. Kept short so a paste is never
+    /// held hostage.
+    static let dictationTimeout: TimeInterval = 30
+
+    /// Meetings and chronicles have NO fallback and the user is deliberately
+    /// waiting, so they get room for a cold model load. Measured 2026-08-02:
+    /// gemma4:8b answered in 5s warm but **36.4s from cold**, and Ollama evicts
+    /// after ~5 minutes idle -- so at 30s the FIRST summary after any break
+    /// failed every time, reported as "Couldn't reach Ollama".
+    static let longFormTimeout: TimeInterval = 300
 
     enum OllamaError: Error, LocalizedError {
-        case badURL, unreachable, httpStatus(Int), emptyResponse
+        case badURL, unreachable, timedOut(TimeInterval), httpStatus(Int), emptyResponse
         var errorDescription: String? {
             switch self {
             case .badURL: return "Invalid Ollama URL."
             case .unreachable: return "Couldn't reach Ollama. Is it running?"
+            case .timedOut(let seconds):
+                // NOT "is it running?" -- it was. Conflating these sent people
+                // to check a service that was already up.
+                return "Ollama didn't respond within \(Int(seconds))s. A large model "
+                     + "can take longer than that to load the first time — try again, "
+                     + "or pick a smaller model."
             case .httpStatus(let code): return "Ollama returned HTTP \(code)."
             case .emptyResponse: return "Ollama returned an empty response."
             }
@@ -81,12 +96,14 @@ nonisolated struct Ollama: PolishBackend {
             systemPrompt: style.systemPrompt(targetLanguage: targetLanguage),
             text: text
         )
-        request.timeoutInterval = Self.timeout
+        request.timeoutInterval = timeout
 
         let data: Data
         let response: URLResponse
         do {
             (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw OllamaError.timedOut(timeout)
         } catch {
             throw OllamaError.unreachable
         }
