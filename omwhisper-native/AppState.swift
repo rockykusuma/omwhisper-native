@@ -1434,7 +1434,10 @@ final class AppState {
     /// kVK_ANSI_B — Smart Dictation, always polishes with the active style.
     @ObservationIgnored private lazy var smartDictationHotkey = GlobalHotkey(
         keyCode: smartDictationShortcut?.keyCode ?? Self.defaultSmartDictation.keyCode,
-        modifiers: [.command, .shift]
+        // Read the stored modifiers too — hardcoding [.command, .shift] here
+        // meant a custom combo installed with the right key and the WRONG
+        // modifiers after every relaunch, and silently never fired.
+        modifiers: (smartDictationShortcut ?? Self.defaultSmartDictation).flags
     ) { [weak self] in
         self?.beginSmartDictation()
     }
@@ -1443,14 +1446,20 @@ final class AppState {
     /// stays .idle throughout; overlayPhase alone drives the brief pill.
     @ObservationIgnored private lazy var polishSelectedTextHotkey = GlobalHotkey(
         keyCode: polishSelectedShortcut?.keyCode ?? Self.defaultPolishSelected.keyCode,
-        modifiers: [.command, .shift]
+        // Read the stored modifiers too — hardcoding [.command, .shift] here
+        // meant a custom combo installed with the right key and the WRONG
+        // modifiers after every relaunch, and silently never fired.
+        modifiers: (polishSelectedShortcut ?? Self.defaultPolishSelected).flags
     ) { [weak self] in
         self?.beginPolishSelectedText()
     }
     /// kVK_ANSI_D — Brain-dump mode: ramble, then structure into the active shape.
     @ObservationIgnored private lazy var brainDumpHotkey = GlobalHotkey(
         keyCode: brainDumpShortcut?.keyCode ?? Self.defaultBrainDump.keyCode,
-        modifiers: [.command, .shift]
+        // Read the stored modifiers too — hardcoding [.command, .shift] here
+        // meant a custom combo installed with the right key and the WRONG
+        // modifiers after every relaunch, and silently never fired.
+        modifiers: (brainDumpShortcut ?? Self.defaultBrainDump).flags
     ) { [weak self] in
         self?.beginBrainDump()
     }
