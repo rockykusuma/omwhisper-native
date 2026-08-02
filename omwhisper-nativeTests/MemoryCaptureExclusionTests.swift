@@ -1,4 +1,7 @@
+import Foundation
+import GRDB
 import Testing
+import os
 @testable import OmWhisper
 
 @Suite("MemoryCapture domain exclusion")
@@ -26,5 +29,88 @@ struct MemoryCaptureExclusionTests {
     @Test("an empty exclusion list excludes nothing")
     func emptyListExcludesNothing() {
         #expect(MemoryCapture.isDomainExcluded(url: "https://example.com/page", excludedDomains: []) == false)
+    }
+}
+
+
+@Suite("Memory capture concurrency")
+@MainActor
+struct MemoryCaptureConcurrencyTests {
+    /// A capture that blocks until released, so "a tick arrived while one was
+    /// running" is a real state rather than a timing guess.
+    private final class Gate: @unchecked Sendable {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private let lock = OSAllocatedUnfairLock(initialState: 0)
+        var callCount: Int { lock.withLock { $0 } }
+        func enter() { lock.withLock { $0 += 1 }; semaphore.wait() }
+        func release() { semaphore.signal() }
+    }
+
+    private func capture(store: MemoryStore) -> MemoryCapture {
+        let capture = MemoryCapture()
+        capture.store = store
+        return capture
+    }
+
+    @Test("a tick arriving mid-capture is skipped, and the first still completes")
+    func skipsOverlappingTick() async throws {
+        let store = try MemoryStore(DatabaseQueue())
+        let gate = Gate()
+        let subject = capture(store: store)
+        subject.performCapture = { _, _, _ in
+            gate.enter()
+            return MemoryCapture.Outcome(stored: 1, capturedNothing: false)
+        }
+
+        subject.tick()                                    // starts, blocks in the gate
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(subject.isCapturing, "first capture should still be in flight")
+
+        subject.tick()                                    // must be skipped
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(gate.callCount == 1, "second tick started a concurrent capture")
+
+        gate.release()
+        try await Task.sleep(for: .milliseconds(200))
+        // Asserting only "the second returned early" would pass even if the
+        // guard wedged permanently — so check the first finished and cleared.
+        #expect(!subject.isCapturing, "flag never cleared after completion")
+    }
+
+    @Test("the flag clears after completion, so later ticks run")
+    func laterTickRunsAfterCompletion() async throws {
+        let store = try MemoryStore(DatabaseQueue())
+        let gate = Gate()
+        let subject = capture(store: store)
+        subject.performCapture = { _, _, _ in
+            gate.enter()
+            return MemoryCapture.Outcome(stored: 1, capturedNothing: false)
+        }
+
+        subject.tick()
+        try await Task.sleep(for: .milliseconds(100))
+        gate.release()
+        try await Task.sleep(for: .milliseconds(200))
+
+        subject.tick()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(gate.callCount == 2, "a later tick did not run")
+        gate.release()
+        try await Task.sleep(for: .milliseconds(150))
+    }
+
+    @Test("a capture that produces nothing still clears the flag")
+    func flagClearsAfterEmptyCapture() async throws {
+        // Without this, one failure stops capture forever — silently, which is
+        // exactly the failure mode this codebase keeps paying for.
+        let store = try MemoryStore(DatabaseQueue())
+        let subject = capture(store: store)
+        subject.performCapture = { _, _, _ in
+            MemoryCapture.Outcome(stored: 0, capturedNothing: true)
+        }
+
+        subject.tick()
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(!subject.isCapturing, "flag stuck after a failing capture")
     }
 }
