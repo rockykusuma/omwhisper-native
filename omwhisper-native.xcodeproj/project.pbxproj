@@ -375,7 +375,7 @@
 				CODE_SIGN_ENTITLEMENTS = "omwhisper-native/omwhisper-native.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = Y87BZN47C5;
 				ENABLE_APP_SANDBOX = NO;
@@ -397,7 +397,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.0.5;
+				MARKETING_VERSION = 2.0.6;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.omwhisper.mac.dev";
 				INFOPLIST_KEY_CFBundleDisplayName = "OmWhisper-Dev";
 				PRODUCT_NAME = "OmWhisper-Dev";
@@ -420,7 +420,7 @@
 				CODE_SIGN_ENTITLEMENTS = "omwhisper-native/omwhisper-native.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 7;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = Y87BZN47C5;
 				ENABLE_APP_SANDBOX = NO;
@@ -442,7 +442,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.0.5;
+				MARKETING_VERSION = 2.0.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.omwhisper.mac;
 				PRODUCT_NAME = OmWhisper;
 				REGISTER_APP_GROUPS = YES;
