@@ -46,6 +46,22 @@ struct MemoryCaptureConcurrencyTests {
         func release() { semaphore.signal() }
     }
 
+
+    /// Polls until `condition` holds or the deadline passes. Fixed sleeps are
+    /// timing guesses — this suite runs in parallel with 60+ others, so
+    /// MainActor contention makes any single duration wrong sometimes.
+    private func waitUntil(
+        _ description: String, timeout: Duration = .seconds(5),
+        _ condition: @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return condition()
+    }
+
     private func capture(store: MemoryStore) -> MemoryCapture {
         let capture = MemoryCapture()
         capture.store = store
@@ -63,18 +79,18 @@ struct MemoryCaptureConcurrencyTests {
         }
 
         subject.tick()                                    // starts, blocks in the gate
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(subject.isCapturing, "first capture should still be in flight")
+        #expect(await waitUntil("capture starts") { subject.isCapturing },
+                "first capture never started")
 
         subject.tick()                                    // must be skipped
         try await Task.sleep(for: .milliseconds(100))
         #expect(gate.callCount == 1, "second tick started a concurrent capture")
 
         gate.release()
-        try await Task.sleep(for: .milliseconds(200))
         // Asserting only "the second returned early" would pass even if the
         // guard wedged permanently — so check the first finished and cleared.
-        #expect(!subject.isCapturing, "flag never cleared after completion")
+        #expect(await waitUntil("flag clears") { !subject.isCapturing },
+                "flag never cleared after completion")
     }
 
     @Test("the flag clears after completion, so later ticks run")
@@ -88,15 +104,15 @@ struct MemoryCaptureConcurrencyTests {
         }
 
         subject.tick()
-        try await Task.sleep(for: .milliseconds(100))
+        _ = await waitUntil("first capture starts") { subject.isCapturing }
         gate.release()
-        try await Task.sleep(for: .milliseconds(200))
+        #expect(await waitUntil("first completes") { !subject.isCapturing })
 
         subject.tick()
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(gate.callCount == 2, "a later tick did not run")
+        #expect(await waitUntil("second capture runs") { gate.callCount == 2 },
+                "a later tick did not run")
         gate.release()
-        try await Task.sleep(for: .milliseconds(150))
+        _ = await waitUntil("second completes") { !subject.isCapturing }
     }
 
     @Test("a capture that produces nothing still clears the flag")
@@ -110,7 +126,7 @@ struct MemoryCaptureConcurrencyTests {
         }
 
         subject.tick()
-        try await Task.sleep(for: .milliseconds(250))
-        #expect(!subject.isCapturing, "flag stuck after a failing capture")
+        #expect(await waitUntil("flag clears after a failing capture") { !subject.isCapturing },
+                "flag stuck after a failing capture")
     }
 }
