@@ -62,12 +62,23 @@ nonisolated struct Ollama: PolishBackend {
     }
 
     private struct ChatMessage: Codable { let role: String; let content: String }
-    private struct ChatRequest: Codable { let model: String; let stream: Bool; let messages: [ChatMessage] }
+    private struct ChatRequest: Codable {
+        let model: String; let stream: Bool; let think: Bool; let messages: [ChatMessage]
+    }
     private struct ChatResponse: Decodable { struct Message: Decodable { let content: String }; let message: Message }
     private struct TagsResponse: Decodable { struct Model: Decodable { let name: String }; let models: [Model] }
 
     static func requestBody(model: String, systemPrompt: String, text: String) -> Data {
-        let req = ChatRequest(model: model, stream: false, messages: [
+        // think:false — reasoning models (gemma4, qwen3, deepseek-r1) spend the
+        // OUTPUT budget on a reasoning trace we never show, then get cut off:
+        // measured 2026-08-02, gemma4:8b wrote 2,464 chars of `thinking` and
+        // 599 of content with done_reason "length" (truncated). Longer inputs
+        // exhausted the budget entirely and returned EMPTY content, surfacing
+        // as "Ollama returned an empty response" and failing whole chronicles.
+        // With think:false the same request completes with done_reason "stop".
+        // Verified harmless on non-reasoning models (llama3.2, qwen2.5-coder):
+        // the field is ignored, no error.
+        let req = ChatRequest(model: model, stream: false, think: false, messages: [
             ChatMessage(role: "system", content: systemPrompt),
             ChatMessage(role: "user", content: text),
         ])

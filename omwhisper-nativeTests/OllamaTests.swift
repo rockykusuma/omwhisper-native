@@ -67,3 +67,19 @@ struct OllamaTimeoutTests {
         #expect(Ollama(baseURL: "http://x", model: "m").timeout == Ollama.dictationTimeout)
     }
 }
+
+@Suite("Ollama reasoning models")
+struct OllamaThinkTests {
+    @Test("requests disable the reasoning trace")
+    func requestBodyDisablesThinking() throws {
+        // A reasoning model spends the output budget on `thinking` and gets
+        // truncated — measured: gemma4:8b returned 2,464 chars of thinking,
+        // 599 of content, done_reason "length"; longer inputs returned EMPTY
+        // content, which surfaced as "Ollama returned an empty response".
+        let data = Ollama.requestBody(model: "gemma4:latest", systemPrompt: "sys", text: "hello")
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["think"] as? Bool == false)
+        #expect(json["stream"] as? Bool == false)
+        #expect(json["model"] as? String == "gemma4:latest")
+    }
+}
