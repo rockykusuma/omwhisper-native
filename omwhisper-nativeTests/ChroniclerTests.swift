@@ -304,3 +304,51 @@ struct ChronicleSelectionTests {
         #expect(lastKept > "2026-08-01T03:00:00Z", "cap dropped the whole later day: \(lastKept)")
     }
 }
+
+@Suite("Chronicler progress")
+struct ChronicleProgressTests {
+    @Test("the block names the other windows from its group")
+    func blockIncludesOtherTitles() {
+        let snapshot = MemorySnapshot(
+            id: 1, appName: "Code", bundleID: "com.example.code", windowTitle: "AppState.swift",
+            content: "editing", url: "", contentHash: "h", capturedAt: "2026-08-01T09:00:00Z",
+            lastSeenAt: "2026-08-01T09:00:00Z")
+        let block = Chronicler.formatBlock(
+            Chronicler.Selected(snapshot: snapshot, otherTitles: ["Ollama.swift", "Chronicler.swift"]))
+        #expect(block.contains("AppState.swift"))
+        #expect(block.contains("Ollama.swift"))
+        #expect(block.contains("Chronicler.swift"))
+        #expect(block.contains("editing"))
+    }
+
+    @Test("progress is monotonic and ends at the total")
+    func reportsProgress() async throws {
+        let store = try MemoryStore(DatabaseQueue())
+        for i in 0..<40 {
+            try store.upsert(appName: "App\(i % 4)", bundleID: "com.example.a\(i % 4)",
+                             windowTitle: "w\(i)",
+                             content: String(repeating: "alpha beta gamma ", count: 30) + "\(i)",
+                             url: "")
+        }
+        let reports = OSAllocatedUnfairLock(initialState: [(Int, Int)]())
+        _ = try await Chronicler.generate(
+            day: Chronicler.dayString(), store: store, polish: StubPolish(),
+            chunkLimit: 400,
+            onProgress: { done, total in reports.withLock { $0.append((done, total)) } })
+
+        let seen = reports.withLock { $0 }
+        #expect(!seen.isEmpty, "no progress was reported")
+        #expect(seen.allSatisfy { $0.1 > 0 }, "total must be known when reporting")
+        let dones = seen.map(\.0)
+        #expect(dones == dones.sorted(), "progress went backwards: \(dones)")
+        #expect(dones.last == seen.last?.1, "final progress should equal the total")
+    }
+}
+
+/// Deterministic stand-in — declared separately so this suite doesn't depend on
+/// the file-private stub above it.
+private struct StubPolish: PolishBackend {
+    func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {
+        style.id == Chronicler.chunkSummaryStyle.id ? "- did some work" : "STUB CHRONICLE"
+    }
+}

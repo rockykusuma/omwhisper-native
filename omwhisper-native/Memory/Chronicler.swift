@@ -155,6 +155,15 @@ nonisolated enum Chronicler {
         return "[\(snapshot.lastSeenAt)] \(snapshot.appName) — \(snapshot.windowTitle)\(location)\n\(content)"
     }
 
+    /// Adds the other windows seen in this capture's (bucket, app) group. Their
+    /// bodies were dropped by `select`; their titles are cheap and carry the
+    /// most signal per character, so the chronicle still knows you were there.
+    static func formatBlock(_ selected: Selected) -> String {
+        let base = formatBlock(selected.snapshot)
+        guard !selected.otherTitles.isEmpty else { return base }
+        return base + "\n(also in \(selected.snapshot.appName): \(selected.otherTitles.joined(separator: ", ")))"
+    }
+
     /// Pure: greedily packs blocks into groups whose combined length (with a
     /// blank-line separator between blocks) stays under `limit`. A single
     /// block longer than `limit` becomes its own oversized group rather than
@@ -183,20 +192,29 @@ nonisolated enum Chronicler {
     /// failure. Overwrites any existing chronicle for the same day.
     static func generate(
         day: String, store: MemoryStore, polish: PolishBackend,
-        chunkLimit: Int = chunkCharLimit
+        chunkLimit: Int = chunkCharLimit,
+        onProgress: ((Int, Int) -> Void)? = nil
     ) async throws -> ChronicleResult {
         let snapshots = try store.snapshotsForDay(day)
         guard !snapshots.isEmpty else {
             throw ChroniclerError.noSnapshots
         }
-        let blocks = snapshots.map(formatBlock)
+        // Reduce BEFORE the model sees anything -- see select()'s note.
+        let blocks = select(snapshots).map(formatBlock)
         let chunks = chunk(blocks, limit: chunkLimit)
+
+        // +1 for the final reduce call, so progress ends at the total.
+        let total = chunks.count + 1
+        var done = 0
 
         var chunkSummaries: [String] = []
         for group in chunks {
+            try Task.checkCancellation()
+            onProgress?(done, total)
             let text = String(group.joined(separator: "\n\n").prefix(chunkLimit))
             let summary = try await polish.polish(text, style: chunkSummaryStyle, targetLanguage: nil)
             chunkSummaries.append(summary)
+            done += 1
         }
 
         // Collapse until the summaries fit one reduce call. A busy day produces
@@ -219,7 +237,11 @@ nonisolated enum Chronicler {
         }
 
         let reduceInput = String(chunkSummaries.joined(separator: "\n").prefix(chunkLimit))
+        try Task.checkCancellation()
+        onProgress?(done, total)
         let chronicle = try await polish.polish(reduceInput, style: chronicleWriteStyle, targetLanguage: nil)
+        done += 1
+        onProgress?(done, total)
         let trimmed = chronicle.trimmingCharacters(in: .whitespacesAndNewlines)
 
         try store.upsertChronicle(day: day, summary: trimmed, snapshotCount: snapshots.count)
