@@ -48,6 +48,72 @@ nonisolated enum Chronicler {
     /// two are the same trade-off and should not drift apart.
     static let ollamaChunkLimit = 12_000
 
+    static let defaultBucketMinutes = 15
+    static let defaultCap = 400
+
+    /// One representative capture, plus the other window titles seen alongside
+    /// it. Titles are the highest-signal content per character in a snapshot
+    /// (file names, page titles), so they survive even when their bodies don't.
+    nonisolated struct Selected: Equatable {
+        let snapshot: MemorySnapshot
+        let otherTitles: [String]
+    }
+
+    /// Pure: the day's snapshots -> the subset worth sending to a model.
+    ///
+    /// Measured on the real store 2026-08-01: 1,429 snapshots describe 117
+    /// windows across 26 fifteen-minute buckets, and two apps account for 80%
+    /// of them. Feeding all of it cost ~60 sequential model calls for one
+    /// paragraph -- and the collapse loop then threw most of it away anyway.
+    /// Reducing here does that discarding cheaply, and keeps the day's SHAPE
+    /// (which apps, in what order) which is what a chronicle is for.
+    static func select(
+        _ snapshots: [MemorySnapshot],
+        bucketMinutes: Int = defaultBucketMinutes,
+        cap: Int = defaultCap
+    ) -> [Selected] {
+        guard !snapshots.isEmpty else { return [] }
+        let parser = ISO8601DateFormatter()
+
+        // Group by (bucket, app). A snapshot whose timestamp won't parse gets
+        // its own bucket rather than being dropped -- losing a capture is worse
+        // than keeping a redundant one.
+        var groups: [String: [MemorySnapshot]] = [:]
+        var groupOrder: [String] = []
+        for snapshot in snapshots {
+            let key: String
+            if let date = parser.date(from: snapshot.lastSeenAt) {
+                let bucket = Int(date.timeIntervalSince1970) / (bucketMinutes * 60)
+                key = "\(bucket)|\(snapshot.appName)"
+            } else {
+                key = "unparsed|\(snapshot.lastSeenAt)|\(snapshot.appName)"
+            }
+            if groups[key] == nil { groupOrder.append(key) }
+            groups[key, default: []].append(snapshot)
+        }
+
+        var picked: [Selected] = []
+        for key in groupOrder {
+            guard let members = groups[key],
+                  let best = members.max(by: { $0.content.count < $1.content.count })
+            else { continue }
+            let others = members
+                .filter { $0.id != best.id && !$0.windowTitle.isEmpty && $0.windowTitle != best.windowTitle }
+                .map(\.windowTitle)
+            // Deduped, order-stable: several captures of one window are one title.
+            var seen: Set<String> = []
+            let otherTitles = others.filter { seen.insert($0).inserted }
+            picked.append(Selected(snapshot: best, otherTitles: otherTitles))
+        }
+
+        picked.sort { $0.snapshot.lastSeenAt < $1.snapshot.lastSeenAt }
+        guard picked.count > cap else { return picked }
+
+        // Even stride, not a prefix: truncating would drop the whole later day.
+        let step = Double(picked.count) / Double(cap)
+        return (0..<cap).map { picked[min(picked.count - 1, Int(Double($0) * step))] }
+    }
+
     /// Fixed-UUID internal styles -- never shown in the AI tab's picker (not
     /// added to PolishStyles.builtIns), same pattern as S4's hidden
     /// reply-draft style.
