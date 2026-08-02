@@ -7,6 +7,7 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     @Environment(AppState.self) private var appState
+    @State private var conflictMessage: String?
 
     var body: some View {
         @Bindable var state = appState
@@ -78,6 +79,26 @@ struct GeneralSettingsView: View {
                     Spacer()
                     KeyRecorderView(combo: $state.dictationShortcut)
                 }
+                // Three of four shortcuts used to be hardcoded. NSEvent global
+                // monitors observe rather than own, so a combo another app uses
+                // fires BOTH — OmWhisper then bails silently. Being able to turn
+                // one off is the direct fix, not only moving it.
+                optionalShortcutRow(.smartDictation, combo: $state.smartDictationShortcut)
+                optionalShortcutRow(.polishSelected, combo: $state.polishSelectedShortcut)
+                optionalShortcutRow(.brainDump, combo: $state.brainDumpShortcut)
+
+                if let conflictMessage {
+                    Text(conflictMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !appState.hasAccessibilityPermission {
+                    Text("Shortcuts need Accessibility to fire in other apps. Until it's granted they're saved but inactive.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack {
                     Text("Push-to-talk").foregroundStyle(Color.Porcelain.ink)
                     Spacer()
@@ -93,7 +114,11 @@ struct GeneralSettingsView: View {
                 }
                 Button("Reset to defaults") {
                     state.dictationShortcut = .defaultDictation
+                    state.smartDictationShortcut = AppState.defaultSmartDictation
+                    state.polishSelectedShortcut = AppState.defaultPolishSelected
+                    state.brainDumpShortcut = AppState.defaultBrainDump
                     state.pttKey = .fn
+                    conflictMessage = nil
                 }
                 .tint(Color.Porcelain.emerald)
             }
@@ -106,6 +131,40 @@ struct GeneralSettingsView: View {
         guard milliseconds > 0 else { return "immediately" }
         return String(format: "%gs", Double(milliseconds) / 1000)
     }
+
+    /// A shortcut row that can also be turned off. Validation runs on the way
+    /// in, so an unusable assignment can't be saved — the alternative is a
+    /// shortcut that looks correct in the UI and silently never fires.
+    private func optionalShortcutRow(_ slot: ShortcutSlot, combo: Binding<KeyCombo?>) -> some View {
+        HStack {
+            Text(slot.title).foregroundStyle(Color.Porcelain.ink)
+            Spacer()
+            if let existing = combo.wrappedValue {
+                KeyRecorderView(combo: Binding(
+                    get: { existing },
+                    set: { proposed in
+                        if let conflict = ShortcutValidation.conflict(
+                            for: proposed, assigning: slot, current: appState.assignedShortcuts) {
+                            conflictMessage = "\(slot.title): \(conflict.message)"
+                        } else {
+                            conflictMessage = nil
+                            combo.wrappedValue = proposed
+                        }
+                    }))
+                Button("Off") { combo.wrappedValue = nil }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.Porcelain.mint)
+            } else {
+                Text("Off").foregroundStyle(Color.Porcelain.dim)
+                Button("Set") { combo.wrappedValue = appState.defaultShortcut(for: slot) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.Porcelain.mint)
+            }
+        }
+    }
+
 }
 
 private struct OverlayStyleCard: View {
