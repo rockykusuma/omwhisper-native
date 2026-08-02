@@ -59,6 +59,15 @@ struct HubMemorySectionView: View {
                     .buttonStyle(.plain)
                     .font(.system(size: 12))
                     .foregroundStyle(Color.Porcelain.mint)
+                // ~1 minute of ticks. Below that it's ordinary window switching,
+                // not a signal. A missing Accessibility grant produces no error
+                // at all — just nils — so nothing else ever says capture stopped.
+                if Degradation.state(.memoryCapture).streak >= 12 {
+                    Text("Capturing nothing")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.orange)
+                        .help(Degradation.state(.memoryCapture).reason ?? "")
+                }
                 Spacer()
                 Stepper("Keep for \(state.memoryRetentionDays) days",
                         value: $state.memoryRetentionDays, in: 1...365)

@@ -95,6 +95,13 @@ nonisolated enum DebugInfo {
 
         let lines = recentLogLines()
         out += lines.isEmpty ? "\n  (nothing logged in this window)" : "\n  " + lines.joined(separator: "\n  ")
+
+        // Degraded features, if any. Omitted entirely when healthy — a wall of
+        // zeroes would be noise in something people paste into issues.
+        let degraded = Degradation.debugSummary()
+        if !degraded.isEmpty {
+            out += "\n\nDEGRADED\n" + degraded.map { "  \($0)" }.joined(separator: "\n")
+        }
         return out
     }
 
