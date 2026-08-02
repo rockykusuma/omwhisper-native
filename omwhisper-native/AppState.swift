@@ -1010,10 +1010,22 @@ final class AppState {
         var lastError: Error?
         for candidate in candidates {
             do {
-                return try await Chronicler.generate(
-                    day: day, store: memoryStore, polish: candidate.polish,
-                    chunkLimit: candidate.chunkLimit
-                )
+                let task = Task<Chronicler.ChronicleResult, Error> { [weak self] in
+                    try await Chronicler.generate(
+                        day: day, store: memoryStore, polish: candidate.polish,
+                        chunkLimit: candidate.chunkLimit,
+                        onProgress: { done, total in
+                            Task { @MainActor in self?.chronicleProgress = (done, total) }
+                        }
+                    )
+                }
+                chronicleTask = task
+                defer { chronicleTask = nil; chronicleProgress = nil }
+                return try await task.value
+            } catch is CancellationError {
+                // Not a failure — the user asked it to stop. No error surfaces
+                // and no other backend is tried.
+                throw CancellationError()
             } catch let error as Chronicler.ChroniclerError {
                 // No snapshots is about the day, not the backend -- trying a
                 // second backend cannot help and would hide the real reason.
@@ -1030,6 +1042,21 @@ final class AppState {
 
     func regenerateChronicle(day: String) async throws -> Chronicler.ChronicleResult {
         try await generateChronicle(day: day)
+    }
+
+    /// nil when nothing is generating. A STORED property, so `@Observable`
+    /// instruments it automatically — unlike every UserDefaults-backed setting
+    /// in this file, which needs access/withMutation. If this is ever converted
+    /// to a computed property over external storage it must gain those calls,
+    /// or the progress display will silently stop updating.
+    private(set) var chronicleProgress: (done: Int, total: Int)?
+
+    /// Stops a run in flight. Cancelling writes nothing: a partial chronicle is
+    /// worse than none, and the day can simply be regenerated.
+    func cancelChronicle() {
+        chronicleTask?.cancel()
+        chronicleTask = nil
+        chronicleProgress = nil
     }
 
     var mcpAccessEnabled: Bool {
@@ -1347,6 +1374,7 @@ final class AppState {
     /// first run has thousands of snapshots to get through.
     @ObservationIgnored private var isIndexingMemory = false
     @ObservationIgnored private let chronicleScheduler = ChronicleScheduler()
+    @ObservationIgnored private var chronicleTask: Task<Chronicler.ChronicleResult, Error>?
 
     /// Consumes the engine's event stream and applies it to `volatileTranscript`/
     /// `finalizedTranscript`. Awaited on stop so paste happens after the last
