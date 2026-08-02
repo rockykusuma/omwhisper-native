@@ -128,3 +128,66 @@ struct MeetingSummarizerTests {
         #expect(large == 2)  // 4,000 words ≈ 20k chars → 2 groups at 12k
     }
 }
+
+/// Returns a fixed extract, then a fixed answer — lets answer()'s orchestration
+/// be tested without a model. Reference type so the answer stage can see what
+/// material it was actually handed, which is the whole point of these tests.
+private final class ScriptedPolish: PolishBackend, @unchecked Sendable {
+    let extractReply: String
+    private let lock = OSAllocatedUnfairLock(initialState: "")
+    var answerMaterial: String { lock.withLock { $0 } }
+
+    init(extractReply: String) { self.extractReply = extractReply }
+
+    func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {
+        if style.id == MeetingSummarizer.questionExtractStyle.id { return extractReply }
+        lock.withLock { $0 = text }
+        return "ANSWERED"
+    }
+}
+
+@Suite("Meeting ask")
+struct MeetingAskTests {
+    @Test("a bare 'Nothing relevant.' is treated as no-content")
+    func recognisesRefusalShapes() {
+        for reply in ["NOTHING RELEVANT", "Nothing relevant.", "  nothing relevant  "] {
+            #expect(MeetingSummarizer.isNothingRelevant(reply), "should discard: \(reply)")
+        }
+    }
+
+    @Test("an extract that merely mentions the phrase is kept")
+    func keepsSubstantiveExtractMentioningThePhrase() {
+        let real = "Nothing relevant to the budget, but they discussed gratitude "
+                 + "before bed at length and its effect on immunity."
+        #expect(!MeetingSummarizer.isNothingRelevant(real))
+    }
+
+    @Test("a single-chunk transcript still answers when every extract is discarded")
+    func fallsBackToTranscriptWhenExtractsAllRefuse() async throws {
+        // Measured against llama3.2: the extract step returns "Nothing relevant."
+        // for answerable questions, non-deterministically. Refusing outright made
+        // the whole feature say "wasn't discussed" for content plainly present.
+        let backend = ScriptedPolish(extractReply: "Nothing relevant.")
+        let transcript = "**Alice:** we agreed to ship on Friday and freeze on Thursday."
+        let answer = try await MeetingSummarizer.answer(
+            question: "When do we ship?", transcript: transcript,
+            polish: backend, chunkLimit: 12_000)
+
+        #expect(answer == "ANSWERED")
+        #expect(backend.answerMaterial.contains("ship on Friday"),
+                "the answer stage should have received the transcript itself")
+    }
+
+    @Test("a multi-chunk transcript with no surviving extracts still refuses")
+    func multiChunkStillRefuses() async throws {
+        // The fallback is scoped to the case where the map step bought nothing.
+        // Across many chunks the material genuinely can't be handed over whole.
+        let backend = ScriptedPolish(extractReply: "NOTHING RELEVANT")
+        let transcript = String(repeating: "word ", count: 400)
+        let answer = try await MeetingSummarizer.answer(
+            question: "When do we ship?", transcript: transcript,
+            polish: backend, chunkLimit: 100)
+
+        #expect(answer == "That wasn't discussed in this meeting.")
+    }
+}

@@ -197,17 +197,43 @@ nonisolated enum MeetingSummarizer {
                 "QUESTION: \(question)\n\nTRANSCRIPT:\n\(group)",
                 style: questionExtractStyle, targetLanguage: nil)
             let trimmed = extract.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty, !trimmed.localizedCaseInsensitiveContains("NOTHING RELEVANT") {
+            if !trimmed.isEmpty, !isNothingRelevant(trimmed) {
                 extracts.append(trimmed)
             }
         }
-        guard !extracts.isEmpty else { return "That wasn't discussed in this meeting." }
 
-        let material = String(extracts.joined(separator: "\n").prefix(chunkLimit))
+        // Every extract was discarded. Measured on a real 3,330-char meeting
+        // against llama3.2: the extract step returns "Nothing relevant." for
+        // questions the transcript plainly answers, non-deterministically --
+        // the same question refused on one run and answered on the next. When
+        // the whole transcript already fits one chunk the map step buys nothing
+        // and only adds that failure mode, so answer from the transcript
+        // directly. Speculation is still prevented by questionAnswerStyle,
+        // which is told to refuse when the material lacks the answer.
+        let material: String
+        if extracts.isEmpty {
+            guard chunks.count == 1, let only = chunks.first else {
+                return "That wasn't discussed in this meeting."
+            }
+            material = only
+        } else {
+            material = String(extracts.joined(separator: "\n").prefix(chunkLimit))
+        }
         let out = try await polish.polish(
             "QUESTION: \(question)\n\nNOTES:\n\(material)",
             style: questionAnswerStyle, targetLanguage: nil)
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// True when an extract IS the "nothing here" reply rather than merely
+    /// mentioning the phrase. Length-bounded on purpose: models answer with
+    /// "NOTHING RELEVANT", "Nothing relevant." and similar, but a real extract
+    /// that opens "Nothing relevant to the budget, but they discussed X at
+    /// length: ..." must be kept -- a bare `contains` threw that away whole.
+    static func isNothingRelevant(_ extract: String) -> Bool {
+        let trimmed = extract.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count <= 40 else { return false }
+        return trimmed.localizedCaseInsensitiveContains("nothing relevant")
     }
 
     /// Pure: greedily pack words into <=limit-char groups so no content is lost

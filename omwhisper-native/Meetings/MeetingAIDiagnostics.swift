@@ -62,10 +62,20 @@ enum MeetingAIDiagnostics {
     /// Pure, so this is the one section that can't be blamed on a model.
     private static func exportChecks(_ meeting: Meeting) async {
         print("--- export ---")
+        // Against the RENAMED transcript: export applies applySpeakerNames, so
+        // comparing with the raw text fails even when export is correct.
+        let renamed = MeetingDiarization.applySpeakerNames(
+            meeting.transcript ?? "", names: meeting.speakerNames ?? [:])
+        let needle = String(renamed.dropFirst(80).prefix(40))
         for format in [MeetingExportFormat.markdown, .text] {
             let out = MeetingDetails.export(meeting, format: format)
-            let hasTranscript = out.contains(meeting.transcript?.prefix(40) ?? "")
+            let hasTranscript = !needle.isEmpty && out.contains(needle)
             print("\(format): \(out.count) chars, contains transcript: \(hasTranscript)")
+            if !hasTranscript { print("  FAIL: transcript missing from export") }
+            if let names = meeting.speakerNames, let first = names.values.sorted().first,
+               !out.contains(first) {
+                print("  FAIL: speaker rename '\(first)' not applied in export")
+            }
             if format == .text, out.contains("## ") {
                 print("  WARN: plain text still contains markdown headings")
             }
@@ -111,10 +121,43 @@ enum MeetingAIDiagnostics {
     /// Only the second proves the model isn't inventing an answer.
     private static func askChecks(transcript: String, backend: Backend) async {
         print("--- ask ---")
-        let answerable = "What was being worked on?"
+        let answerable = "What is the main topic being discussed?"
         let unanswerable = "What did we decide about the Antarctic penguin migration budget?"
+        let specific = ProcessInfo.processInfo.environment["ASK"]
+            ?? "What was said about practising gratitude before bed?"
 
-        for question in [answerable, unanswerable] {
+        // Show the MAP step's raw output. answer() discards any extract
+        // containing "NOTHING RELEVANT" and refuses when none survive, so a
+        // blanket refusal is decided here, not by the answering model.
+        let probeChunks = MeetingSummarizer.chunk(transcript, limit: backend.chunkLimit)
+        print("chunks: \(probeChunks.count)")
+        if let first = probeChunks.first {
+            do {
+                let raw = try await backend.polish.polish(
+                    "QUESTION: \(specific)\n\nTRANSCRIPT:\n\(first)",
+                    style: MeetingSummarizer.questionExtractStyle, targetLanguage: nil)
+                print("RAW EXTRACT (\(raw.count) chars): >>>\(raw.prefix(400))<<<")
+                print("  discarded by the NOTHING RELEVANT check: \(raw.localizedCaseInsensitiveContains("NOTHING RELEVANT"))")
+                print("  empty after trim: \(raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)")
+            } catch {
+                print("RAW EXTRACT THREW: \(error)")
+            }
+        }
+        // Does the ANSWER stage refuse even when handed the whole transcript?
+        // Separates "the code refused early" from "the model refused".
+        if let first = probeChunks.first {
+            do {
+                let direct = try await backend.polish.polish(
+                    "QUESTION: \(specific)\n\nNOTES:\n\(first)",
+                    style: MeetingSummarizer.questionAnswerStyle, targetLanguage: nil)
+                print("ANSWER STAGE, transcript as notes: >>>\(direct.trimmingCharacters(in: .whitespacesAndNewlines).prefix(300))<<<")
+            } catch {
+                print("ANSWER STAGE THREW: \(error)")
+            }
+        }
+        print("")
+
+        for question in [answerable, specific, unanswerable] {
             do {
                 let answer = try await MeetingSummarizer.answer(
                     question: question, transcript: transcript,
@@ -122,6 +165,13 @@ enum MeetingAIDiagnostics {
                 let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
                 print("Q: \(question)")
                 print("A: \(trimmed.prefix(300))")
+                if question == answerable || question == specific {
+                    let refusedWrongly = trimmed.localizedCaseInsensitiveContains("wasn't discussed")
+                        || trimmed.localizedCaseInsensitiveContains("was not discussed")
+                    if refusedWrongly {
+                        print("   FAIL: refused a question the transcript CAN answer")
+                    }
+                }
                 if question == unanswerable {
                     let refused = trimmed.localizedCaseInsensitiveContains("wasn't discussed")
                         || trimmed.localizedCaseInsensitiveContains("was not discussed")
