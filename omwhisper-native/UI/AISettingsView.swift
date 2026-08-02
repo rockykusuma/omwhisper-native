@@ -39,6 +39,23 @@ struct AISettingsView: View {
                 .pickerStyle(.radioGroup)
                 .tint(Color.Porcelain.emerald)
                 .foregroundStyle(Color.Porcelain.ink)
+
+                // Polish fails SAFE -- any failure pastes the original text --
+                // which means an unusable on-device model is indistinguishable
+                // from polish deciding nothing needed changing. On a Mac whose
+                // locale Foundation Models doesn't support that made Smart
+                // Dictation a silent no-op for months. This screen is the one
+                // place someone would think to look, so it has to say so.
+                if let reason = SystemLLM.unavailableReason() {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Color.Porcelain.mint)
+                        Text("\(reason) Polish will paste your text unchanged while System is selected — pick Ollama or Cloud instead.")
+                            .font(.caption)
+                            .foregroundStyle(Color.Porcelain.dim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
 
             if state.polishBackend == .ollama {
