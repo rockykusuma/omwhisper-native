@@ -57,22 +57,39 @@ struct MemoryChroniclesView: View {
             // today" since Chronicler.generate always overwrites.
             // ponytail: only regenerates today, not an arbitrary past day --
             // add a per-day action if users need to fix an older chronicle.
-            Button {
-                generateTodaysChronicle()
-            } label: {
-                HStack(spacing: 6) {
-                    if isRegenerating {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "sparkles").font(.system(size: 11))
-                    }
-                    Text(isRegenerating ? "Generating…" : "Generate today")
+            if let progress = appState.chronicleProgress {
+                // A long run has to look like work, not a hang: the automatic
+                // nightly run previously gave no indication at all.
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Generating… \(progress.done) of \(progress.total)")
                         .font(.system(size: 12))
+                        .foregroundStyle(Color.Porcelain.dim)
+                    Spacer()
+                    Button("Cancel") { appState.cancelChronicle() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.Porcelain.mint)
                 }
-                .frame(maxWidth: .infinity)
+                .padding(11)
+            } else {
+                Button {
+                    generateTodaysChronicle()
+                } label: {
+                    HStack(spacing: 6) {
+                        if isRegenerating {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "sparkles").font(.system(size: 11))
+                        }
+                        Text(isRegenerating ? "Generating…" : "Generate today")
+                            .font(.system(size: 12))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .disabled(isRegenerating)
+                .padding(11)
             }
-            .disabled(isRegenerating)
-            .padding(11)
 
             ScrollView {
                 LazyVStack(spacing: 6) {
@@ -208,6 +225,8 @@ struct MemoryChroniclesView: View {
                 let result = try await appState.regenerateChronicle(day: Chronicler.dayString())
                 load()
                 selectedDay = result.day
+            } catch is CancellationError {
+                // Cancelling is not a failure and must not raise an alert.
             } catch {
                 if case Chronicler.ChroniclerError.backendUnavailable = error {
                     errorIsBackend = true

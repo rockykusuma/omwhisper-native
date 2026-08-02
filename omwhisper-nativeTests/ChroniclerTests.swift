@@ -197,3 +197,158 @@ struct ChronicleChunkLimitTests {
         #expect(byDefault.callCount == explicit.callCount)
     }
 }
+
+@Suite("Chronicler selection")
+struct ChronicleSelectionTests {
+    private func snap(
+        _ id: Int64, app: String, title: String = "w", content: String = "body",
+        at iso: String
+    ) -> MemorySnapshot {
+        MemorySnapshot(
+            id: id, appName: app, bundleID: "com.example.\(app)", windowTitle: title,
+            content: content, url: "", contentHash: "h\(id)", capturedAt: iso, lastSeenAt: iso)
+    }
+
+    @Test("two snapshots of one app in one bucket collapse to one")
+    func collapsesWithinBucket() {
+        let picked = Chronicler.select([
+            snap(1, app: "Arc", content: "short", at: "2026-08-01T09:01:00Z"),
+            snap(2, app: "Arc", content: "much longer body here", at: "2026-08-01T09:07:00Z"),
+        ])
+        #expect(picked.count == 1)
+        // Longest content wins -- the most substantial capture, not an arbitrary one.
+        #expect(picked.first?.snapshot.id == 2)
+    }
+
+    @Test("two apps in the same bucket both survive")
+    func keepsEachAppInABucket() {
+        let picked = Chronicler.select([
+            snap(1, app: "Arc", at: "2026-08-01T09:01:00Z"),
+            snap(2, app: "Code", at: "2026-08-01T09:02:00Z"),
+        ])
+        #expect(picked.count == 2)
+        #expect(Set(picked.map(\.snapshot.appName)) == ["Arc", "Code"])
+    }
+
+    @Test("a bucket boundary splits the same app")
+    func splitsAcrossBucketBoundary() {
+        let picked = Chronicler.select([
+            snap(1, app: "Arc", at: "2026-08-01T09:14:59Z"),
+            snap(2, app: "Arc", at: "2026-08-01T09:15:01Z"),
+        ])
+        #expect(picked.count == 2)
+    }
+
+    @Test("output stays in chronological order")
+    func preservesChronology() {
+        let picked = Chronicler.select([
+            snap(3, app: "Code", at: "2026-08-01T11:00:00Z"),
+            snap(1, app: "Arc", at: "2026-08-01T09:00:00Z"),
+            snap(2, app: "Orca", at: "2026-08-01T10:00:00Z"),
+        ])
+        #expect(picked.map(\.snapshot.id) == [1, 2, 3])
+    }
+
+    @Test("other window titles in a group survive even though their bodies don't")
+    func keepsOtherTitles() {
+        let picked = Chronicler.select([
+            snap(1, app: "Code", title: "Chronicler.swift", content: "aaa", at: "2026-08-01T09:01:00Z"),
+            snap(2, app: "Code", title: "AppState.swift", content: "a much longer body", at: "2026-08-01T09:02:00Z"),
+            snap(3, app: "Code", title: "Ollama.swift", content: "bb", at: "2026-08-01T09:03:00Z"),
+        ])
+        #expect(picked.count == 1)
+        #expect(picked.first?.snapshot.windowTitle == "AppState.swift")
+        #expect(Set(picked.first?.otherTitles ?? []) == ["Chronicler.swift", "Ollama.swift"])
+    }
+
+    @Test("empty input returns empty")
+    func emptyInput() {
+        #expect(Chronicler.select([]).isEmpty)
+    }
+
+    @Test("a real day's volume reduces to a bounded count")
+    func reducesARealDay() {
+        // The measured shape of 2026-08-01: 1,429 snapshots, 17 apps, 26 buckets.
+        // This is the test that fails if select() is a no-op -- asserting only
+        // that it "returns something" would pass either way.
+        var day: [MemorySnapshot] = []
+        var id: Int64 = 0
+        for bucket in 0..<26 {
+            for appIndex in 0..<17 {
+                for repeatIndex in 0..<4 {
+                    id += 1
+                    let minute = bucket * 15 + (repeatIndex % 15)
+                    let iso = String(format: "2026-08-01T%02d:%02d:00Z", 6 + minute / 60, minute % 60)
+                    day.append(snap(id, app: "App\(appIndex)", title: "w\(repeatIndex)",
+                                    content: String(repeating: "x", count: 100 + repeatIndex), at: iso))
+                }
+            }
+        }
+        #expect(day.count == 26 * 17 * 4)
+        let picked = Chronicler.select(day)
+        #expect(picked.count < day.count / 3, "selected \(picked.count) of \(day.count)")
+        #expect(picked.count >= 17, "must keep at least one entry per app")
+    }
+
+    @Test("the cap is enforced and drops from across the day, not just the tail")
+    func capSpreadsAcrossTheDay() {
+        var day: [MemorySnapshot] = []
+        for i in 0..<300 {
+            let iso = String(format: "2026-08-01T%02d:%02d:00Z", 0 + i / 60, i % 60)
+            day.append(snap(Int64(i), app: "App\(i)", at: iso))
+        }
+        let picked = Chronicler.select(day, cap: 50)
+        #expect(picked.count == 50)
+        // A tail-truncating cap would keep only the earliest hour.
+        let lastKept = picked.last?.snapshot.lastSeenAt ?? ""
+        #expect(lastKept > "2026-08-01T03:00:00Z", "cap dropped the whole later day: \(lastKept)")
+    }
+}
+
+@Suite("Chronicler progress")
+struct ChronicleProgressTests {
+    @Test("the block names the other windows from its group")
+    func blockIncludesOtherTitles() {
+        let snapshot = MemorySnapshot(
+            id: 1, appName: "Code", bundleID: "com.example.code", windowTitle: "AppState.swift",
+            content: "editing", url: "", contentHash: "h", capturedAt: "2026-08-01T09:00:00Z",
+            lastSeenAt: "2026-08-01T09:00:00Z")
+        let block = Chronicler.formatBlock(
+            Chronicler.Selected(snapshot: snapshot, otherTitles: ["Ollama.swift", "Chronicler.swift"]))
+        #expect(block.contains("AppState.swift"))
+        #expect(block.contains("Ollama.swift"))
+        #expect(block.contains("Chronicler.swift"))
+        #expect(block.contains("editing"))
+    }
+
+    @Test("progress is monotonic and ends at the total")
+    func reportsProgress() async throws {
+        let store = try MemoryStore(DatabaseQueue())
+        for i in 0..<40 {
+            try store.upsert(appName: "App\(i % 4)", bundleID: "com.example.a\(i % 4)",
+                             windowTitle: "w\(i)",
+                             content: String(repeating: "alpha beta gamma ", count: 30) + "\(i)",
+                             url: "")
+        }
+        let reports = OSAllocatedUnfairLock(initialState: [(Int, Int)]())
+        _ = try await Chronicler.generate(
+            day: Chronicler.dayString(), store: store, polish: StubPolish(),
+            chunkLimit: 400,
+            onProgress: { done, total in reports.withLock { $0.append((done, total)) } })
+
+        let seen = reports.withLock { $0 }
+        #expect(!seen.isEmpty, "no progress was reported")
+        #expect(seen.allSatisfy { $0.1 > 0 }, "total must be known when reporting")
+        let dones = seen.map(\.0)
+        #expect(dones == dones.sorted(), "progress went backwards: \(dones)")
+        #expect(dones.last == seen.last?.1, "final progress should equal the total")
+    }
+}
+
+/// Deterministic stand-in — declared separately so this suite doesn't depend on
+/// the file-private stub above it.
+private struct StubPolish: PolishBackend {
+    func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {
+        style.id == Chronicler.chunkSummaryStyle.id ? "- did some work" : "STUB CHRONICLE"
+    }
+}
