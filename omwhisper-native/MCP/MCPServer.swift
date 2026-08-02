@@ -18,13 +18,19 @@ nonisolated final class MCPServer {
     private let historyStore: HistoryStore?
     private let memoryStore: MemoryStore?
     private let meetingStore: MeetingStore?
+    /// nil means search_memory stays keyword-only, which is exactly the
+    /// pre-semantic behaviour — hybridSearch degrades to search() for a nil
+    /// embedder, so nothing here needs a fallback branch.
+    private let embedder: MemoryEmbedder?
     private let protocolVersion = "2024-11-05"
 
-    /// meetingStore defaults to nil so pre-SP3 call sites keep compiling.
-    init(historyStore: HistoryStore?, memoryStore: MemoryStore?, meetingStore: MeetingStore? = nil) {
+    /// meetingStore and embedder default to nil so pre-SP3 call sites keep compiling.
+    init(historyStore: HistoryStore?, memoryStore: MemoryStore?,
+         meetingStore: MeetingStore? = nil, embedder: MemoryEmbedder? = nil) {
         self.historyStore = historyStore
         self.memoryStore = memoryStore
         self.meetingStore = meetingStore
+        self.embedder = embedder
     }
 
     /// Blocking read-eval loop over stdin. Returns on EOF.
@@ -104,8 +110,12 @@ nonisolated final class MCPServer {
             }
             guard let memoryStore else { return "Memory is not available." }
             let limit = clamp(args["limit"], default: 10, max: 50)
-            let rows = try memoryStore.search(query, limit: limit)
-            return render(rows, emptyMessage: "No snapshots match \"\(query)\".")
+            // Same hybrid ranking the hub uses. An MCP client asking "what was
+            // I working on before lunch?" is the case semantic search exists
+            // for, and it was the one caller still doing exact-word matching.
+            let hits = try memoryStore.hybridSearch(query, embedder: embedder, limit: limit)
+            let rows = SemanticIndexing.diversified(hits, maxRun: 2, appName: { $0.snapshot.appName })
+            return render(rows.map(\.snapshot), emptyMessage: "No snapshots match \"\(query)\".")
 
         case "get_recent_activity":
             guard let memoryStore else { return "Memory is not available." }

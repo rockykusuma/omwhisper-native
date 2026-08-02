@@ -27,7 +27,10 @@ enum MCPLauncher {
             meetingStore = try? MeetingStore.open(atPath: appSupportDir.appendingPathComponent("meetings.db").path)
         }
 
-        MCPServer(historyStore: historyStore, memoryStore: memoryStore, meetingStore: meetingStore).run()
+        // AppleEmbedder needs no app state and no downloaded asset, so the
+        // subprocess gets the same semantic ranking the app has.
+        MCPServer(historyStore: historyStore, memoryStore: memoryStore,
+                  meetingStore: meetingStore, embedder: AppleEmbedder()).run()
         exit(0)
     }
 }
