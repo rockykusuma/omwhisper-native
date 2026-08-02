@@ -18,6 +18,12 @@ if let flag = CommandLine.arguments.firstIndex(of: "--diagnose-meeting"),
     exit(0)
 }
 
+if let flag = CommandLine.arguments.firstIndex(of: "--diagnose-meeting-ai") {
+    let id = flag + 1 < CommandLine.arguments.count ? Int64(CommandLine.arguments[flag + 1]) : nil
+    await MeetingAIDiagnostics.run(meetingID: id)
+    exit(0)
+}
+
 if let flag = CommandLine.arguments.firstIndex(of: "--wer"),
    flag + 1 < CommandLine.arguments.count {
     await WERBenchmark.run(directory: URL(fileURLWithPath: CommandLine.arguments[flag + 1]))
