@@ -56,6 +56,17 @@ struct AISettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+
+                // Answers "is polish actually running?" without waiting for a
+                // streak to escalate — the question that had no answer for
+                // months while Apple Intelligence silently did nothing.
+                let polishState = Degradation.state(.polish)
+                if polishState.streak > 0 {
+                    Text("Polish has fallen back to your raw text \(polishState.streak) time\(polishState.streak == 1 ? "" : "s") in a row. \(polishState.reason ?? "")")
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.dim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             if state.polishBackend == .ollama {
