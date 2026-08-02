@@ -219,9 +219,13 @@ enum MeetingAIDiagnostics {
         let model = defaults.string(forKey: "ollamaModel") ?? ""
         if kind == "ollama", !model.isEmpty {
             let baseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"
-            return Backend(polish: Ollama(baseURL: baseURL, model: model),
+            // longFormTimeout, matching meetingSummaryBackends(). Without it
+            // this harness ran a DIFFERENT configuration from the one that
+            // ships and reported a fixed timeout as still broken.
+            return Backend(polish: Ollama(baseURL: baseURL, model: model,
+                                          timeout: Ollama.longFormTimeout),
                            chunkLimit: MeetingSummarizer.ollamaChunkLimit,
-                           label: "Ollama(\(model))")
+                           label: "Ollama(\(model), timeout \(Int(Ollama.longFormTimeout))s)")
         }
         if SystemLLM.isAvailable() {
             return Backend(polish: SystemLLM(), chunkLimit: MeetingSummarizer.chunkCharLimit,
