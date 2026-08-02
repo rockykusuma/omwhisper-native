@@ -27,6 +27,12 @@ final class GlobalHotkey {
     private var globalMonitor: Any?
     private var localMonitor: Any?
 
+    /// False when `start()` ran but AppKit refused the global monitor — which
+    /// happens when the process isn't Accessibility-trusted. The shortcut then
+    /// looks correctly configured and silently never fires, which is exactly
+    /// the failure this app keeps hitting.
+    var isInstalled: Bool { globalMonitor != nil }
+
     init(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, action: @escaping () -> Void) {
         self.keyCode = keyCode
         self.modifiers = modifiers
