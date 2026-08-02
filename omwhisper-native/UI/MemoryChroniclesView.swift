@@ -12,11 +12,16 @@ import SwiftUI
 
 struct MemoryChroniclesView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.hubNavigate) private var hubNavigate
 
     @State private var chronicles: [MemoryChronicle] = []
     @State private var selectedDay: String?
     @State private var isRegenerating = false
     @State private var errorMessage: String?
+    /// Whether the failure was "no usable AI backend" rather than, say, "no
+    /// snapshots that day". Only then is an AI-settings shortcut relevant --
+    /// offering it for every error would send people somewhere that can't help.
+    @State private var errorIsBackend = false
 
     /// A plain HStack, deliberately NOT a NavigationSplitView — the same fix as
     /// Meetings: this already sits inside HubShellView's NavigationSplitView, and
@@ -30,6 +35,14 @@ struct MemoryChroniclesView: View {
         }
         .task { load() }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            // The message names the backend to switch to; this opens the place
+            // to switch it, rather than telling the user to go and find it.
+            if errorIsBackend {
+                Button("Open AI settings") {
+                    errorMessage = nil
+                    hubNavigate(.aiPolish)
+                }
+            }
             Button("OK") { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
@@ -183,6 +196,11 @@ struct MemoryChroniclesView: View {
                 load()
                 selectedDay = result.day
             } catch {
+                if case Chronicler.ChroniclerError.backendUnavailable = error {
+                    errorIsBackend = true
+                } else {
+                    errorIsBackend = false
+                }
                 errorMessage = error.localizedDescription
             }
         }

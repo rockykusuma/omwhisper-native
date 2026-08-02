@@ -13,6 +13,23 @@
 
 import SwiftUI
 
+/// Lets a nested section jump the hub elsewhere -- e.g. a chronicle that can't
+/// be written offering "Open AI settings" rather than telling the user to go
+/// find it. An environment value rather than state on AppState: this is view
+/// navigation, it persists nothing, and AppState is already the app's largest
+/// type. Defaults to a no-op, so a view hosted outside the hub (previews, the
+/// mini-panel) still compiles and simply does nothing.
+private struct HubNavigateKey: EnvironmentKey {
+    static let defaultValue: (HubSection) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var hubNavigate: (HubSection) -> Void {
+        get { self[HubNavigateKey.self] }
+        set { self[HubNavigateKey.self] = newValue }
+    }
+}
+
 enum HubSection: String, CaseIterable, Identifiable {
     // Order here IS the sidebar order (contentSections filters allCases).
     // Transcription sits under Vocabulary and above AI Polish: it's a feature
@@ -71,6 +88,7 @@ struct HubShellView: View {
             sidebar
         } detail: {
             content
+                .environment(\.hubNavigate) { selection = $0 }
                 .frame(minWidth: 480, minHeight: 520)
                 .background(Color.Porcelain.bg)
                 .id(selection)

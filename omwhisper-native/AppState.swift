@@ -867,9 +867,14 @@ final class AppState {
                 // Catch up on everything captured before this feature existed.
                 indexPendingMemory()
                 chronicleScheduler.store = memoryStore
-                chronicleScheduler.polish = systemLLM
+                chronicleScheduler.generate = { [weak self] day in
+                    _ = try await self?.generateChronicle(day: day)
+                }
+                // Suppressed only when NO backend can write one. This used to be
+                // `polishBackend != .system`, which disabled the nightly chronicle
+                // for every Ollama user even though Ollama can write it.
                 chronicleScheduler.isSuppressed = { [weak self] in
-                    self?.polishBackend != .system || !SystemLLM.isAvailable()
+                    self?.chronicleBackends().isEmpty ?? true
                 }
                 chronicleScheduler.start()
             } else {
@@ -971,17 +976,57 @@ final class AppState {
         )
     }
 
-    func regenerateChronicle(day: String) async throws -> Chronicler.ChronicleResult {
+    /// Chronicle backends in preference order, mirroring meetingSummaryBackends().
+    /// Cloud is deliberately absent and must stay absent: memory is the most
+    /// sensitive store in this app and never leaves the device, whatever the
+    /// polish backend is set to.
+    private func chronicleBackends() -> [(polish: PolishBackend, chunkLimit: Int)] {
+        var candidates: [(polish: PolishBackend, chunkLimit: Int)] = []
+        if polishBackend == .ollama, !ollamaModel.isEmpty {
+            candidates.append((Ollama(baseURL: ollamaBaseURL, model: ollamaModel),
+                               Chronicler.ollamaChunkLimit))
+        }
+        if SystemLLM.isAvailable() {
+            candidates.append((systemLLM, Chronicler.chunkCharLimit))
+        }
+        return candidates
+    }
+
+    /// First candidate that writes a chronicle wins. The three failure modes are
+    /// deliberately distinguishable: no backend at all, every backend failed, and
+    /// nothing captured that day are different problems with different fixes.
+    func generateChronicle(day: String) async throws -> Chronicler.ChronicleResult {
         guard let memoryStore else { throw Chronicler.ChroniclerError.noSnapshots }
-        // Chronicles are System-only (their chunking is tuned to SystemLLM's
-        // envelope), so an unusable on-device model means no chronicle at all.
-        // Say why here rather than letting FoundationModels' raw error surface.
-        guard SystemLLM.isAvailable() else {
+        let candidates = chronicleBackends()
+        guard !candidates.isEmpty else {
             throw Chronicler.ChroniclerError.backendUnavailable(
-                systemUnavailableMessage("write chronicles — but chronicles don't use Ollama yet")
+                systemUnavailableMessage("write chronicles")
             )
         }
-        return try await Chronicler.generate(day: day, store: memoryStore, polish: systemLLM)
+
+        var lastError: Error?
+        for candidate in candidates {
+            do {
+                return try await Chronicler.generate(
+                    day: day, store: memoryStore, polish: candidate.polish,
+                    chunkLimit: candidate.chunkLimit
+                )
+            } catch let error as Chronicler.ChroniclerError {
+                // No snapshots is about the day, not the backend -- trying a
+                // second backend cannot help and would hide the real reason.
+                throw error
+            } catch {
+                lastError = error
+            }
+        }
+        throw Chronicler.ChroniclerError.backendUnavailable(
+            "Couldn't write a chronicle — the on-device model failed. \(lastError?.localizedDescription ?? "")"
+                .trimmingCharacters(in: .whitespaces)
+        )
+    }
+
+    func regenerateChronicle(day: String) async throws -> Chronicler.ChronicleResult {
+        try await generateChronicle(day: day)
     }
 
     var mcpAccessEnabled: Bool {

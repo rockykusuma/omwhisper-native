@@ -38,8 +38,15 @@ nonisolated enum Chronicler {
     }
 
     static let perSnapshotLimit = 500
+    /// Both default to Foundation Models' safe envelope. `generate(chunkLimit:)`
+    /// overrides them together -- Ollama takes `ollamaChunkLimit`, which collapses
+    /// a busy day in far fewer passes and so loses less to repeated summarising.
     static let chunkCharLimit = 1_800
     static let reduceCharLimit = 1_800
+    /// Ollama's context is far larger than Foundation Models', so a day collapses
+    /// in fewer passes. Same value as MeetingSummarizer.ollamaChunkLimit -- these
+    /// two are the same trade-off and should not drift apart.
+    static let ollamaChunkLimit = 12_000
 
     /// Fixed-UUID internal styles -- never shown in the AI tab's picker (not
     /// added to PolishStyles.builtIns), same pattern as S4's hidden
@@ -108,17 +115,20 @@ nonisolated enum Chronicler {
     /// Effectful: full generation for one day. Throws ChroniclerError.noSnapshots
     /// if there are no snapshots for that day; propagates the first polish()
     /// failure. Overwrites any existing chronicle for the same day.
-    static func generate(day: String, store: MemoryStore, polish: PolishBackend) async throws -> ChronicleResult {
+    static func generate(
+        day: String, store: MemoryStore, polish: PolishBackend,
+        chunkLimit: Int = chunkCharLimit
+    ) async throws -> ChronicleResult {
         let snapshots = try store.snapshotsForDay(day)
         guard !snapshots.isEmpty else {
             throw ChroniclerError.noSnapshots
         }
         let blocks = snapshots.map(formatBlock)
-        let chunks = chunk(blocks)
+        let chunks = chunk(blocks, limit: chunkLimit)
 
         var chunkSummaries: [String] = []
         for group in chunks {
-            let text = String(group.joined(separator: "\n\n").prefix(chunkCharLimit))
+            let text = String(group.joined(separator: "\n\n").prefix(chunkLimit))
             let summary = try await polish.polish(text, style: chunkSummaryStyle, targetLanguage: nil)
             chunkSummaries.append(summary)
         }
@@ -132,17 +142,17 @@ nonisolated enum Chronicler {
         // the final chronicle. The `count` guard prevents a non-converging loop
         // if a single summary is itself over the limit (degenerate; then the
         // final prefix below is the last-resort cap).
-        while chunkSummaries.joined(separator: "\n").count > reduceCharLimit && chunkSummaries.count > 1 {
+        while chunkSummaries.joined(separator: "\n").count > chunkLimit && chunkSummaries.count > 1 {
             var collapsed: [String] = []
-            for group in chunk(chunkSummaries, limit: reduceCharLimit) {
-                let text = String(group.joined(separator: "\n\n").prefix(reduceCharLimit))
+            for group in chunk(chunkSummaries, limit: chunkLimit) {
+                let text = String(group.joined(separator: "\n\n").prefix(chunkLimit))
                 collapsed.append(try await polish.polish(text, style: chunkSummaryStyle, targetLanguage: nil))
             }
             if collapsed.count >= chunkSummaries.count { break }
             chunkSummaries = collapsed
         }
 
-        let reduceInput = String(chunkSummaries.joined(separator: "\n").prefix(reduceCharLimit))
+        let reduceInput = String(chunkSummaries.joined(separator: "\n").prefix(chunkLimit))
         let chronicle = try await polish.polish(reduceInput, style: chronicleWriteStyle, targetLanguage: nil)
         let trimmed = chronicle.trimmingCharacters(in: .whitespacesAndNewlines)
 
