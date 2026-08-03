@@ -402,6 +402,107 @@ final class AppState {
             hotkey.reconfigure(keyCode: newValue.keyCode, modifiers: newValue.flags)
         }
     }
+
+    /// nil means the feature has no global shortcut — its hotkey is stopped,
+    /// not merely reassigned somewhere unreachable. Dictation deliberately has
+    /// no such option: an app with no way to dictate is broken, not configured.
+    var smartDictationShortcut: KeyCombo? {
+        get {
+            access(keyPath: \.smartDictationShortcut)
+            return Self.decodeShortcut(SettingsKeys.smartDictationShortcut,
+                                       default: Self.defaultSmartDictation)
+        }
+        set {
+            withMutation(keyPath: \.smartDictationShortcut) {
+                Self.encodeShortcut(newValue, SettingsKeys.smartDictationShortcut)
+            }
+            Self.apply(newValue, to: smartDictationHotkey)
+        }
+    }
+
+    var polishSelectedShortcut: KeyCombo? {
+        get {
+            access(keyPath: \.polishSelectedShortcut)
+            return Self.decodeShortcut(SettingsKeys.polishSelectedShortcut,
+                                       default: Self.defaultPolishSelected)
+        }
+        set {
+            withMutation(keyPath: \.polishSelectedShortcut) {
+                Self.encodeShortcut(newValue, SettingsKeys.polishSelectedShortcut)
+            }
+            Self.apply(newValue, to: polishSelectedTextHotkey)
+        }
+    }
+
+    var brainDumpShortcut: KeyCombo? {
+        get {
+            access(keyPath: \.brainDumpShortcut)
+            return Self.decodeShortcut(SettingsKeys.brainDumpShortcut, default: Self.defaultBrainDump)
+        }
+        set {
+            withMutation(keyPath: \.brainDumpShortcut) {
+                Self.encodeShortcut(newValue, SettingsKeys.brainDumpShortcut)
+            }
+            Self.apply(newValue, to: brainDumpHotkey)
+        }
+    }
+
+    static let defaultSmartDictation = KeyCombo(
+        keyCode: 11, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "B")
+    static let defaultPolishSelected = KeyCombo(
+        keyCode: 35, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "P")
+    static let defaultBrainDump = KeyCombo(
+        keyCode: 2, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "D")
+
+    func defaultShortcut(for slot: ShortcutSlot) -> KeyCombo {
+        switch slot {
+        case .dictation: .defaultDictation
+        case .smartDictation: Self.defaultSmartDictation
+        case .polishSelected: Self.defaultPolishSelected
+        case .brainDump: Self.defaultBrainDump
+        }
+    }
+
+    /// Only the slots that currently HAVE a shortcut. Absent = disabled, which
+    /// is what lets ShortcutValidation treat two disabled features as
+    /// non-conflicting rather than both-nil-therefore-equal.
+    var assignedShortcuts: [ShortcutSlot: KeyCombo] {
+        var out: [ShortcutSlot: KeyCombo] = [.dictation: dictationShortcut]
+        if let combo = smartDictationShortcut { out[.smartDictation] = combo }
+        if let combo = polishSelectedShortcut { out[.polishSelected] = combo }
+        if let combo = brainDumpShortcut { out[.brainDump] = combo }
+        return out
+    }
+
+    /// Three states, not two: an explicit "disabled" marker, a stored combo, or
+    /// nothing stored yet (first run) which means the built-in default.
+    private static let disabledMarker = "disabled"
+
+    private static func decodeShortcut(_ key: String, default fallback: KeyCombo) -> KeyCombo? {
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: key) == disabledMarker { return nil }
+        guard let data = defaults.data(forKey: key) else { return fallback }
+        // Corrupt stored JSON falls back to the default rather than leaving the
+        // feature permanently unreachable.
+        return (try? JSONDecoder().decode(KeyCombo.self, from: data)) ?? fallback
+    }
+
+    private static func encodeShortcut(_ combo: KeyCombo?, _ key: String) {
+        let defaults = UserDefaults.standard
+        guard let combo else {
+            defaults.set(disabledMarker, forKey: key)
+            return
+        }
+        defaults.set(try? JSONEncoder().encode(combo), forKey: key)
+    }
+
+    private static func apply(_ combo: KeyCombo?, to hotkey: GlobalHotkey) {
+        guard let combo else {
+            hotkey.stop()
+            return
+        }
+        hotkey.reconfigure(keyCode: combo.keyCode, modifiers: combo.flags)
+    }
     var pttKey: PTTKey {
         get {
             access(keyPath: \.pttKey)
@@ -1332,8 +1433,11 @@ final class AppState {
     )
     /// kVK_ANSI_B — Smart Dictation, always polishes with the active style.
     @ObservationIgnored private lazy var smartDictationHotkey = GlobalHotkey(
-        keyCode: 11,
-        modifiers: [.command, .shift]
+        keyCode: smartDictationShortcut?.keyCode ?? Self.defaultSmartDictation.keyCode,
+        // Read the stored modifiers too — hardcoding [.command, .shift] here
+        // meant a custom combo installed with the right key and the WRONG
+        // modifiers after every relaunch, and silently never fired.
+        modifiers: (smartDictationShortcut ?? Self.defaultSmartDictation).flags
     ) { [weak self] in
         self?.beginSmartDictation()
     }
@@ -1341,15 +1445,21 @@ final class AppState {
     /// polish it, paste it back in place. Not a dictation session — dictation
     /// stays .idle throughout; overlayPhase alone drives the brief pill.
     @ObservationIgnored private lazy var polishSelectedTextHotkey = GlobalHotkey(
-        keyCode: 35,
-        modifiers: [.command, .shift]
+        keyCode: polishSelectedShortcut?.keyCode ?? Self.defaultPolishSelected.keyCode,
+        // Read the stored modifiers too — hardcoding [.command, .shift] here
+        // meant a custom combo installed with the right key and the WRONG
+        // modifiers after every relaunch, and silently never fired.
+        modifiers: (polishSelectedShortcut ?? Self.defaultPolishSelected).flags
     ) { [weak self] in
         self?.beginPolishSelectedText()
     }
     /// kVK_ANSI_D — Brain-dump mode: ramble, then structure into the active shape.
     @ObservationIgnored private lazy var brainDumpHotkey = GlobalHotkey(
-        keyCode: 2,
-        modifiers: [.command, .shift]
+        keyCode: brainDumpShortcut?.keyCode ?? Self.defaultBrainDump.keyCode,
+        // Read the stored modifiers too — hardcoding [.command, .shift] here
+        // meant a custom combo installed with the right key and the WRONG
+        // modifiers after every relaunch, and silently never fired.
+        modifiers: (brainDumpShortcut ?? Self.defaultBrainDump).flags
     ) { [weak self] in
         self?.beginBrainDump()
     }
@@ -1501,9 +1611,12 @@ final class AppState {
         // setters, which wire the (now non-nil) stores into their daemons.
         hotkey.start()
         pushToTalk.start()
-        smartDictationHotkey.start()
-        brainDumpHotkey.start()
-        polishSelectedTextHotkey.start()
+        // Guarded: a disabled shortcut must never install a monitor. Also
+        // forces the lazy vars to evaluate here, after UserDefaults is
+        // readable, so a stored custom combo isn't missed.
+        if smartDictationShortcut != nil { smartDictationHotkey.start() }
+        if brainDumpShortcut != nil { brainDumpHotkey.start() }
+        if polishSelectedShortcut != nil { polishSelectedTextHotkey.start() }
         parakeetEngine.setModel(parakeetModel)  // engine defaults to .v3; honor the persisted choice
         whisperEngine.setModel(whisperModel)     // engine defaults to turbo; honor the persisted choice
         whisperEngine.setLanguage(whisperLanguage)
@@ -2233,6 +2346,9 @@ nonisolated enum SettingsKeys {
     static let activeBrainDumpShapeID = "activeBrainDumpShapeID"
     static let brainDumpShapes = "brainDumpShapes"
     static let dictationShortcut = "dictationShortcut"
+    static let smartDictationShortcut = "smartDictationShortcut"
+    static let polishSelectedShortcut = "polishSelectedShortcut"
+    static let brainDumpShortcut = "brainDumpShortcut"
     static let pttKey = "pttKey"
     static let soundEnabled = "soundEnabled"
     static let soundVolume = "soundVolume"
