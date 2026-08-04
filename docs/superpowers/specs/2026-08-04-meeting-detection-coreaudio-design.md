@@ -124,7 +124,7 @@ resolves to a meeting URL: `ScreenContextReader.copyAttribute(_, kAXFocusedWindo
 | `hasActiveCallWindow` | Its only callers were `activeCall()` and the stop path, both rewritten. |
 | `CallerApp.needsVerification` and the two-tier scheme | The tiers existed solely to decide whether to consult the title. `CallerApp` collapses to a name. |
 | `MeetingWatcher.microphoneInUse()` | No caller once detection names the process. |
-| `MeetingWatcher.sawCallWindow` / `callGoneSince` | Replaced by a single detection-gone duration. |
+| `MeetingWatcher.sawCallWindow` | Replaced by `sawCall`, the same idea keyed on detection rather than on a window (see below). |
 
 Net: less code than today.
 
@@ -166,6 +166,31 @@ recognised call app is capturing input".
 holding the mic open the whole time no longer confuses it, because our own bundle is excluded
 from detection.
 
+**Auto-stop stays armed only once a call has actually been detected during this recording.**
+`sawCall` replaces `sawCallWindow` with the same purpose: a recording the user started by hand
+over an app that is not a recognised call — the 2026-08-03 case — has no detection to lose, and
+without this guard `detected == nil` from the first tick would auto-stop it after 8 seconds.
+That preserves today's contract: an unrecognised manual recording runs until Stop is clicked.
+
+### Detection must not run on MainActor
+
+`MeetingWatcher` is `@MainActor` and polls every 2 seconds. Measured on this machine: the
+CoreAudio sweep costs **211ms on the very first call** (establishing the connection to
+`coreaudiod`) and **~12ms steady state** over 36 processes. Twelve milliseconds would be
+tolerable, but the browser URL check is not: `BrowserURL.findWebArea` is depth-limited to 30 and
+**breadth-unbounded**, walking every child at every level of a web page's accessibility tree via
+cross-process IPC — during a Google Meet call it would run every 2 seconds on the main thread.
+
+That is precisely the regression fixed on 2026-08-02, when `MemoryCapture` blocked the main
+thread and starved the global shortcuts and push-to-talk. The lesson recorded then applies
+directly: **a time budget bounds how much work happens, never which thread pays for it.**
+
+So `tick()` follows the pattern shipped with that fix: read suppression on MainActor, run the
+detection sweep in a `Task.detached`, hop the result back to MainActor to advance the state
+machine and fire the collaborator callbacks. An in-flight guard skips a tick that arrives while
+a sweep is still running, and clears unconditionally so one failure cannot stop detection
+forever.
+
 ## Timeout is not a decline
 
 An explicit "Not now" still latches to `.declined` for the rest of the call. A **timeout** —
@@ -202,7 +227,12 @@ Everything except the CoreAudio enumeration is pure and tested directly:
 - **Browser requires a meeting URL**, asserted in both directions: `meet.google.com` counts,
   an ordinary URL does not.
 - **State machine**: start debounce, stop debounce, `.declined` latching through continued
-  detection, and the retry path — including that the *second* timeout goes quiet.
+  detection, the retry path — including that the *second* timeout goes quiet — and that a
+  manual recording with no call ever detected does **not** auto-stop.
+- **The in-flight guard**, in the shape already used for `MemoryCapture`: a tick arriving during
+  a sweep is skipped, **and the first sweep still completes**; the flag clears afterwards so
+  later ticks run. Asserting only "the second returned early" would pass even if the guard
+  wedged permanently.
 
 The CoreAudio read itself gets `--diagnose-meeting-detection` (DEBUG, stdout as the evidence
 channel, matching `MeetingDiagnostics` and `MeetingAIDiagnostics`), printing every audio process
