@@ -157,12 +157,21 @@ final class MeetingWatcher {
     /// Manual start: treat as an ongoing recording so the auto-detect poll won't
     /// re-prompt. Auto-stop arms only if a recognised call is detected now --
     /// recording an unrecognised app is stopped by the user, not by us.
-    func enterRecording(appName: String) {
-        let call = CallDetection.activeCall()
+    ///
+    /// Returns the name to record under: the DETECTED call's, when there is
+    /// one, else `fallbackAppName`. Clicking Record lives in the hub window, so
+    /// naming a manual recording after the frontmost app named it after
+    /// OmWhisper itself -- a real Teams call on 2026-08-03 was filed as
+    /// "OmWhisper-Dev". One sweep serves both the name and the pid, so the two
+    /// cannot disagree if the call ends mid-click.
+    func enterRecording(fallbackAppName: String) -> String {
+        let call = performDetection()
         recordingPID = call?.pid
         sawCall = call != nil
         goneSince = nil
+        let appName = call?.name ?? fallbackAppName
         state = .recording(appName: appName)
+        return appName
     }
 
     /// Manual stop: mark declined so the poll won't immediately re-prompt while

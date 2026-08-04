@@ -134,6 +134,16 @@ struct CallDetectionTests {
         #expect(CallDetection.cleanedMeetingTitle(windowTitle: "zoom - Meeting", appName: "Zoom") == nil)
     }
 
+    @Test("Teams' pipe separator is stripped, using the real observed title")
+    func cleanedTitleHandlesTeamsPipe() {
+        // The actual title Memory captured during the 2026-08-03 call. Without
+        // the " | " split the whole string becomes the meeting name.
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "D-WHAS | Microsoft Teams", appName: "Teams") == "D-WHAS")
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Microsoft Teams", appName: "Teams") == "Microsoft Teams")
+    }
+
     @Test func cleanedTitleKeepsPlainTitles() {
         #expect(CallDetection.cleanedMeetingTitle(
             windowTitle: "Design review with hardware team", appName: "Teams")
