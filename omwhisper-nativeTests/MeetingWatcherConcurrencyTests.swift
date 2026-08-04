@@ -38,7 +38,12 @@ struct MeetingWatcherConcurrencyTests {
         watcher.performDetection = { gate.enter(); return nil }
 
         watcher.startForTesting()
-        #expect(await waitUntil("sweep starts") { watcher.isDetecting },
+        // Wait on the gate, not on isDetecting: the flag is set synchronously
+        // inside tick() BEFORE the detached task is scheduled, so it goes true
+        // while the sweep has not begun. Under parallel-suite load the task can
+        // be several hundred ms behind, and the callCount check below then
+        // reads 0 and fails for the wrong reason.
+        #expect(await waitUntil("sweep starts") { gate.callCount == 1 },
                 "first sweep never started")
 
         watcher.startForTesting()                          // must be skipped
@@ -59,12 +64,12 @@ struct MeetingWatcherConcurrencyTests {
         watcher.performDetection = { gate.enter(); return nil }
 
         watcher.startForTesting()
-        #expect(await waitUntil("first sweep starts") { watcher.isDetecting })
+        #expect(await waitUntil("first sweep starts") { gate.callCount == 1 })
         gate.release()
         #expect(await waitUntil("first sweep ends") { !watcher.isDetecting })
 
         watcher.startForTesting()
-        #expect(await waitUntil("second sweep starts") { watcher.isDetecting },
+        #expect(await waitUntil("second sweep starts") { gate.callCount == 2 },
                 "a later tick was blocked by a stale in-flight flag")
         gate.release()
         #expect(await waitUntil("second sweep ends") { !watcher.isDetecting })

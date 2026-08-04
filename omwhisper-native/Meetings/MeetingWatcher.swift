@@ -84,7 +84,7 @@ final class MeetingWatcher {
     /// recorder/panel. All default to no-ops so this file compiles standalone.
     var onStartRecording: (String) -> Void = { _ in }
     var onStopRecording: () -> Void = {}
-    var onShowConsentPanel: (String, @escaping (Bool) -> Void) -> Void = { _, respond in respond(false) }
+    var onShowConsentPanel: (String, @escaping (MeetingConsent) -> Void) -> Void = { _, respond in respond(.declined) }
 
     /// True while `AppState.dictation != .idle` -- suppresses the whole watcher
     /// so our own dictation never triggers a false consent prompt.
@@ -241,16 +241,27 @@ final class MeetingWatcher {
         case .prompting(let appName):
             pendingCallPID = detected?.pid
             retrySince = nil
-            onShowConsentPanel(appName) { [weak self] accepted in
+            onShowConsentPanel(appName) { [weak self] consent in
                 guard let self else { return }
-                if accepted {
+                switch consent {
+                case .accepted:
                     self.recordingPID = self.pendingCallPID
                     self.sawCall = false
                     self.goneSince = nil
                     self.state = .recording(appName: appName)
                     self.onStartRecording(appName)
-                } else {
+                case .declined:
                     self.state = .declined
+                case .timedOut:
+                    // One retry per call. A second unanswered prompt goes quiet
+                    // rather than interrupting repeatedly.
+                    if self.hasRetried {
+                        self.state = .declined
+                    } else {
+                        self.hasRetried = true
+                        self.retrySince = ContinuousClock.now
+                        self.state = .awaitingRetry(appName: appName)
+                    }
                 }
             }
         case .idle:

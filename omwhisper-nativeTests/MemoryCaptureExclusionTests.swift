@@ -79,7 +79,12 @@ struct MemoryCaptureConcurrencyTests {
         }
 
         subject.tick()                                    // starts, blocks in the gate
-        #expect(await waitUntil("capture starts") { subject.isCapturing },
+        // Wait on the gate, not on isCapturing: the flag is set synchronously
+        // inside tick() BEFORE the detached task is scheduled, so it goes true
+        // while the capture has not begun. Under parallel-suite load the task
+        // can be several hundred ms behind, and the callCount check below then
+        // reads 0 and fails for the wrong reason.
+        #expect(await waitUntil("capture starts") { gate.callCount == 1 },
                 "first capture never started")
 
         subject.tick()                                    // must be skipped
@@ -104,7 +109,7 @@ struct MemoryCaptureConcurrencyTests {
         }
 
         subject.tick()
-        _ = await waitUntil("first capture starts") { subject.isCapturing }
+        _ = await waitUntil("first capture starts") { gate.callCount == 1 }
         gate.release()
         #expect(await waitUntil("first completes") { !subject.isCapturing })
 
