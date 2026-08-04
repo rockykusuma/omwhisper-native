@@ -145,6 +145,7 @@ nonisolated enum CallDetection {
             guard !isOwnProcess(process.bundleID),
                   let base = callAppBundleID(forAudioBundleID: process.bundleID) else { continue }
             let pid = owningPID(baseBundleID: base) ?? process.pid
+            if BrowserURL.isBrowser(base), !hasMeetingPage(pid: pid, bundleID: base) { continue }
             let name = callerApps[base]
                 ?? NSRunningApplication(processIdentifier: pid)?.localizedName
                 ?? base
@@ -162,5 +163,21 @@ nonisolated enum CallDetection {
         NSWorkspace.shared.runningApplications
             .first { $0.bundleIdentifier == baseBundleID }?
             .processIdentifier
+    }
+
+    /// A browser holding the mic means nothing on its own -- any WebRTC page
+    /// does it -- so it counts as a call only when the focused window resolves
+    /// to a meeting URL. Silence is the safe direction here: a false positive
+    /// prompts during ordinary browsing, a false negative costs one
+    /// auto-started recording and the Record button still works.
+    static func hasMeetingPage(pid: pid_t, bundleID: String) -> Bool {
+        let appElement = AXUIElementCreateApplication(pid)
+        guard let window = ScreenContextReader.copyAttribute(appElement, kAXFocusedWindowAttribute)
+        else { return false }
+        // Not `as?`: the compiler rejects that as dead code ("conditional
+        // downcast to CoreFoundation type 'AXUIElement' will always succeed").
+        // Same construct and same reason as ScreenContextReader.swift:66.
+        let windowElement = window as! AXUIElement
+        return isMeetingURL(BrowserURL.url(bundleId: bundleID, window: windowElement))
     }
 }

@@ -58,6 +58,18 @@ struct CallDetectionTests {
         #expect(CallDetection.isMeetingURL("https://teams.microsoft.com/l/meetup-join/xyz"))
     }
 
+    @Test("an ordinary browser page is not a meeting")
+    func ordinaryPagesAreNotMeetings() {
+        // The control for browser detection. Any WebRTC page opens the mic, so
+        // "a browser is capturing input" cannot mean "a call" on its own --
+        // without this the app would prompt during a YouTube video.
+        #expect(!CallDetection.isMeetingURL("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        #expect(!CallDetection.isMeetingURL("https://github.com/rockykusuma/omwhisper-native"))
+        #expect(!CallDetection.isMeetingURL(nil))
+        #expect(CallDetection.isMeetingURL("https://meet.google.com/abc-defg-hij"))
+        #expect(CallDetection.isMeetingURL("https://teams.microsoft.com/l/meetup-join/xyz"))
+    }
+
     @Test func nonMeetingURLsAreNotRecognized() {
         #expect(!CallDetection.isMeetingURL("https://github.com/rockykusuma/omwhisper-native"))
         #expect(!CallDetection.isMeetingURL(nil))
