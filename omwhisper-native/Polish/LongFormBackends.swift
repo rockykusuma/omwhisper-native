@@ -47,4 +47,17 @@ nonisolated enum LongFormBackends {
         if systemAvailable { order.append(.system) }
         return order
     }
+
+    /// What to show the user for a backend that produced a summary. The model
+    /// name is included deliberately: preferring Ollama is only better if the
+    /// Ollama model is good, and this app cannot judge that. A poor summary
+    /// labelled "Ollama (llama3.2:latest)" tells you what to change, where
+    /// "Ollama" alone does not -- that model was measured answering "Nothing
+    /// relevant." to questions the transcript plainly answered.
+    static func displayName(for kind: Kind, ollamaModel: String) -> String {
+        switch kind {
+        case .ollama: return ollamaModel.isEmpty ? "Ollama" : "Ollama (\(ollamaModel))"
+        case .system: return "Apple Intelligence"
+        }
+    }
 }

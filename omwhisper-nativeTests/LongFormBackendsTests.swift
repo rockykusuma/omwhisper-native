@@ -24,6 +24,18 @@ struct LongFormBackendsTests {
         #expect(LongFormBackends.order(ollamaConfigured: false, systemAvailable: false).isEmpty)
     }
 
+    @Test("the display name names the model, not just the backend")
+    func displayNameIncludesModel() {
+        // "Ollama" alone does not distinguish a 3B model from a 9B one, and that
+        // distinction is the entire reason a summary might read badly.
+        #expect(LongFormBackends.displayName(for: .ollama, ollamaModel: "qwen3.5:latest")
+                == "Ollama (qwen3.5:latest)")
+        #expect(LongFormBackends.displayName(for: .system, ollamaModel: "qwen3.5:latest")
+                == "Apple Intelligence")
+        // An empty model should never render as "Ollama ()".
+        #expect(LongFormBackends.displayName(for: .ollama, ollamaModel: "") == "Ollama")
+    }
+
     @Test("cloud can never be a long-form candidate")
     func noCloudCase() {
         // Recordings and chronicles must never egress. That is guaranteed by

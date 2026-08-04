@@ -815,14 +815,17 @@ final class AppState {
                          systemChunkLimit: MeetingSummarizer.chunkCharLimit)
     }
 
-    /// First candidate that produces a summary; nil when all fail or none exist.
-    private func generateMeetingSummary(transcript: String, template: PolishStyle) async -> String? {
+    /// First candidate that produces a summary, with the name of whichever one
+    /// did; nil when all fail or none exist.
+    private func generateMeetingSummary(transcript: String,
+                                        template: PolishStyle) async -> (summary: String, backend: String)? {
         for candidate in meetingSummaryBackends() {
             if let summary = try? await MeetingSummarizer.generate(
                 transcript: transcript, polish: candidate.polish,
                 template: template, chunkLimit: candidate.chunkLimit
             ), !summary.isEmpty {
-                return summary
+                return (summary, LongFormBackends.displayName(for: candidate.kind,
+                                                              ollamaModel: ollamaModel))
             }
         }
         return nil
@@ -839,9 +842,9 @@ final class AppState {
         let transcript = try await MeetingTranscriber.transcribeMeeting(
             directory: URL(fileURLWithPath: meeting.directory), engine: AppleEngine(), whisper: whisperEngine
         )
-        var summary: String?
+        var written: (summary: String, backend: String)?
         if !meetingSummaryBackends().isEmpty {
-            summary = await generateMeetingSummary(
+            written = await generateMeetingSummary(
                 transcript: transcript,
                 template: MeetingSummarizer.template(id: meetingTemplateID, custom: customMeetingTemplates))
         } else if !didNudgeFoundationModelsUnavailable {
@@ -851,7 +854,9 @@ final class AppState {
         // Fresh diarization labels are not stable across runs — a mapping made
         // for the old labels would rename the wrong people. Reset it.
         try store.setSpeakerNames(id: id, nil)
-        try store.setTranscriptAndSummary(id: id, transcript: transcript, summary: summary)
+        try store.setTranscriptAndSummary(id: id, transcript: transcript,
+                                          summary: written?.summary,
+                                          summaryBackend: written?.backend)
         return try store.get(id: id) ?? meeting
     }
 
@@ -873,11 +878,13 @@ final class AppState {
             transcript, names: meeting.speakerNames ?? [:])
         let template = MeetingSummarizer.template(
             id: templateID ?? meetingTemplateID, custom: customMeetingTemplates)
-        guard let summary = await generateMeetingSummary(transcript: resolved, template: template) else {
+        guard let written = await generateMeetingSummary(transcript: resolved, template: template) else {
             errorMessage = "Summary generation failed — see Copy Debug Info in About, or try again."
             return meeting
         }
-        try store.setTranscriptAndSummary(id: id, transcript: transcript, summary: summary)
+        try store.setTranscriptAndSummary(id: id, transcript: transcript,
+                                          summary: written.summary,
+                                          summaryBackend: written.backend)
         return try store.get(id: id) ?? meeting
     }
 
@@ -1125,10 +1132,15 @@ final class AppState {
         var lastError: Error?
         for candidate in candidates {
             do {
+                // Resolved out here: the Task captures self weakly, and reading
+                // ollamaModel inside it would capture self strongly.
+                let backendName = LongFormBackends.displayName(for: candidate.kind,
+                                                               ollamaModel: ollamaModel)
                 let task = Task<Chronicler.ChronicleResult, Error> { [weak self] in
                     try await Chronicler.generate(
                         day: day, store: memoryStore, polish: candidate.polish,
                         chunkLimit: candidate.chunkLimit,
+                        backendName: backendName,
                         onProgress: { done, total in
                             Task { @MainActor in self?.chronicleProgress = (done, total) }
                         }
