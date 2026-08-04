@@ -86,6 +86,9 @@ nonisolated enum DebugInfo {
         FEATURES
           Meetings \(onOff(state.meetingsEnabled)) · Memory \(onOff(state.memoryEnabled)) (paused: \(onOff(state.memoryPaused))) · Reply assist \(onOff(state.replyAssistEnabled)) · MCP \(onOff(state.mcpAccessEnabled)) · Context-aware \(onOff(state.contextAwareDictationEnabled))
 
+        MEETING DETECTION
+        \(meetingDetectionLines(state).map { "  \($0)" }.joined(separator: "\n"))
+
         STORAGE
           History: \(storageLine(try? state.historyStore?.storageInfo()))
           Memory: \(storageLine(try? state.memoryStore?.storageInfo()))
@@ -103,6 +106,56 @@ nonisolated enum DebugInfo {
             out += "\n\nDEGRADED\n" + degraded.map { "  \($0)" }.joined(separator: "\n")
         }
         return out
+    }
+
+    /// What meeting detection can see right now.
+    ///
+    /// This exists because the CLI diagnostic can't answer the question when it
+    /// matters. A binary spawned from a shell makes the TERMINAL the responsible
+    /// process for TCC, so its accessibility reads all come back empty; and a
+    /// call that went undetected is over by the time anyone opens a terminal.
+    /// Copy Debug Info runs inside the app, which holds the grant, and is one
+    /// click during the call itself.
+    ///
+    /// Bundle IDs, pids and verdicts only — never window titles or URLs, per
+    /// this file's standing rule. "meeting page: no" could in principle mean
+    /// the accessibility read returned nothing rather than "not a meeting", but
+    /// the PERMISSIONS section directly above already says whether Accessibility
+    /// is granted, so no URL needs printing to tell those apart.
+    @MainActor private static func meetingDetectionLines(_ state: AppState) -> [String] {
+        var lines = ["Watcher: \(state.meetingWatcherState)"]
+
+        let processes = AudioProcesses.capturingInput()
+        if processes.isEmpty {
+            lines.append("Mic held by: nothing right now")
+        }
+        for process in processes {
+            let base = CallDetection.callAppBundleID(forAudioBundleID: process.bundleID)
+            let verdict: String
+            if CallDetection.isOwnProcess(process.bundleID) {
+                verdict = "OmWhisper itself (excluded by design)"
+            } else if let base {
+                verdict = CallDetection.callerApps[base] ?? base
+            } else {
+                verdict = "not a known call app — add to callerApps if it is one"
+            }
+            lines.append("Mic held by: \(process.bundleID) (pid \(process.pid)) → \(verdict)")
+
+            if let base, BrowserURL.isBrowser(base) {
+                let pid = CallDetection.owningPID(baseBundleID: base) ?? process.pid
+                // Not yesNo(_:"yes") — that negates to "not yes", the same trap
+                // keyState exists for.
+                let isMeeting = CallDetection.hasMeetingPage(pid: pid, bundleID: base)
+                lines.append("  browser — meeting page: \(isMeeting ? "yes" : "no")")
+            }
+        }
+
+        if let call = CallDetection.activeCall() {
+            lines.append("Detected call: \(call.name) (pid \(call.pid))")
+        } else {
+            lines.append("Detected call: none")
+        }
+        return lines
     }
 
     // MARK: Small formatters
