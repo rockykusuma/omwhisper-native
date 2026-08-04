@@ -13,9 +13,12 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import os
+
+private nonisolated let callLog = Logger(subsystem: "com.omwhisper.mac", category: "CallDetection")
 
 nonisolated enum CallDetection {
-    /// Base bundle ID -> display name. The process that actually holds the mic
+    /// Bundle-ID base -> display name. The process that actually holds the mic
     /// is frequently a helper below one of these, so every lookup goes through
     /// `matchesBundle`, never a dictionary subscript.
     ///
@@ -23,15 +26,51 @@ nonisolated enum CallDetection {
     /// input IS the evidence. The old two-tier scheme existed only to decide
     /// whether to consult the window title, and the title heuristic is what
     /// missed a real 30-minute Teams call on 2026-08-03.
+    ///
+    /// **Entries are VENDOR NAMESPACES, not app bundle IDs**, wherever the
+    /// vendor's namespace is unambiguous. This is not tidiness -- it is the
+    /// difference between detecting a call and missing it. Enumerating the
+    /// helper bundles inside zoom.us.app on 2026-08-04 found that EVERY one of
+    /// them (us.zoom.aomhost -- the audio module host -- us.zoom.ZoomPhone,
+    /// us.zoom.CptHost and ten more) sits OUTSIDE `us.zoom.xos`, so the app we
+    /// trusted most would have failed exactly the way Teams did. `com.hnc`
+    /// likewise covers DiscordPTB and DiscordCanary, which are siblings of
+    /// com.hnc.Discord rather than children.
+    ///
+    /// Verified against real bundles on this machine: Teams (modulehost seen
+    /// holding the mic during a live call) and Zoom (helper list above).
+    /// WhatsApp's ServiceExtension was seen in the same live probe. **The rest
+    /// are best-effort and unverified.** That asymmetry is deliberate: a wrong
+    /// ID here simply never matches and costs nothing, while a missing one
+    /// costs a whole meeting. `noteUnrecognisedMicHolder` below is what turns a
+    /// wrong guess into a fixable fact instead of a silent miss.
     static let callerApps: [String: String] = [
-        "us.zoom.xos": "Zoom",
-        "com.apple.FaceTime": "FaceTime",
+        // Verified on this machine.
+        "us.zoom": "Zoom",
         "com.microsoft.teams2": "Teams",
         "com.microsoft.teams": "Teams",
         "net.whatsapp.WhatsApp": "WhatsApp",
+        // Namespace covers Discord, DiscordPTB and DiscordCanary.
+        "com.hnc": "Discord",
         "com.tinyspeck.slackmacgap": "Slack",
-        "com.hnc.Discord": "Discord",
+        "com.apple.FaceTime": "FaceTime",
+        // Best-effort: not installed here, so these bundle IDs are unverified.
         "Cisco-Systems.Spark": "Webex",
+        "com.webex.meetingmanager": "Webex",
+        "com.cisco.webexmeetingsapp": "Webex",
+        "com.skype.skype": "Skype",
+        "com.microsoft.SkypeForBusiness": "Skype for Business",
+        "com.google.meetings": "Google Meet",
+        "com.amazon.Chime": "Amazon Chime",
+        "com.logmein.GoToMeeting": "GoToMeeting",
+        "com.bluejeansnet.Blue": "BlueJeans",
+        "com.ringcentral.glip": "RingCentral",
+        "org.jitsi.jitsi-meet": "Jitsi Meet",
+        "com.jitsi.jitsi-meet": "Jitsi Meet",
+        "org.telegram.desktop": "Telegram",
+        "ru.keepcoder.Telegram": "Telegram",
+        "org.whispersystems.signal-desktop": "Signal",
+        "com.facebook.archon": "Messenger",
     ]
 
     /// Our own bundle. Prefix-matched, so the Debug build
@@ -122,8 +161,11 @@ nonisolated enum CallDetection {
     /// none of the call words, so detection returned nil on every poll.
     static func activeCall() -> (name: String, pid: pid_t)? {
         for process in AudioProcesses.capturingInput() {
-            guard !isOwnProcess(process.bundleID),
-                  let base = callAppBundleID(forAudioBundleID: process.bundleID) else { continue }
+            guard !isOwnProcess(process.bundleID) else { continue }
+            guard let base = callAppBundleID(forAudioBundleID: process.bundleID) else {
+                noteUnrecognisedMicHolder(process.bundleID)
+                continue
+            }
             let pid = owningPID(baseBundleID: base) ?? process.pid
             if BrowserURL.isBrowser(base), !hasMeetingPage(pid: pid, bundleID: base) { continue }
             let name = callerApps[base]
@@ -132,6 +174,26 @@ nonisolated enum CallDetection {
             return (name, pid)
         }
         return nil
+    }
+
+    /// Bundle IDs already reported this session, so the 2s poll logs each one
+    /// once rather than every tick.
+    private static let reportedMicHolders = OSAllocatedUnfairLock(initialState: Set<String>())
+
+    /// Names a process that holds the microphone but is not a known call app.
+    ///
+    /// `callerApps` is a hardcoded list, so an app missing from it is undetected
+    /// AND silent -- which is how a 30-minute Teams call went unrecorded. By
+    /// the time anyone thinks to run a diagnostic the call is over, so the
+    /// evidence has to be captured while the mic is actually held. If a call
+    /// app is not being detected, this line names the bundle ID to add.
+    ///
+    /// Bundle IDs only, never window titles or content. `.public` because a
+    /// redacted bundle ID would defeat the entire purpose.
+    static func noteUnrecognisedMicHolder(_ bundleID: String) {
+        let isNew = reportedMicHolders.withLock { $0.insert(bundleID).inserted }
+        guard isNew else { return }
+        callLog.notice("mic held by unrecognised process: \(bundleID, privacy: .public) — add to callerApps if this is a call app")
     }
 
     /// The pid of the app that OWNS this bundle ID, not the helper that happens
