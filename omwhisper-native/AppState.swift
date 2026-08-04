@@ -781,22 +781,38 @@ final class AppState {
         }
     }
 
-    /// Summary backends for meetings, in try-order. Ollama first when it's the
-    /// user's polish backend and configured (local, zero egress — "on-device"
-    /// does not mean "SystemLLM-only"), SystemLLM as the primary otherwise and
-    /// as the retry when Ollama fails mid-summary. Cloud NEVER appears here:
-    /// recorded calls don't egress even as text, whatever the polish backend is.
-    private func meetingSummaryBackends() -> [(polish: PolishBackend, chunkLimit: Int)] {
-        var candidates: [(polish: PolishBackend, chunkLimit: Int)] = []
-        if polishBackend == .ollama, !ollamaModel.isEmpty {
-            candidates.append((Ollama(baseURL: ollamaBaseURL, model: ollamaModel,
-                                      timeout: Ollama.longFormTimeout),
-                               MeetingSummarizer.ollamaChunkLimit))
-        }
-        if SystemLLM.isAvailable() {
-            candidates.append((systemLLM, MeetingSummarizer.chunkCharLimit))
-        }
-        return candidates
+    /// Backends for work with large inputs, in preference order — see
+    /// LongFormBackends for why this ignores `polishBackend`. Meetings,
+    /// chronicles and brain-dump all come through here.
+    ///
+    /// Ollama gets `longFormTimeout` (300s), not the 30s dictation timeout:
+    /// nobody is waiting on a keystroke here, and a cold model takes ~36s to
+    /// load. Cloud is never constructed, so recorded calls and chronicles
+    /// cannot egress even as text, whatever the polish backend is.
+    ///
+    /// `kind` rides along so callers can name whichever candidate won, without
+    /// having to type-check a PolishBackend existential.
+    private func longFormBackends(ollamaChunkLimit: Int, systemChunkLimit: Int)
+        -> [(kind: LongFormBackends.Kind, polish: PolishBackend, chunkLimit: Int)] {
+        LongFormBackends.order(ollamaConfigured: !ollamaModel.isEmpty,
+                               systemAvailable: SystemLLM.isAvailable())
+            .map { kind in
+                switch kind {
+                case .ollama:
+                    return (kind,
+                            Ollama(baseURL: ollamaBaseURL, model: ollamaModel,
+                                   timeout: Ollama.longFormTimeout),
+                            ollamaChunkLimit)
+                case .system:
+                    return (kind, systemLLM, systemChunkLimit)
+                }
+            }
+    }
+
+    private func meetingSummaryBackends()
+        -> [(kind: LongFormBackends.Kind, polish: PolishBackend, chunkLimit: Int)] {
+        longFormBackends(ollamaChunkLimit: MeetingSummarizer.ollamaChunkLimit,
+                         systemChunkLimit: MeetingSummarizer.chunkCharLimit)
     }
 
     /// First candidate that produces a summary; nil when all fail or none exist.
@@ -1085,21 +1101,13 @@ final class AppState {
         )
     }
 
-    /// Chronicle backends in preference order, mirroring meetingSummaryBackends().
-    /// Cloud is deliberately absent and must stay absent: memory is the most
-    /// sensitive store in this app and never leaves the device, whatever the
-    /// polish backend is set to.
-    private func chronicleBackends() -> [(polish: PolishBackend, chunkLimit: Int)] {
-        var candidates: [(polish: PolishBackend, chunkLimit: Int)] = []
-        if polishBackend == .ollama, !ollamaModel.isEmpty {
-            candidates.append((Ollama(baseURL: ollamaBaseURL, model: ollamaModel,
-                                      timeout: Ollama.longFormTimeout),
-                               Chronicler.ollamaChunkLimit))
-        }
-        if SystemLLM.isAvailable() {
-            candidates.append((systemLLM, Chronicler.chunkCharLimit))
-        }
-        return candidates
+    /// Chronicle backends in preference order. Cloud is deliberately absent and
+    /// must stay absent: memory is the most sensitive store in this app and
+    /// never leaves the device, whatever the polish backend is set to.
+    private func chronicleBackends()
+        -> [(kind: LongFormBackends.Kind, polish: PolishBackend, chunkLimit: Int)] {
+        longFormBackends(ollamaChunkLimit: Chronicler.ollamaChunkLimit,
+                         systemChunkLimit: Chronicler.chunkCharLimit)
     }
 
     /// First candidate that writes a chronicle wins. The three failure modes are
