@@ -15,6 +15,29 @@ struct MeetingStoreTests {
         ))
     }
 
+    @Test("the summary backend round-trips, and older rows survive without one")
+    func summaryBackendRoundTrips() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Teams")
+
+        // A row with no backend recorded — the state every pre-existing meeting
+        // is in — must load rather than throw.
+        #expect(try store.get(id: id)?.summaryBackend == nil)
+
+        // Generation path.
+        try store.setTranscriptAndSummary(id: id, transcript: "Alice: hello.",
+                                          summary: "## Summary\n\nIt happened.",
+                                          summaryBackend: "Ollama (qwen3.5:latest)")
+        let saved = try store.get(id: id)
+        #expect(saved?.summaryBackend == "Ollama (qwen3.5:latest)")
+        #expect(saved?.summary?.contains("It happened") == true)
+
+        // Hand-editing clears it: an edited summary is no longer the model's
+        // output, so attributing it to the model would be a lie.
+        try store.setSummary(id: id, "## Summary\n\nI rewrote this myself.")
+        #expect(try store.get(id: id)?.summaryBackend == nil)
+    }
+
     @Test func insertGetAndCount() throws {
         let store = try makeStore()
         let id = try seed(store, app: "Zoom")

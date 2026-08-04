@@ -15,6 +15,10 @@ nonisolated enum BrainDumpStructurer {
     static let chunkCharLimit = 1_800
     static let reduceCharLimit = 1_800
 
+    /// Ollama's envelope, matching MeetingSummarizer and Chronicler. A long
+    /// ramble becomes one or two calls here instead of a dozen.
+    static let ollamaChunkLimit = 12_000
+
     /// Pure: greedily pack words into <=limit-char groups (verbatim from
     /// MeetingSummarizer.chunk — no content lost even for one long line).
     static func chunk(_ text: String, limit: Int = chunkCharLimit) -> [String] {
@@ -36,12 +40,17 @@ nonisolated enum BrainDumpStructurer {
 
     /// Map (long only) → reduce into `shape`. `context` (target app + screen terms)
     /// is appended to the reduce input. Returns "" for empty input.
+    /// `chunkLimit` is how much this backend takes per call: 1,800 for
+    /// SystemLLM, 12,000 for Ollama. It caps the reduce input too — a 12,000-char
+    /// chunk truncated back to 1,800 before the reduce would throw away exactly
+    /// what the larger envelope bought.
     static func structure(transcript: String, shape: PolishStyle,
-                          context: String?, polish: PolishBackend) async throws -> String {
+                          context: String?, polish: PolishBackend,
+                          chunkLimit: Int = chunkCharLimit) async throws -> String {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
 
-        let chunks = chunk(trimmed)
+        let chunks = chunk(trimmed, limit: chunkLimit)
         let material: String
         if chunks.count <= 1 {
             material = trimmed
@@ -50,7 +59,11 @@ nonisolated enum BrainDumpStructurer {
             for group in chunks {
                 notes.append(try await polish.polish(group, style: BrainDumpShapes.chunkNotesStyle, targetLanguage: nil))
             }
-            material = String(notes.joined(separator: "\n").prefix(reduceCharLimit))
+            // ponytail: still truncates rather than collapsing, which is the bug
+            // MeetingSummarizer was fixed for. Much less likely to bite at
+            // 12,000, and out of scope here — worth the same collapse loop if a
+            // ramble ever exceeds it.
+            material = String(notes.joined(separator: "\n").prefix(max(chunkLimit, reduceCharLimit)))
         }
 
         let input = context.map { "\(material)\n\n[Context: \($0)]" } ?? material

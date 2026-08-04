@@ -157,6 +157,18 @@ struct MemoryStoreTests {
         #expect(try store.listChronicles(limit: 10).count == 1)
     }
 
+    @Test("the chronicle backend round-trips, and older rows survive without one")
+    func chronicleBackendRoundTrips() throws {
+        let store = try makeStore()
+        try store.upsertChronicle(day: "2026-08-04", summary: "A day.",
+                                  snapshotCount: 12, backend: nil)
+        #expect(try store.getChronicle(day: "2026-08-04")?.backend == nil)
+
+        try store.upsertChronicle(day: "2026-08-05", summary: "Another day.",
+                                  snapshotCount: 40, backend: "Apple Intelligence")
+        #expect(try store.getChronicle(day: "2026-08-05")?.backend == "Apple Intelligence")
+    }
+
     @Test("getChronicle returns nil for a day with no chronicle")
     func chronicleMissingReturnsNil() throws {
         let store = try makeStore()

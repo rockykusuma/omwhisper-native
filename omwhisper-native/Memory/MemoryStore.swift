@@ -30,6 +30,8 @@ nonisolated struct MemoryChronicle: Codable, FetchableRecord, PersistableRecord,
     var summary: String
     var snapshotCount: Int
     var createdAt: String
+    /// Which backend wrote `summary`. Nil for rows written before provenance.
+    var backend: String? = nil
 }
 
 /// One ~1000-char chunk of a snapshot plus its embedding. Separate rows rather
@@ -101,6 +103,11 @@ nonisolated final class MemoryStore: Sendable {
             }
             try db.create(index: "passages_snapshot", on: MemoryPassage.databaseTableName,
                           columns: ["snapshotId"])
+        }
+        migrator.registerMigration("chronicleProvenance") { db in
+            try db.alter(table: MemoryChronicle.databaseTableName) { t in
+                t.add(column: "backend", .text)
+            }
         }
         try migrator.migrate(dbQueue)
     }
@@ -295,9 +302,11 @@ nonisolated final class MemoryStore: Sendable {
         }
     }
 
-    func upsertChronicle(day: String, summary: String, snapshotCount: Int) throws {
+    func upsertChronicle(day: String, summary: String, snapshotCount: Int,
+                         backend: String? = nil) throws {
         let now = ISO8601DateFormatter().string(from: Date())
-        let row = MemoryChronicle(day: day, summary: summary, snapshotCount: snapshotCount, createdAt: now)
+        let row = MemoryChronicle(day: day, summary: summary, snapshotCount: snapshotCount,
+                                  createdAt: now, backend: backend)
         try dbQueue.write { db in try row.save(db) }
     }
 

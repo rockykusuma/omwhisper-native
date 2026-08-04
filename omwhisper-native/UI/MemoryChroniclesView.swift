@@ -159,6 +159,17 @@ struct MemoryChroniclesView: View {
     /// Stored ISO8601 (UTC) → the user's local date and time. Same shape as
     /// HubMeetingsSectionView's timestamps. Falls back to the raw string rather
     /// than showing nothing if it ever fails to parse.
+    /// Rows written before provenance existed have no backend, so the clause is
+    /// dropped rather than rendered empty. The model name is part of it because
+    /// a summary that reads badly is usually the model, not the day.
+    static func caption(_ chronicle: MemoryChronicle) -> String {
+        var parts = ["\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")",
+                     "Written \(writtenAt(chronicle.createdAt))"]
+        if let backend = chronicle.backend, !backend.isEmpty { parts.append("by \(backend)") }
+        parts.append("on this Mac")
+        return parts.joined(separator: "  ·  ")
+    }
+
     static func writtenAt(_ iso: String) -> String {
         guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
         let f = DateFormatter()
@@ -181,7 +192,7 @@ struct MemoryChroniclesView: View {
                     .foregroundStyle(Color.Porcelain.ink)
                 // `day` alone can't say WHEN this was written — regenerating
                 // today's chronicle twice looks identical without it.
-                Text("\(chronicle.snapshotCount) snapshot\(chronicle.snapshotCount == 1 ? "" : "s")  ·  Written \(Self.writtenAt(chronicle.createdAt))  ·  on this Mac")
+                Text(Self.caption(chronicle))
                     .font(.system(size: 11.5))
                     .foregroundStyle(Color.Porcelain.dim)
             }

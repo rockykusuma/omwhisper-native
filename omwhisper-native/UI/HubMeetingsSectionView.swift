@@ -442,6 +442,14 @@ private struct MeetingDetailView: View {
             } else {
                 MarkdownSections(markdown: summary, fallbackTitle: "Summary")
                     .frame(maxWidth: .infinity, alignment: .leading)
+                // Absent for summaries written before provenance existed, and
+                // for ones the user has edited — neither is the model's output.
+                if let backend = meeting.summaryBackend, !backend.isEmpty {
+                    Text("Written by \(backend)  ·  on this Mac")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Color.Porcelain.dim)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 Button("Edit") {
                     summaryDraft = summary
                     editingSummary = true
