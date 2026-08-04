@@ -80,26 +80,6 @@ nonisolated enum CallDetection {
         return callLikeWords.contains { title.localizedCaseInsensitiveContains($0) }
     }
 
-    /// True if the app with this pid currently has any window whose title looks
-    /// like a call (reuses hasCallLikeTitle). Frontmost- and display-independent:
-    /// AXWindows lists every window on every monitor regardless of focus — the
-    /// key property for multi-monitor call detection. Called on the main actor
-    /// by MeetingWatcher.
-    static func hasActiveCallWindow(pid: pid_t) -> Bool {
-        let app = AXUIElementCreateApplication(pid)
-        var windowsRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let windows = windowsRef as? [AXUIElement] else { return false }
-        for window in windows {
-            var titleRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef) == .success,
-               let title = titleRef as? String, hasCallLikeTitle(title) {
-                return true
-            }
-        }
-        return false
-    }
-
     /// The recorded call's window title, for use as the meeting's display title:
     /// prefer a call-like-titled window, else the longest non-empty title
     /// (browser tabs put the meeting name in long titles). Same AX enumeration
@@ -163,6 +143,23 @@ nonisolated enum CallDetection {
         NSWorkspace.shared.runningApplications
             .first { $0.bundleIdentifier == baseBundleID }?
             .processIdentifier
+    }
+
+    /// Is the app we are recording still capturing microphone input?
+    ///
+    /// The stop path asks about THIS call rather than re-running activeCall(),
+    /// for two reasons. A browser's meeting-URL check reads the FOCUSED window,
+    /// so taking notes in another window or tab mid-call would otherwise read
+    /// as the call having ended and stop the recording after the end debounce.
+    /// And a different call starting elsewhere must not keep this recording
+    /// alive.
+    ///
+    /// Matched by bundle family, not pid: the pid we hold is the owning app's
+    /// (Teams, windows) while the capturing process is its helper.
+    static func isCallStillActive(pid: pid_t) -> Bool {
+        guard let base = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+        else { return false }
+        return AudioProcesses.capturingInput().contains { matchesBundle($0.bundleID, base: base) }
     }
 
     /// A browser holding the mic means nothing on its own -- any WebRTC page
