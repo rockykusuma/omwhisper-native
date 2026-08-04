@@ -1467,6 +1467,10 @@ final class AppState {
         self?.beginBrainDump()
     }
     @ObservationIgnored private let meetingWatcher = MeetingWatcher()
+
+    /// The watcher's current state, for Copy Debug Info. Only the state is
+    /// exposed, not the watcher: nothing outside AppState should be driving it.
+    var meetingWatcherState: String { String(describing: meetingWatcher.state) }
     @ObservationIgnored private let meetingRecorder = MeetingRecorder()
     @ObservationIgnored private let meetingConsentPanel = MeetingConsentPanel()
     @ObservationIgnored private var meetingStartedAt: Date?
