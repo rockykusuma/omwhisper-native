@@ -12,6 +12,11 @@ import Foundation
 import SwiftUI
 
 #if DEBUG
+if CommandLine.arguments.contains("--diagnose-meeting-detection") {
+    MeetingDetectionDiagnostics.run()
+    exit(0)
+}
+
 if let flag = CommandLine.arguments.firstIndex(of: "--diagnose-meeting"),
    flag + 1 < CommandLine.arguments.count {
     await MeetingDiagnostics.run(directory: URL(fileURLWithPath: CommandLine.arguments[flag + 1]))

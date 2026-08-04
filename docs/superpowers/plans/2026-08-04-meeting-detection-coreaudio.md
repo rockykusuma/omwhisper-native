@@ -1234,9 +1234,24 @@ BIN=$(xcodebuild -scheme omwhisper-native -project omwhisper-native.xcodeproj -s
 1. **Teams call → prompt.** Join a Teams call with Meetings enabled. The consent prompt appears within ~5 seconds naming Teams. Run the diagnostics mid-call and confirm it prints `com.microsoft.teams2.modulehost` and `activeCall -> Teams`.
 2. **Hang up → auto-stop.** The recording stops within ~10 seconds **without** clicking Stop. This has never worked for Teams.
 3. **Google Meet in Chrome → prompt.** With a Meet tab focused and the mic live.
-4. **YouTube in Chrome → NO prompt.** The control. Without it, "browsers are detected" is untested in the direction that matters. Confirm the diagnostics print `browser: meetingPage=false`.
+4. **The browser gate, both directions — corrected during implementation.** The original step
+   here ("play a YouTube video, expect no prompt, confirm `meetingPage=false`") **cannot
+   exercise the gate at all**: playing audio does not record any, so Chrome never appears in
+   `capturingInput()` and the browser line never prints. The diagnostics now check every
+   *running* browser independently of the mic. Open a non-meeting page → `meetingPage=false`
+   with a real `domain=` beside it; open a Meet page → `meetingPage=true`.
+
+   **Run this from the app's own context, not a shell.** A binary spawned from a terminal makes
+   the terminal the responsible process for TCC, so `AXIsProcessTrusted` is false and every URL
+   reads `<no URL read>` regardless of the page — measured, and the reason the domain and trust
+   lines were added. The output labels this when it happens. The CoreAudio section needs no
+   permission and is unaffected.
 5. **Timeout → one retry.** Let the prompt expire. It reappears about a minute later, once. Let it expire again — it stays quiet for the rest of the call.
 6. **Manual record of a non-call app does not auto-stop.** Click Record with no call running; confirm it is still recording after a minute.
+6b. **Switching windows mid-call does not stop the recording.** During a detected browser
+   meeting, move to another window or tab for a minute. The recording must continue — the stop
+   path asks whether *this* call is still capturing rather than re-reading the focused window's
+   URL, which is the defect found while implementing Task 4.
 7. **Shortcuts stay responsive.** During a detected call, press the dictation shortcut repeatedly. It must start instantly every time — the sweep runs off MainActor, and this is the check that proves it.
 
 ## Out of scope
