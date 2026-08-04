@@ -1,7 +1,44 @@
 import Testing
+import os
 @testable import OmWhisper
 
 struct BrainDumpStructurerTests {
+    /// Counts calls and echoes its input, so chunking behaviour is observable
+    /// without a real model.
+    final class CountingBackend: PolishBackend, @unchecked Sendable {
+        private let lock = OSAllocatedUnfairLock(initialState: 0)
+        var calls: Int { lock.withLock { $0 } }
+        func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {
+            lock.withLock { $0 += 1 }
+            return text
+        }
+    }
+
+    @Test("a bigger chunk limit means strictly fewer model calls")
+    func largerChunkLimitMakesFewerCalls() async throws {
+        // Accepting the parameter and ignoring it would still produce output and
+        // pass a "did it structure something" check. Counting calls is what
+        // fails if the limit is dropped on the floor. Same assertion shape as
+        // Chronicler's chunk-limit test.
+        let transcript = (1...200)
+            .map { "Sentence number \($0) about something I need to remember later." }
+            .joined(separator: " ")
+        let shape = BrainDumpShapes.builtIns.first!
+
+        let small = CountingBackend()
+        _ = try await BrainDumpStructurer.structure(
+            transcript: transcript, shape: shape, context: nil,
+            polish: small, chunkLimit: BrainDumpStructurer.chunkCharLimit)
+
+        let large = CountingBackend()
+        _ = try await BrainDumpStructurer.structure(
+            transcript: transcript, shape: shape, context: nil,
+            polish: large, chunkLimit: BrainDumpStructurer.ollamaChunkLimit)
+
+        #expect(large.calls < small.calls,
+                "12k limit made \(large.calls) calls, 1.8k made \(small.calls)")
+    }
+
     // Echoes which style processed what, so we can assert the map/reduce path.
     struct EchoBackend: PolishBackend {
         func polish(_ text: String, style: PolishStyle, targetLanguage: String?) async throws -> String {

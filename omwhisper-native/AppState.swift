@@ -2228,17 +2228,29 @@ final class AppState {
             }
             return original
         }
-        guard let backend = activePolishBackend(), let shape = activeBrainDumpShape else { return original }
+        // Long-form, not dictation: a ramble is large input the user is
+        // deliberately waiting on, so it takes Ollama's 12,000-char envelope and
+        // 300s timeout rather than the 30s dictation one, which a cold model
+        // blows every time.
+        let candidates = longFormBackends(ollamaChunkLimit: BrainDumpStructurer.ollamaChunkLimit,
+                                          systemChunkLimit: BrainDumpStructurer.chunkCharLimit)
+        guard !candidates.isEmpty, let shape = activeBrainDumpShape else { return original }
         var parts: [String] = []
         if let app = NSWorkspace.shared.frontmostApplication?.localizedName { parts.append("Target app: \(app)") }
         if !sessionScreenTerms.isEmpty { parts.append("On-screen terms: \(sessionScreenTerms.prefix(20).joined(separator: ", "))") }
         let context = parts.isEmpty ? nil : parts.joined(separator: ". ")
-        do {
-            return try await BrainDumpStructurer.structure(transcript: original, shape: shape, context: context, polish: backend)
-        } catch {
-            log.error("brainDumpStructured — failed: \(error)")
-            return original
+        // Falls through the list rather than straight to raw text: Ollama being
+        // down should cost the bigger envelope, not the structuring entirely.
+        for candidate in candidates {
+            do {
+                return try await BrainDumpStructurer.structure(
+                    transcript: original, shape: shape, context: context,
+                    polish: candidate.polish, chunkLimit: candidate.chunkLimit)
+            } catch {
+                log.error("brainDumpStructured — \(String(describing: candidate.kind)) failed: \(error)")
+            }
         }
+        return original
     }
 
     /// Re-runs a past history entry's text through the current polish
