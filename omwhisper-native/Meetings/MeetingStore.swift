@@ -29,6 +29,10 @@ nonisolated struct Meeting: Codable, FetchableRecord, MutablePersistableRecord, 
     var title: String? = nil
     var attendees: [String]? = nil
     var speakerNames: [String: String]? = nil
+    /// Which backend wrote `summary`, e.g. "Ollama (qwen3.5:latest)". Nil for
+    /// rows written before provenance existed, for meetings with no summary,
+    /// and for summaries the user has edited by hand.
+    var summaryBackend: String? = nil
 
     mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
@@ -133,6 +137,13 @@ nonisolated final class MeetingStore: Sendable {
                 t.column("title")
             }
         }
+        // Plain ALTER, no FTS work: a backend name is not something anyone
+        // searches for, and recreating the mirror has a real cost.
+        migrator.registerMigration("summaryProvenance") { db in
+            try db.alter(table: Meeting.databaseTableName) { t in
+                t.add(column: "summaryBackend", .text)
+            }
+        }
         try migrator.migrate(dbQueue)
     }
 
@@ -152,21 +163,27 @@ nonisolated final class MeetingStore: Sendable {
         try dbQueue.read { db in try Meeting.fetchOne(db, key: id) }
     }
 
-    func setTranscriptAndSummary(id: Int64, transcript: String?, summary: String?) throws {
+    func setTranscriptAndSummary(id: Int64, transcript: String?, summary: String?,
+                                 summaryBackend: String? = nil) throws {
         try dbQueue.write { db in
             guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
             m.transcript = transcript
             m.summary = summary
+            m.summaryBackend = summaryBackend
             try m.update(db)
         }
     }
 
     /// Summary only — the user editing their notes must never touch the
     /// transcript, which is the record of what was actually said.
+    ///
+    /// Clears `summaryBackend`: this is the hand-edit path, and an edited
+    /// summary is no longer attributable to the model that drafted it.
     func setSummary(id: Int64, _ summary: String?) throws {
         try dbQueue.write { db in
             guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
             m.summary = summary
+            m.summaryBackend = nil
             try m.update(db)
         }
     }

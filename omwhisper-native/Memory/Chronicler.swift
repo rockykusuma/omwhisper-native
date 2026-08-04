@@ -190,9 +190,12 @@ nonisolated enum Chronicler {
     /// Effectful: full generation for one day. Throws ChroniclerError.noSnapshots
     /// if there are no snapshots for that day; propagates the first polish()
     /// failure. Overwrites any existing chronicle for the same day.
+    /// `backendName` is recorded on the row: this function owns the write, so
+    /// the name has to come in rather than be returned.
     static func generate(
         day: String, store: MemoryStore, polish: PolishBackend,
         chunkLimit: Int = chunkCharLimit,
+        backendName: String? = nil,
         onProgress: ((Int, Int) -> Void)? = nil
     ) async throws -> ChronicleResult {
         let snapshots = try store.snapshotsForDay(day)
@@ -244,7 +247,8 @@ nonisolated enum Chronicler {
         onProgress?(done, total)
         let trimmed = chronicle.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        try store.upsertChronicle(day: day, summary: trimmed, snapshotCount: snapshots.count)
+        try store.upsertChronicle(day: day, summary: trimmed,
+                                  snapshotCount: snapshots.count, backend: backendName)
         return ChronicleResult(day: day, summary: trimmed, snapshotCount: snapshots.count)
     }
 
