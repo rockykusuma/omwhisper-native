@@ -16,6 +16,41 @@ struct CallDetectionTests {
                 == "com.microsoft.teams2")
     }
 
+    @Test("Zoom's helper processes all match, none of which are under us.zoom.xos")
+    func zoomHelpersMatch() {
+        // Enumerating the helper bundles inside zoom.us.app on 2026-08-04 found
+        // that EVERY nested .app/.xpc sits outside "us.zoom.xos" -- including
+        // aomhost, the audio module host most likely to hold the mic. Keying
+        // Zoom on us.zoom.xos would have missed Zoom calls exactly the way the
+        // title heuristic missed Teams, in the entry the old code trusted most.
+        for helper in ["us.zoom.aomhost", "us.zoom.ZoomPhone", "us.zoom.CptHost",
+                       "us.zoom.airhost", "us.zoom.zCCIMeetingHost", "us.zoom.xos"] {
+            #expect(CallDetection.callAppBundleID(forAudioBundleID: helper) == "us.zoom",
+                    "\(helper) should resolve to Zoom")
+        }
+    }
+
+    @Test("Discord's PTB and Canary builds are siblings, not children")
+    func discordVariantsMatch() {
+        // com.hnc.DiscordPTB is NOT under "com.hnc.Discord." -- a base of
+        // com.hnc.Discord silently misses both pre-release builds.
+        for variant in ["com.hnc.Discord", "com.hnc.DiscordPTB", "com.hnc.DiscordCanary"] {
+            #expect(CallDetection.callAppBundleID(forAudioBundleID: variant) == "com.hnc",
+                    "\(variant) should resolve to Discord")
+        }
+    }
+
+    @Test("every caller entry resolves to itself")
+    func everyEntryMatchesItsOwnBase() {
+        // Catches a typo'd or duplicated key that can never match anything.
+        for base in CallDetection.callerApps.keys {
+            #expect(CallDetection.callAppBundleID(forAudioBundleID: base) == base,
+                    "\(base) does not resolve to itself")
+            #expect(CallDetection.isOwnProcess(base) == false,
+                    "\(base) collides with our own bundle")
+        }
+    }
+
     @Test("a bundle ID that merely starts with a known one does not match")
     func siblingBundleIDsDoNotMatch() {
         // com.microsoft.teams2 must not match the com.microsoft.teams entry:
