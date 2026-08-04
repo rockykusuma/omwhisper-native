@@ -141,12 +141,18 @@ nonisolated enum CallDetection {
     }
 
     /// Pure: raw window title → meeting display title. Takes the first
-    /// " – "/" - " segment (browsers suffix the product and browser names),
+    /// " – "/" - "/" | " segment (apps suffix the product and window names),
     /// nil when nothing usable remains — empty, or just the app's own name.
+    ///
+    /// " | " is Teams' separator: a real call on 2026-08-03 was titled
+    /// "D-WHAS | Microsoft Teams", and without it the whole string became the
+    /// meeting name. The cost is a meeting genuinely named "Q3 | Planning"
+    /// truncating to "Q3" — the same trade already accepted for " - ".
     static func cleanedMeetingTitle(windowTitle: String, appName: String) -> String? {
         let first = windowTitle
             .components(separatedBy: " – ").first!
             .components(separatedBy: " - ").first!
+            .components(separatedBy: " | ").first!
             .trimmingCharacters(in: .whitespaces)
         guard !first.isEmpty,
               first.localizedCaseInsensitiveCompare(appName) != .orderedSame else { return nil }

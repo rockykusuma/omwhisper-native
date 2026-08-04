@@ -691,8 +691,11 @@ final class AppState {
             meetingWatcher.markDeclined()
             Task { await endRecording() }
         } else {
-            let appName = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Recording"
-            meetingWatcher.enterRecording(appName: appName)
+            // The fallback is the frontmost app, but a detected call wins:
+            // Record lives in the hub window, so the frontmost app is usually
+            // OmWhisper itself.
+            let fallback = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Recording"
+            let appName = meetingWatcher.enterRecording(fallbackAppName: fallback)
             beginRecording(appName: appName)
         }
     }

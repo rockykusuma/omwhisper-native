@@ -97,3 +97,38 @@ struct MeetingWatcherLogicTests {
         #expect(next(.awaitingRetry(appName: "Teams"), retryWait: cooldown) == .idle)
     }
 }
+
+@Suite("Manual recording naming")
+@MainActor
+struct MeetingWatcherRecordingNameTests {
+    @Test("a manual recording started during a call is named after the call")
+    func takesTheDetectedCallName() {
+        // Record lives in the hub window, so the frontmost app is OmWhisper
+        // itself -- a real Teams call on 2026-08-03 was filed as
+        // "OmWhisper-Dev" for exactly this reason.
+        let watcher = MeetingWatcher()
+        watcher.performDetection = { MeetingWatcher.DetectedCall(name: "Teams", pid: 2221) }
+
+        let name = watcher.enterRecording(fallbackAppName: "OmWhisper-Dev")
+
+        #expect(name == "Teams")
+        #expect(watcher.state == .recording(appName: "Teams"))
+        // The pid must be the call's too, or callWindowTitle reads the wrong
+        // app's windows and the meeting gets no real title.
+        #expect(watcher.recordingPID == 2221)
+    }
+
+    @Test("a manual recording with no call keeps the fallback name")
+    func keepsFallbackWithoutACall() {
+        let watcher = MeetingWatcher()
+        watcher.performDetection = { nil }
+
+        let name = watcher.enterRecording(fallbackAppName: "TextEdit")
+
+        #expect(name == "TextEdit")
+        #expect(watcher.state == .recording(appName: "TextEdit"))
+        // No detection means no auto-stop arming -- this recording ends when
+        // the user says so.
+        #expect(watcher.recordingPID == nil)
+    }
+}
