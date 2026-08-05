@@ -2041,15 +2041,21 @@ final class AppState {
             errorMessage = "Reply assist: couldn't read the focused field."
             return
         }
-        let windowContext = ScreenContextReader.captureFrontmostWindowText()
-        await draftAndStream(mode: context.mode, intent: "", windowContext: windowContext, targetPID: targetPID)
+        let conversation = ScreenContextReader.captureConversationText()
+        await draftAndStream(mode: context.mode, intent: "",
+                             conversation: conversation, targetPID: targetPID)
     }
 
-    private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?, targetPID: pid_t?) async {
+    private func draftAndStream(mode: ReplyMode, intent: String,
+                                conversation: ScreenContextReader.ConversationContext?,
+                                targetPID: pid_t?) async {
         let tonePrefix = (try? String(contentsOf: ToneProfile.toneFileURL(), encoding: .utf8))
             .map { ToneProfile.promptPrefix(from: $0) }
-        let style = ReplyDraftPrompt.style(mode: mode, appName: nil, windowTitle: nil,
-                                           windowContext: windowContext, tonePrefix: tonePrefix)
+        let style = ReplyDraftPrompt.style(mode: mode,
+                                           appName: conversation?.appName,
+                                           windowTitle: conversation?.windowTitle,
+                                           windowContext: conversation?.text,
+                                           tonePrefix: tonePrefix)
         guard let backend = activePolishBackend() else {
             errorMessage = "Reply assist needs an AI polish backend enabled in AI settings."
             return

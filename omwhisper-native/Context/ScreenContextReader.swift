@@ -51,8 +51,77 @@ nonisolated enum ScreenContextReader {
             }
     }
 
+    /// The frontmost window's identity and readable content.
+    nonisolated struct ConversationContext {
+        let appName: String
+        let windowTitle: String
+        /// nil when the window exposed no text at all.
+        let text: String?
+    }
+
+    /// What the user is looking at, for Reply Assist: the page's conversation
+    /// rather than the window's furniture.
+    ///
+    /// Memory hit this first -- its snapshots were "largely sidebar and
+    /// tab-strip text" until WindowSnapshotReader started targeting the web
+    /// area. Reply Assist reads the same kind of window for the same reason and
+    /// never got that fix, so a Slack or Gmail reply was drafted from up to
+    /// 2,000 characters of channel list and navigation.
+    ///
+    /// Differs from Memory in ONE deliberate way: when the web area yields
+    /// nothing, this FALLS BACK to the whole-window walk. Memory skips the tick
+    /// instead, because "a snapshot that is 100% chrome is worse than no
+    /// snapshot, and the 5s poll retries almost immediately" -- neither half of
+    /// that holds here. There is no retry, and the user is waiting on a draft.
+    ///
+    /// nil when there is no frontmost app or focused window, or the app/window
+    /// is excluded -- in which case no app name or title is returned either,
+    /// since a password manager's window title is not ours to put in a prompt.
+    static func captureConversationText(timeBudget: TimeInterval = 0.6) -> ConversationContext? {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let bundleID = app.bundleIdentifier else { return nil }
+
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        guard let window = copyAttribute(appElement, kAXFocusedWindowAttribute) else { return nil }
+        // Not `as?`: the compiler rejects that as dead code ("conditional downcast
+        // to CoreFoundation type 'AXUIElement' will always succeed") — CFTypeRef
+        // bridging isn't a dynamic class-hierarchy check the way `as!` normally
+        // implies, so this can't trap the way a force-cast on a class type could.
+        let windowElement = window as! AXUIElement
+
+        let title = (copyAttribute(windowElement, kAXTitleAttribute) as? String) ?? ""
+        guard !isExcluded(bundleID: bundleID, windowTitle: title) else { return nil }
+
+        let deadline = Date().addingTimeInterval(timeBudget)
+        var lines: [String] = []
+        var budget = 50_000
+        let webArea = BrowserURL.findWebArea(windowElement)
+        collectText(webArea ?? windowElement, depth: 0, into: &lines,
+                    budget: &budget, deadline: deadline)
+
+        var content = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        // A web area that yielded nothing means a page mid-load, a canvas app or
+        // a PDF viewer. Unlike Memory, fall back rather than give up: the user
+        // asked for a draft and is waiting for one.
+        if content.isEmpty, webArea != nil {
+            lines = []
+            budget = 50_000
+            collectText(windowElement, depth: 0, into: &lines, budget: &budget, deadline: deadline)
+            content = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return ConversationContext(appName: app.localizedName ?? bundleID,
+                                   windowTitle: title,
+                                   text: content.isEmpty ? nil : content)
+    }
+
     /// nil when there's nothing meaningful, the app/window is excluded, or the
     /// walk hits its deadline before finding anything. Never throws.
+    ///
+    /// Used by S2's context-aware dictation. Deliberately NOT switched to the
+    /// web-area targeting above: engine biasing is measured inert on Apple
+    /// Speech and both Parakeet variants, so changing it buys nothing and risks
+    /// a second feature.
     static func captureFrontmostWindowText(timeBudget: TimeInterval = 0.6) -> String? {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier else { return nil }
