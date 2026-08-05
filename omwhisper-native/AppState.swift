@@ -2048,7 +2048,8 @@ final class AppState {
     private func draftAndStream(mode: ReplyMode, intent: String, windowContext: String?, targetPID: pid_t?) async {
         let tonePrefix = (try? String(contentsOf: ToneProfile.toneFileURL(), encoding: .utf8))
             .map { ToneProfile.promptPrefix(from: $0) }
-        let style = Self.draftStyle(mode: mode, windowContext: windowContext, tonePrefix: tonePrefix)
+        let style = ReplyDraftPrompt.style(mode: mode, appName: nil, windowTitle: nil,
+                                           windowContext: windowContext, tonePrefix: tonePrefix)
         guard let backend = activePolishBackend() else {
             errorMessage = "Reply assist needs an AI polish backend enabled in AI settings."
             return
@@ -2075,46 +2076,6 @@ final class AppState {
             log.warning("draftAndStream — declined on sentinel: \(sentinel)")
             errorMessage = "Reply assist: the draft looked like an error, nothing was typed."
         }
-    }
-
-    /// ScreenContextReader.captureFrontmostWindowText() can return up to
-    /// 50,000 characters -- fine for S2's local vocabulary extraction, but
-    /// including that much raw text in an LLM prompt caused SystemLLM's 5s
-    /// timeout to trip on every draft (confirmed live: "Polish timed out"
-    /// against a text-heavy markdown file in the background window). The
-    /// AX-read draft/selection text is just as uncapped -- if the focused
-    /// "field" is a full document editor, its AX value can be the entire
-    /// document. Both are capped here for the same reason.
-    private static let windowContextCap = 2_000
-    private static let fieldTextCap = 2_000
-
-    private static func draftStyle(mode: ReplyMode, windowContext: String?, tonePrefix: String?) -> PolishStyle {
-        var instructions = "You draft a reply/message for the user, writing AS the user in first person. Respond with ONLY the drafted text -- no preamble, no quotes, no explanation.\n\n"
-        switch mode {
-        case .reply:
-            instructions += "Draft a new reply appropriate to the conversation context below.\n"
-        case .continueDraft(let draft):
-            // suffix, not prefix -- continuing a draft cares about its most
-            // recent tail, not however it started.
-            instructions += "Continue this unfinished draft naturally, in the same voice:\n\(draft.suffix(fieldTextCap))\n"
-        case .rewrite(let selection):
-            instructions += "Rewrite this selected text, keeping its meaning:\n\(selection.prefix(fieldTextCap))\n"
-        }
-        if let windowContext {
-            // suffix, not prefix -- the window is scraped top-down, so in a chat
-            // the newest message (what you're replying to) is at the BOTTOM.
-            // Keeping the head fed the model the oldest/scrollback content and
-            // truncated away the live message. Tail is right for the dominant
-            // chat case; top-posted email threads are the minority we trade off.
-            instructions += "\nOn-screen context:\n\(windowContext.suffix(windowContextCap))\n"
-        }
-        if let tonePrefix { instructions += "\nWriting tone to match:\n\(tonePrefix)\n" }
-        return PolishStyle(
-            id: UUID(uuidString: "7610B7A2-5DAA-4017-A135-45B67089A0FB")!,
-            name: "Reply Draft",
-            prompt: instructions,
-            isBuiltIn: true
-        )
     }
 
     /// Fixed-UUID internal style for tone distillation -- never shown in the AI
