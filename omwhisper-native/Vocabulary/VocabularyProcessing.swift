@@ -89,6 +89,104 @@ nonisolated func fuzzyCorrect(_ text: String, dictionary: [String]) -> String {
     return result
 }
 
+/// Longest run of tokens considered for a join. Three covers the CamelCase
+/// product names a vocabulary list is full of ("om whisper kit"); beyond that
+/// the risk of swallowing an ordinary phrase grows faster than the benefit.
+nonisolated private let maxJoinWidth = 3
+
+/// Rejoin adjacent tokens the engine split apart, when the joined form is
+/// EXACTLY a dictionary term.
+///
+/// This is the one measured failure no threshold can reach: `fuzzyCorrect`
+/// walks whitespace-delimited tokens and never crosses a space, so `appcast`
+/// arriving as "app cast" is structurally uncorrectable there. Apple Speech
+/// produced exactly that in the 2026-08-01 corpus run, with and without
+/// biasing.
+///
+/// Exact match only -- strictly narrower than the rewrite `fuzzyCorrect`
+/// already performs. The accepted cost, stated in the design doc and pinned by
+/// a test: "the app cast a shadow" becomes "the appcast a shadow" for a user
+/// who listed `appcast`.
+nonisolated func joinSplitTerms(_ text: String, dictionary: [String]) -> String {
+    let index = joinIndex(dictionary)
+    guard !index.isEmpty else { return text }
+
+    let tokens = splitInclusiveOnWhitespace(text)
+    var result = ""
+    var i = 0
+    while i < tokens.count {
+        var width = 0
+        var replacement = ""
+        // Longest first: with both OmWhisper and OmWhisperKit listed, a greedy
+        // width-2 pass would consume "om whisper" and strand "kit".
+        for candidateWidth in stride(from: maxJoinWidth, through: 2, by: -1)
+        where i + candidateWidth <= tokens.count {
+            if let joined = joinCandidate(tokens[i..<(i + candidateWidth)], index: index) {
+                replacement = joined
+                width = candidateWidth
+                break
+            }
+        }
+        if width > 0 {
+            result += replacement
+            i += width
+        } else {
+            result += tokens[i]
+            i += 1
+        }
+    }
+    return result
+}
+
+/// joined-lowercase -> the term as the user typed it.
+///
+/// Terms containing whitespace are excluded: "New York" is already two words,
+/// and joining it to "NewYork" would be a corruption. Very short terms are
+/// excluded too -- a 3-letter term is reachable by joining far too many
+/// ordinary pairs.
+nonisolated private func joinIndex(_ dictionary: [String]) -> [String: String] {
+    var index: [String: String] = [:]
+    for term in dictionary {
+        guard term.count >= 4, !term.contains(where: { $0.isWhitespace }) else { continue }
+        index[term.lowercased()] = term
+    }
+    return index
+}
+
+/// The replacement text for one run of tokens, or nil when they don't join to
+/// a dictionary term.
+///
+/// Only the first token may carry leading punctuation and only the last may
+/// carry trailing punctuation -- anything between the pieces means these are
+/// separate words ("the app, cast a vote"), not one word split in half.
+nonisolated private func joinCandidate(_ run: ArraySlice<Substring>,
+                                       index: [String: String]) -> String? {
+    var cores: [String] = []
+    var lead = ""
+    var trail = ""
+    let last = run.count - 1
+    for (offset, token) in run.enumerated() {
+        guard let start = token.firstIndex(where: isWordChar),
+              let end = token.lastIndex(where: isWordChar) else { return nil }
+        let tokenLead = String(token[token.startIndex..<start])
+        let tokenTrail = String(token[token.index(after: end)...])
+        if offset == 0 {
+            lead = tokenLead
+        } else if !tokenLead.isEmpty {
+            return nil
+        }
+        if offset == last {
+            trail = tokenTrail
+        } else if !tokenTrail.allSatisfy({ $0.isWhitespace }) {
+            return nil
+        }
+        cores.append(String(token[start...end]))
+    }
+    let joined = cores.joined()
+    guard let term = index[joined.lowercased()] else { return nil }
+    return lead + matchCase(joined, term) + trail
+}
+
 /// Assembles the vocabulary handed to a TranscriptionEngine for biasing.
 /// Apple/Parakeet get the user's custom terms plus S2's auto-extracted
 /// screen terms (deduped case-insensitively); Cloud gets only the user's

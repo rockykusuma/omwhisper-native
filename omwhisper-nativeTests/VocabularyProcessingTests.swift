@@ -144,3 +144,72 @@ struct EngineVocabularyMergeTests {
         #expect(result == ["OmWhisper", "Xcode"])
     }
 }
+
+@Suite("Joining split vocabulary terms")
+struct JoinSplitTermsTests {
+    private let dictionary = ["appcast", "WhisperKit", "OmWhisper", "Vercel", "New York"]
+
+    @Test("a two-token split is rejoined with the term's own casing")
+    func joinsTwoTokens() {
+        // The measured failure from the 2026-08-01 corpus run: Apple Speech
+        // wrote "app cast" for appcast, with or without biasing.
+        #expect(joinSplitTerms("I pushed the app cast to Vercel", dictionary: dictionary)
+                == "I pushed the appcast to Vercel")
+        #expect(joinSplitTerms("built with whisper kit today", dictionary: dictionary)
+                == "built with WhisperKit today")
+    }
+
+    @Test("a three-token split is rejoined, and beats the two-token join")
+    func prefersTheLongerJoin() {
+        // "om whisper" is itself a term, so a greedy width-2 pass would leave
+        // a stray "kit" behind. Longer joins are tried first.
+        #expect(joinSplitTerms("shipped om whisper today", dictionary: ["OmWhisper"])
+                == "shipped OmWhisper today")
+        #expect(joinSplitTerms("the om whisper kit build", dictionary: ["OmWhisper", "OmWhisperKit"])
+                == "the OmWhisperKit build")
+    }
+
+    @Test("a run that joins to nothing in the dictionary is left alone")
+    func leavesUnknownRunsAlone() {
+        // The half that makes this a real check: a function that joined every
+        // adjacent pair would pass the tests above and destroy ordinary text.
+        #expect(joinSplitTerms("the quick brown fox", dictionary: dictionary)
+                == "the quick brown fox")
+        #expect(joinSplitTerms("anything at all", dictionary: [])
+                == "anything at all")
+    }
+
+    @Test("punctuation between the pieces blocks the join")
+    func doesNotJoinAcrossPunctuation() {
+        // "app, cast" is two words in two clauses, not one word split in half.
+        #expect(joinSplitTerms("the app, cast a vote", dictionary: dictionary)
+                == "the app, cast a vote")
+        #expect(joinSplitTerms("open the app. Cast it now", dictionary: dictionary)
+                == "open the app. Cast it now")
+    }
+
+    @Test("trailing punctuation and spacing survive the join")
+    func preservesSurroundingText() {
+        #expect(joinSplitTerms("push the app cast, then deploy", dictionary: dictionary)
+                == "push the appcast, then deploy")
+        #expect(joinSplitTerms("ship app cast.", dictionary: dictionary) == "ship appcast.")
+    }
+
+    @Test("a term containing a space is never a join target")
+    func multiWordTermsAreNotJoined() {
+        // "New York" is already two words. Joining it to "NewYork" would be a
+        // corruption, not a correction.
+        #expect(joinSplitTerms("flying to New York tomorrow", dictionary: dictionary)
+                == "flying to New York tomorrow")
+    }
+
+    @Test("the accepted false positive is documented, not accidental")
+    func knownFalsePositiveIsPinned() {
+        // "the app cast a shadow" becomes "the appcast a shadow" for a user
+        // who listed appcast. This is the stated cost of exact-match joining
+        // (see the design doc). Pinned so that narrowing it later is a
+        // deliberate, visible change rather than a silent one.
+        #expect(joinSplitTerms("the app cast a shadow", dictionary: dictionary)
+                == "the appcast a shadow")
+    }
+}

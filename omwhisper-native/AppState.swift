@@ -2033,6 +2033,9 @@ final class AppState {
                 func postProcess(_ text: String) -> String {
                     var result = applyReplacements(text, rules: replacementsSnapshot)
                     if fuzzySnapshot {
+                        // Join before fuzzy: "app cast" has to become a single
+                        // token before the token-wise pass can even see it.
+                        result = joinSplitTerms(result, dictionary: vocabSnapshot)
                         result = fuzzyCorrect(result, dictionary: vocabSnapshot)
                     }
                     return result

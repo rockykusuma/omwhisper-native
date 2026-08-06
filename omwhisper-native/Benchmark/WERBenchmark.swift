@@ -203,6 +203,7 @@ nonisolated enum WERBenchmark {
         return { text in
             var result = applyReplacements(text, rules: replacements)
             if !vocabulary.isEmpty {
+                result = joinSplitTerms(result, dictionary: vocabulary)
                 result = fuzzyCorrect(result, dictionary: vocabulary)
             }
             return result
