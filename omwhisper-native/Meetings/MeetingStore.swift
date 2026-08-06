@@ -266,4 +266,9 @@ nonisolated final class MeetingStore: Sendable {
     func count() throws -> Int {
         try dbQueue.read { db in try Meeting.fetchCount(db) }
     }
+
+    /// Every directory a row points at, for the orphan sweep.
+    func directories() throws -> [String] {
+        try dbQueue.read { db in try Meeting.fetchAll(db).map(\.directory) }
+    }
 }

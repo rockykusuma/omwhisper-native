@@ -1661,6 +1661,16 @@ final class AppState {
             meetingStore = nil
         }
 
+        // Delete meeting directories no row points at — a crash mid-recording,
+        // or an unconsented pre-roll the app never got to clean up. Guarded by
+        // isRunningUnderTests for the same reason every other store daemon is,
+        // and off the main thread because it is file I/O. Runs here, before any
+        // recorder can have started, so it cannot race a live recording.
+        if !isRunningUnderTests, let store = meetingStore, let appSupportDir {
+            let root = appSupportDir.appendingPathComponent("meetings", isDirectory: true)
+            Task.detached(priority: .utility) { MeetingOrphanSweep.run(store: store, root: root) }
+        }
+
         // Stores are open now -- start input monitors and re-run the enable
         // setters, which wire the (now non-nil) stores into their daemons.
         hotkey.start()
