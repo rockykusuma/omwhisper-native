@@ -202,6 +202,36 @@ struct CallDetectionTests {
         #expect(CallDetection.bestWindowTitle([], appName: "Teams") == nil)
     }
 
+    @Test("a call-like CHROME title does not beat the real call window")
+    func callLikeChromeDoesNotWin() {
+        // Teams' "Calls" nav tab contains "call", so it passed the call-like
+        // branch and bypassed the chrome filter entirely -- selecting the nav
+        // window over the person's-name window it was meant to lose to.
+        #expect(CallDetection.bestWindowTitle(["Calls | Microsoft Teams", "Uday Venkat Madala"],
+                                              appName: "Teams") == "Uday Venkat Madala")
+        #expect(CallDetection.bestWindowTitle(["Calls | Microsoft Teams"], appName: "Teams") == nil)
+    }
+
+    @Test("a title that survives selection also survives cleaning")
+    func selectedTitlesAreAlwaysCleanable() {
+        // The invariant the title poll depends on: it stops the moment
+        // callWindowTitle returns non-nil, so a title that passes selection
+        // and is then rejected by cleaning would end the search having gained
+        // nothing -- and the meeting would keep the app's name.
+        let cases = [
+            ["Calls | Microsoft Teams", "Uday Venkat Madala"],
+            ["Calls | Microsoft Teams"],
+            ["Chat | Microsoft Teams", "Activity"],
+            ["Zoom Meeting", "Zoom"],
+            ["Calendar | Microsoft Teams", "Q3 Planning"],
+        ]
+        for titles in cases {
+            guard let picked = CallDetection.bestWindowTitle(titles, appName: "Teams") else { continue }
+            #expect(CallDetection.cleanedMeetingTitle(windowTitle: picked, appName: "Teams") != nil,
+                    "\(picked) was selected but cleans to nil")
+        }
+    }
+
     @Test("a generic title never becomes the meeting name")
     func cleanedTitleRejectsGenericSegments() {
         #expect(CallDetection.cleanedMeetingTitle(

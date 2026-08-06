@@ -696,6 +696,11 @@ final class AppState {
             meetingWindowTitle = resolved.flatMap {
                 CallDetection.callWindowTitle(pid: $0, appName: appName)
             }
+            // The window title is not knowable yet at this instant, and pre-roll
+            // made that worse by reading it earlier than ever. Keep looking.
+            if meetingWindowTitle == nil, let resolved {
+                watchForMeetingTitle(pid: resolved, appName: appName)
+            }
             isRecordingMeeting = visible
             return true
         } catch {
@@ -716,12 +721,46 @@ final class AppState {
     /// make the post-consent fallback believe a failed pre-roll had succeeded,
     /// and consent would produce a recording that was never started.
     @ObservationIgnored private var preRollRunning = false
+    @ObservationIgnored private var titleWatchTask: Task<Void, Never>?
+
+    /// Keep looking for the call window's title until one appears.
+    ///
+    /// Reading it once at record start is wrong, and pre-roll made it worse by
+    /// reading it earlier still: a real 2026-08-06 Teams call was filed as
+    /// "Calendar" because that was the nav tab open when the mic opened, and a
+    /// 1:1 call window carrying the other person's name did not exist yet.
+    ///
+    /// `callWindowTitle` returns only titles that survive chrome rejection, so
+    /// non-nil IS the stop condition — no second judgement needed here. The AX
+    /// walk goes to the cooperative pool rather than running on MainActor every
+    /// 2s, which is the shape of the MemoryCapture freeze.
+    private func watchForMeetingTitle(pid: pid_t, appName: String) {
+        titleWatchTask?.cancel()
+        titleWatchTask = Task { [weak self] in
+            // ~60s. A call window that hasn't appeared by then isn't going to,
+            // and the generated title covers what this can't reach.
+            for _ in 0..<30 {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled, let self else { return }
+                // The recording ended, or someone already found a title.
+                guard meetingAppName != nil, meetingWindowTitle == nil else { return }
+                let found = await Task.detached(priority: .utility) {
+                    CallDetection.callWindowTitle(pid: pid, appName: appName)
+                }.value
+                if let found {
+                    meetingWindowTitle = found
+                    return
+                }
+            }
+        }
+    }
 
     /// Stop an unconsented recording and delete everything it wrote. No row is
     /// inserted, so nothing surfaces in the UI and nothing is left behind.
     private func discardPreRollRecording() async {
         guard preRollRunning else { return }
         preRollRunning = false
+        titleWatchTask?.cancel()
         let directory = meetingRecorder.meetingDirectory
         await meetingRecorder.stop()
         isRecordingMeeting = false
@@ -733,6 +772,9 @@ final class AppState {
 
     /// Stop the recorder, clear the flag, and persist the finished-meeting row.
     private func endRecording() async {
+        // Before stop(), so a poll in flight cannot land a title on the next
+        // recording's state after this one's row has been written.
+        titleWatchTask?.cancel()
         await meetingRecorder.stop()
         isRecordingMeeting = false
         recordFinishedMeeting()

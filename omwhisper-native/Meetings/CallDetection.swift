@@ -127,14 +127,22 @@ nonisolated enum CallDetection {
 
     /// Pure: which of an app's window titles is most likely the CALL window.
     ///
-    /// Prefer a call-like title, then the longest title whose leading segment
-    /// is not app chrome. The old rule was "longest, full stop", which for a
-    /// 1:1 Teams call picks the nav window over the call window.
+    /// Chrome is discarded FIRST, then a call-like title is preferred among
+    /// what survives, then the longest. The old rule was "longest, full stop",
+    /// which for a 1:1 Teams call picks the nav window over the call window.
+    ///
+    /// The filter has to come first, not second: Teams' "Calls" nav tab
+    /// contains the word "call", so preferring call-like titles up front let
+    /// it bypass the chrome rejection entirely and beat the person's-name
+    /// window it exists to lose to.
+    ///
+    /// Guarantees that whatever this returns also survives
+    /// `cleanedMeetingTitle` -- the invariant the title poll relies on to know
+    /// when to stop looking.
     static func bestWindowTitle(_ titles: [String], appName: String) -> String? {
-        if let callLike = titles.first(where: hasCallLikeTitle) { return callLike }
-        return titles
-            .filter { !isGenericTitle(firstSegment($0), appName: appName) }
-            .max { $0.count < $1.count }
+        let specific = titles.filter { !isGenericTitle(firstSegment($0), appName: appName) }
+        if let callLike = specific.first(where: hasCallLikeTitle) { return callLike }
+        return specific.max { $0.count < $1.count }
     }
 
     /// Exact match, or a dotted child (`base.helper`). The dot is load-bearing:
