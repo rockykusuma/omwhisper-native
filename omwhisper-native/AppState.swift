@@ -2027,7 +2027,18 @@ final class AppState {
             return
         }
         isReplyAssistDrafting = true
-        defer { isReplyAssistDrafting = false }
+        defer {
+            isReplyAssistDrafting = false
+            overlay.hide()
+            overlayPhase = .none
+        }
+
+        // Instant acknowledgement. AX resolution alone can take ~1.6s on
+        // Electron trees, so showing this after it would answer the wrong
+        // question. The HUD is non-activating and click-through, so it cannot
+        // take focus from the field being replied into.
+        overlayPhase = .drafting
+        overlay.show(appState: self)
 
         // Fire-and-forget: regenerate the writing-tone profile from recent
         // dictation history (on-device only) so later drafts sound like the
@@ -2039,12 +2050,23 @@ final class AppState {
         // in THIS app, not wherever focus drifts during the multi-second draft.
         let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         guard let context = await ReplyContextReader.currentContext() else {
-            errorMessage = "Reply assist: couldn't read the focused field."
+            await failReplyAssist(.noTextField)
             return
         }
         let conversation = ScreenContextReader.captureConversationText()
         await draftAndStream(mode: context.mode, intent: "",
                              conversation: conversation, targetPID: targetPID)
+    }
+
+    /// Show the cause in the HUD, record it, and clear after a beat. One path so
+    /// no failure can be added later that forgets to surface itself.
+    private func failReplyAssist(_ failure: ReplyAssistFailure) async {
+        errorMessage = failure.message
+        overlayPhase = .error(label: failure.overlayLabel)
+        overlay.show(appState: self)
+        try? await Task.sleep(for: .milliseconds(2200))
+        overlay.hide()
+        overlayPhase = .none
     }
 
     private func draftAndStream(mode: ReplyMode, intent: String,
@@ -2058,7 +2080,7 @@ final class AppState {
                                            windowContext: conversation?.text,
                                            tonePrefix: tonePrefix)
         guard let backend = activePolishBackend() else {
-            errorMessage = "Reply assist needs an AI polish backend enabled in AI settings."
+            await failReplyAssist(.noBackend)
             return
         }
         let drafted: String
@@ -2066,7 +2088,7 @@ final class AppState {
             drafted = try await backend.polish(intent, style: style, targetLanguage: nil)
         } catch {
             log.error("draftAndStream — polish failed: \(error)")
-            errorMessage = "Reply assist: draft failed (\(error.localizedDescription))."
+            await failReplyAssist(.draftFailed(error.localizedDescription))
             return
         }
         // Focus may have moved during the (up to 5s/30s) draft. Only type if the
@@ -2075,13 +2097,18 @@ final class AppState {
         // the reply in the wrong field.
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID else {
             log.warning("draftAndStream — frontmost app changed before typing; aborting")
-            errorMessage = "Reply assist: focus changed, nothing was typed."
+            await failReplyAssist(.focusChanged)
             return
         }
+        // The arriving text is the success signal; a "DRAFTED" beat would be
+        // noise by the fortieth use. Hidden here rather than in the defer so it
+        // is gone before the first keystroke lands.
+        overlay.hide()
+        overlayPhase = .none
         let result = await replyStreamTypist.stream(drafted)
         if case .declinedSentinel(let sentinel) = result {
             log.warning("draftAndStream — declined on sentinel: \(sentinel)")
-            errorMessage = "Reply assist: the draft looked like an error, nothing was typed."
+            await failReplyAssist(.sentinelDeclined)
         }
     }
 
