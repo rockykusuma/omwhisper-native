@@ -163,6 +163,49 @@ nonisolated enum MeetingSummarizer {
         isBuiltIn: true
     )
 
+    /// Names a meeting from its own summary. Hidden — deliberately absent from
+    /// builtInTemplates (a test pins that).
+    ///
+    /// From the SUMMARY, not the transcript: the summary is already distilled,
+    /// fits any chunk limit, and needs exactly one call with no map-reduce.
+    /// Regenerating the whole pipeline for six words would be absurd.
+    static let titleStyle = PolishStyle(
+        id: UUID(uuidString: "7A3B2D40-0000-4A00-8000-000000000013")!,
+        name: "Meeting Title",
+        prompt: """
+            Below is a summary of a meeting. Write a title for it: three to seven \
+            words naming the main subject. No quotation marks, no trailing \
+            punctuation, no "Title:" prefix, no explanation. Output only the title.
+            """,
+        isBuiltIn: true
+    )
+
+    /// Pure: model output → a storable title, or nil.
+    ///
+    /// Small models decorate regardless of instruction — quotes, a "Title:"
+    /// prefix, a markdown heading, a trailing full stop — and sometimes ignore
+    /// the request entirely and restate the summary. The 80-character ceiling
+    /// is what catches that last case; without it a paragraph lands in the
+    /// meeting header.
+    static func cleanTitleOutput(_ raw: String) -> String? {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = text.components(separatedBy: .newlines).first ?? text
+        if let prefix = text.range(of: "title:", options: [.caseInsensitive, .anchored]) {
+            text = String(text[prefix.upperBound...])
+        }
+        text = text.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'“”*#.·—–-"))
+        guard !text.isEmpty, text.count <= 80 else { return nil }
+        return text
+    }
+
+    /// One model call over the summary. nil when the summary is empty or the
+    /// output isn't usable as a title.
+    static func title(fromSummary summary: String, polish: PolishBackend) async throws -> String? {
+        guard !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let raw = try await polish.polish(summary, style: titleStyle, targetLanguage: nil)
+        return cleanTitleOutput(raw)
+    }
+
     /// Standard first — it's the default, and the UI lists them in this order.
     static let builtInTemplates: [PolishStyle] = [
         meetingWriteStyle, standupTemplate, clientCallTemplate, oneOnOneTemplate, interviewTemplate,

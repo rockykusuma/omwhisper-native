@@ -203,6 +203,18 @@ nonisolated final class MeetingStore: Sendable {
         }
     }
 
+    /// Title only. Separate from setDetails because that is the user-edit path
+    /// and writes attendees too — passing nil there to set a title would wipe
+    /// an attendee list the calendar match had filled in.
+    func setTitle(id: Int64, _ title: String?) throws {
+        let clean = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        try dbQueue.write { db in
+            guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
+            m.title = (clean?.isEmpty ?? true) ? nil : clean
+            try m.update(db)
+        }
+    }
+
     /// Replace the whole raw-label → display-name mapping (nil clears it).
     /// Re-transcribing produces fresh, unstable diarization labels, so callers
     /// reset this rather than trying to migrate names across runs.

@@ -191,3 +191,35 @@ struct MeetingAskTests {
         #expect(answer == "That wasn't discussed in this meeting.")
     }
 }
+
+@Suite("Meeting title generation")
+struct MeetingTitleTests {
+    @Test("the title style is hidden from the template picker")
+    func titleStyleIsHidden() {
+        // Same rule as questionExtract/questionAnswer/followUp: an internal
+        // style appearing in the user's picker is a visible bug.
+        #expect(!MeetingSummarizer.builtInTemplates.contains { $0.id == MeetingSummarizer.titleStyle.id })
+    }
+
+    @Test("model decoration is stripped")
+    func decorationIsStripped() {
+        #expect(MeetingSummarizer.cleanTitleOutput("\"Office onboarding logistics\"")
+                == "Office onboarding logistics")
+        #expect(MeetingSummarizer.cleanTitleOutput("Title: Q3 budget review")
+                == "Q3 budget review")
+        #expect(MeetingSummarizer.cleanTitleOutput("## Weekly sync\n\nHere is why…")
+                == "Weekly sync")
+        #expect(MeetingSummarizer.cleanTitleOutput("Seating arrangements.")
+                == "Seating arrangements")
+    }
+
+    @Test("a paragraph is not a title")
+    func paragraphIsRejected() {
+        // A small model asked for a title sometimes writes the summary again.
+        // Storing that would put a wall of text in the meeting header.
+        let paragraph = String(repeating: "the meeting covered many things ", count: 10)
+        #expect(MeetingSummarizer.cleanTitleOutput(paragraph) == nil)
+        #expect(MeetingSummarizer.cleanTitleOutput("   ") == nil)
+        #expect(MeetingSummarizer.cleanTitleOutput("\"\"") == nil)
+    }
+}

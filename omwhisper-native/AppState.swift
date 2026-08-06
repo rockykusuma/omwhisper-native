@@ -834,6 +834,26 @@ final class AppState {
         return nil
     }
 
+    /// Name the meeting from its summary when nothing better is known.
+    ///
+    /// Never overwrites a title the user typed — only a nil or app-chrome one.
+    /// Best-effort throughout: a failure leaves the title alone, and the header
+    /// falls back to the app name exactly as before.
+    private func nameMeetingIfNeeded(id: Int64, summary: String) async {
+        guard let store = meetingStore, let meeting = try? store.get(id: id) else { return }
+        if let existing = meeting.title,
+           !CallDetection.isGenericTitle(existing, appName: meeting.appName) { return }
+        for candidate in meetingSummaryBackends() {
+            // `try?` on a throwing Optional-returning call flattens to one
+            // optional, so a thrown error and an unusable title both fall
+            // through to the next candidate — which is what we want anyway.
+            guard let generated = try? await MeetingSummarizer.title(
+                fromSummary: summary, polish: candidate.polish) else { continue }
+            try? store.setTitle(id: id, generated)
+            return
+        }
+    }
+
     /// The view's path: transcribe both tracks on-device (AppleEngine) and
     /// summarize on-device -- SystemLLM, or Ollama when that's the selected
     /// polish backend; never Cloud, whatever the dictation/polish backend.
@@ -860,6 +880,7 @@ final class AppState {
         try store.setTranscriptAndSummary(id: id, transcript: transcript,
                                           summary: written?.summary,
                                           summaryBackend: written?.backend)
+        if let summary = written?.summary { await nameMeetingIfNeeded(id: id, summary: summary) }
         return try store.get(id: id) ?? meeting
     }
 
@@ -888,6 +909,9 @@ final class AppState {
         try store.setTranscriptAndSummary(id: id, transcript: transcript,
                                           summary: written.summary,
                                           summaryBackend: written.backend)
+        // Also the retitle path for meetings recorded before this existed:
+        // Regenerate summary on the "Chat" row names it properly.
+        await nameMeetingIfNeeded(id: id, summary: written.summary)
         return try store.get(id: id) ?? meeting
     }
 
