@@ -22,6 +22,26 @@ nonisolated enum ReplyDraftPrompt {
     static let contextCap = 2_000
     static let fieldTextCap = 2_000
 
+    /// Is there genuinely nothing to draft from?
+    ///
+    /// A `.reply` with no on-screen context asks the model to reply to a
+    /// conversation it cannot see, and a model told to draft a reply drafts
+    /// one -- inventing the conversation to reply to. Observed live on
+    /// 2026-08-06: double-tapping in a terminal (which exposes no AX text at
+    /// all, being GPU-rendered) produced a confident, fluent message about a
+    /// "Bake Sheet" print bug that existed nowhere on screen. The writing-tone
+    /// profile made it read like the user, which made it worse, not better.
+    ///
+    /// Same shape as MeetingSummarizer.answer speculating when every extract
+    /// was discarded, fixed 2026-08-02. When the material is not there, say so.
+    ///
+    /// `.continueDraft` and `.rewrite` carry their own material in the field
+    /// itself, so they are unaffected by a blank screen read.
+    static func hasNothingToWorkFrom(mode: ReplyMode, conversation: String?) -> Bool {
+        guard case .reply = mode else { return false }
+        return conversation?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+    }
+
     static func style(mode: ReplyMode,
                       appName: String?,
                       windowTitle: String?,

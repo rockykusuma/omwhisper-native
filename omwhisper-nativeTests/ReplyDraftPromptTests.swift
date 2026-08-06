@@ -81,3 +81,37 @@ struct ReplyDraftPromptTests {
         #expect(style.id == UUID(uuidString: "7610B7A2-5DAA-4017-A135-45B67089A0FB")!)
     }
 }
+
+@Suite("Reply Assist refuses rather than inventing")
+struct ReplyDraftNothingToWorkFromTests {
+    @Test("a reply with no on-screen context is refused")
+    func replyWithNoContextIsRefused() {
+        // Observed live 2026-08-06: double-tapping in a terminal, which exposes
+        // no AX text at all, produced a fluent invented message about a "Bake
+        // Sheet" print bug that was nowhere on screen. The prompt said "draft a
+        // reply appropriate to the conversation context below" and then
+        // included no context, so the model invented the conversation.
+        #expect(ReplyDraftPrompt.hasNothingToWorkFrom(mode: .reply, conversation: nil))
+        #expect(ReplyDraftPrompt.hasNothingToWorkFrom(mode: .reply, conversation: ""))
+        #expect(ReplyDraftPrompt.hasNothingToWorkFrom(mode: .reply, conversation: "   \n\t "))
+    }
+
+    @Test("a reply WITH context still drafts")
+    func replyWithContextProceeds() {
+        // The half that makes this a real check: a guard that refuses
+        // everything would pass the test above.
+        #expect(!ReplyDraftPrompt.hasNothingToWorkFrom(
+            mode: .reply, conversation: "Alice: can you ship by Friday?"))
+    }
+
+    @Test("continue and rewrite carry their own material")
+    func fieldModesAreUnaffectedByABlankScreen() {
+        // These do not need the screen -- the text is in the field. Refusing
+        // them on a blank read would break rewriting a selection in any app
+        // whose surrounding window is not AX-readable.
+        #expect(!ReplyDraftPrompt.hasNothingToWorkFrom(
+            mode: .continueDraft("Thanks for the update, I"), conversation: nil))
+        #expect(!ReplyDraftPrompt.hasNothingToWorkFrom(
+            mode: .rewrite("make this sound better"), conversation: nil))
+    }
+}

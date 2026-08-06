@@ -2196,6 +2196,21 @@ final class AppState {
             return
         }
         let conversation = ScreenContextReader.captureConversationText()
+        // Counts and the app name only -- never the context itself, which is
+        // whatever the user has on screen. Without this line a wrong draft
+        // gives no evidence at all about why: the "Bake Sheet" invention on
+        // 2026-08-06 could only be explained by reading the prompt-assembly
+        // code and reasoning backwards.
+        log.notice("""
+            reply assist — app=\(conversation?.appName ?? "?", privacy: .public) \
+            context=\(conversation?.text?.count ?? 0, privacy: .public) chars \
+            mode=\(String(describing: context.mode).prefix(14), privacy: .public)
+            """)
+        guard !ReplyDraftPrompt.hasNothingToWorkFrom(mode: context.mode,
+                                                     conversation: conversation?.text) else {
+            await failReplyAssist(.noContext)
+            return
+        }
         await draftAndStream(mode: context.mode, intent: "",
                              conversation: conversation, targetPID: targetPID)
     }

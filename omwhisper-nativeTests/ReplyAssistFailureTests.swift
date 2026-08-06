@@ -4,7 +4,8 @@ import Testing
 @Suite("Reply Assist failures")
 struct ReplyAssistFailureTests {
     private let all: [ReplyAssistFailure] = [
-        .noTextField, .noBackend, .draftFailed("timed out"), .focusChanged, .sentinelDeclined
+        .noTextField, .noContext, .noBackend, .draftFailed("timed out"),
+        .focusChanged, .sentinelDeclined
     ]
 
     @Test("every failure has a non-empty label")

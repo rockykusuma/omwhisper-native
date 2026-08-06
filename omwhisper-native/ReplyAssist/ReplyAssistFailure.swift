@@ -14,6 +14,7 @@ import Foundation
 
 nonisolated enum ReplyAssistFailure: Equatable {
     case noTextField
+    case noContext
     case noBackend
     case draftFailed(String)
     case focusChanged
@@ -23,6 +24,7 @@ nonisolated enum ReplyAssistFailure: Equatable {
     var overlayLabel: String {
         switch self {
         case .noTextField:      return "NO TEXT FIELD"
+        case .noContext:        return "NOTHING TO REPLY TO"
         case .noBackend:        return "NO AI BACKEND"
         case .draftFailed:      return "DRAFT FAILED"
         case .focusChanged:     return "FOCUS CHANGED"
@@ -35,6 +37,8 @@ nonisolated enum ReplyAssistFailure: Equatable {
         switch self {
         case .noTextField:
             return "Reply assist: couldn't read the focused field."
+        case .noContext:
+            return "Reply assist: nothing readable on screen to reply to. Some apps (terminals, canvas-rendered editors) expose no text to Accessibility."
         case .noBackend:
             return "Reply assist needs an AI polish backend enabled in AI settings."
         case .draftFailed(let reason):
