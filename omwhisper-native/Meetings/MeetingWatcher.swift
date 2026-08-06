@@ -12,6 +12,9 @@
 
 import AppKit
 import Foundation
+import os
+
+private nonisolated let watcherLog = Logger(subsystem: "com.omwhisper.mac", category: "MeetingWatcher")
 
 nonisolated enum MeetingWatcherState: Equatable {
     case idle
@@ -62,6 +65,10 @@ final class MeetingWatcher {
     /// The detection sweep is handed off MainActor, so a tick arriving while
     /// one is still running would stack concurrent AX walks. Skipped instead.
     private(set) var isDetecting = false
+    /// True while a recording exists that nobody has consented to yet.
+    private(set) var isPreRolling = false
+    /// When the mic was first seen, for the latency stamp.
+    private var preRollStartedAt: ContinuousClock.Instant?
 
     nonisolated struct DetectedCall: Equatable, Sendable {
         let name: String
@@ -84,6 +91,15 @@ final class MeetingWatcher {
     /// recorder/panel. All default to no-ops so this file compiles standalone.
     var onStartRecording: (String) -> Void = { _ in }
     var onStopRecording: () -> Void = {}
+
+    /// Fired the instant a call is first detected — BEFORE the debounce and
+    /// before the prompt. The recording starts here so the opening of the
+    /// meeting survives however long detection and the user's click take.
+    /// Everything it produces is deleted unless consent arrives.
+    var onBeginPreRoll: (String, pid_t) -> Void = { _, _ in }
+
+    /// Stop an unconsented recording and delete what it wrote.
+    var onDiscardPreRoll: () -> Void = {}
     var onShowConsentPanel: (String, @escaping (MeetingConsent) -> Void) -> Void = { _, respond in respond(.declined) }
 
     /// True while `AppState.dictation != .idle` -- suppresses the whole watcher
@@ -181,6 +197,23 @@ final class MeetingWatcher {
         state = .declined
     }
 
+    /// The user said yes somewhere other than the consent panel — the hub's
+    /// Record button while a pre-roll is running. Without this,
+    /// toggleMeetingRecording would start a SECOND recorder over a live one.
+    ///
+    /// Returns false when there is no pre-roll to promote, so the caller can
+    /// fall through to its normal start path.
+    @discardableResult
+    func acceptPreRoll(appName: String) -> Bool {
+        guard isPreRolling else { return false }
+        recordingPID = pendingCallPID ?? recordingPID
+        sawCall = false
+        goneSince = nil
+        isPreRolling = false
+        state = .recording(appName: appName)
+        return true
+    }
+
     /// Runs one tick synchronously. Tests only -- the real driver is the poll
     /// timer, whose 2s interval makes a test either slow or flaky.
     func startForTesting() { tick() }
@@ -246,10 +279,32 @@ final class MeetingWatcher {
                                goneDuration: goneDuration, retryWait: retryWait)
 
         guard state != previous else { return }
+
+        // Start capturing the moment a call is seen -- before the debounce,
+        // before the prompt. The debounce exists to stop us PROMPTING on a
+        // transient mic open; it has no reason to gate capture.
+        if case .detecting = state, !isPreRolling, let detected {
+            isPreRolling = true
+            preRollStartedAt = now
+            pendingCallPID = detected.pid
+            onBeginPreRoll(detected.name, detected.pid)
+        }
+
         switch state {
         case .prompting(let appName):
-            pendingCallPID = detected?.pid
+            pendingCallPID = detected?.pid ?? pendingCallPID
             retrySince = nil
+            // The measurement the timing complaint needs. Nothing recorded
+            // detection-to-prompt before this, so "about 10 seconds" could
+            // only ever be answered with a hypothesis. Whole seconds would
+            // round every result down to the debounce and hide the part we
+            // did NOT predict.
+            if let started = preRollStartedAt {
+                let elapsed = now - started
+                let ms = elapsed.components.seconds * 1000
+                    + elapsed.components.attoseconds / 1_000_000_000_000_000
+                watcherLog.notice("consent prompt shown \(ms, privacy: .public)ms after first detection")
+            }
             onShowConsentPanel(appName) { [weak self] consent in
                 guard let self else { return }
                 switch consent {
@@ -257,16 +312,22 @@ final class MeetingWatcher {
                     self.recordingPID = self.pendingCallPID
                     self.sawCall = false
                     self.goneSince = nil
+                    self.isPreRolling = false   // consented; no longer a pre-roll
                     self.state = .recording(appName: appName)
                     self.onStartRecording(appName)
                 case .declined:
+                    self.discardPreRoll()
                     self.state = .declined
                 case .timedOut:
                     // One retry per call. A second unanswered prompt goes quiet
                     // rather than interrupting repeatedly.
                     if self.hasRetried {
+                        self.discardPreRoll()
                         self.state = .declined
                     } else {
+                        // The pre-roll SURVIVES the first timeout: an unseen
+                        // prompt is not a refusal, and deleting here would make
+                        // the retry start 60s into the meeting.
                         self.hasRetried = true
                         self.retrySince = ContinuousClock.now
                         self.state = .awaitingRetry(appName: appName)
@@ -283,12 +344,31 @@ final class MeetingWatcher {
                 recordingPID = nil
                 sawCall = false
                 onStopRecording()
+            } else {
+                // The call ended while we were still detecting, prompting or
+                // waiting to re-ask. Nothing consented to it, so nothing keeps.
+                discardPreRoll()
             }
         default:
             break
         }
     }
 
+    /// Idempotent: only fires when a pre-roll is actually running, so the
+    /// several paths that reach it cannot double-delete.
+    private func discardPreRoll() {
+        // Load-bearing, not defensive. discardPreRoll is reachable twice for
+        // one call: an explicit decline discards, and when the call later ends
+        // `.declined -> .idle` takes the same non-recording branch. Worse, a
+        // MANUAL recording stopped via markDeclined() walks that identical
+        // path -- without this guard it would delete the directory of a
+        // meeting that had just been saved correctly.
+        guard isPreRolling else { return }
+        isPreRolling = false
+        preRollStartedAt = nil
+        pendingCallPID = nil
+        onDiscardPreRoll()
+    }
 }
 
 private extension MeetingWatcherState {

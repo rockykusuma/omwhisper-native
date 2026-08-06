@@ -1,4 +1,6 @@
+import Foundation
 import Testing
+import os
 @testable import OmWhisper
 
 struct MeetingWatcherLogicTests {
@@ -130,5 +132,173 @@ struct MeetingWatcherRecordingNameTests {
         // No detection means no auto-stop arming -- this recording ends when
         // the user says so.
         #expect(watcher.recordingPID == nil)
+    }
+}
+
+@Suite("Meeting pre-roll lifecycle")
+@MainActor
+struct MeetingPreRollTests {
+    /// A settable call, so one test can turn a call on and then off without
+    /// audio hardware.
+    final class Box: @unchecked Sendable {
+        private let lock = OSAllocatedUnfairLock(initialState: MeetingWatcher.DetectedCall?.none)
+        var call: MeetingWatcher.DetectedCall? {
+            get { lock.withLock { $0 } }
+            set { lock.withLock { $0 = newValue } }
+        }
+        init(_ call: MeetingWatcher.DetectedCall?) { self.call = call }
+    }
+
+    private func makeWatcher(_ box: Box) -> MeetingWatcher {
+        let watcher = MeetingWatcher()
+        watcher.performDetection = { box.call }
+        watcher.performRecordingCheck = { _ in box.call != nil }
+        watcher.onShowConsentPanel = { _, _ in }   // unanswered unless overridden
+        return watcher
+    }
+
+    /// Polls until `condition` holds. Same idiom and same reason as
+    /// MeetingWatcherConcurrencyTests.waitUntil: tick() hands detection to a
+    /// detached task, so every effect is asynchronous and a fixed sleep is a
+    /// timing guess.
+    private func waitUntil(timeout: Duration = .seconds(5),
+                           _ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return condition()
+    }
+
+    /// Drives real ticks until `condition` holds, because the start debounce is
+    /// measured in wall time and no amount of calling tick() shortens it.
+    private func tickUntil(_ watcher: MeetingWatcher, timeout: Duration = .seconds(8),
+                           _ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            watcher.startForTesting()
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        return condition()
+    }
+
+    @Test("the recorder starts on first detection, before any prompt")
+    func preRollStartsAtDetection() async {
+        let watcher = makeWatcher(Box(.init(name: "Teams", pid: 2221)))
+        let began = OSAllocatedUnfairLock(initialState: [(String, pid_t)]())
+        watcher.onBeginPreRoll = { name, pid in began.withLock { $0.append((name, pid)) } }
+
+        watcher.startForTesting()
+
+        #expect(await waitUntil { began.withLock { $0.count } == 1 },
+                "pre-roll never started")
+        let first = began.withLock { $0.first }
+        #expect(first?.0 == "Teams")
+        // The OWNING app's pid, not the helper that holds the mic -- otherwise
+        // callWindowTitle finds no windows and the meeting gets no title.
+        #expect(first?.1 == 2221)
+        #expect(watcher.isPreRolling)
+        // The whole point: capture is running while the state is still
+        // .detecting, i.e. before the debounce has even been cleared.
+        #expect(watcher.state == .detecting)
+    }
+
+    @Test("a call that ends before anyone answers discards")
+    func callEndingDuringPreRollDiscards() async {
+        let box = Box(.init(name: "Teams", pid: 2221))
+        let watcher = makeWatcher(box)
+        let discards = OSAllocatedUnfairLock(initialState: 0)
+        watcher.onDiscardPreRoll = { discards.withLock { $0 += 1 } }
+
+        watcher.startForTesting()
+        #expect(await waitUntil { watcher.isPreRolling }, "pre-roll never started")
+
+        box.call = nil
+        watcher.startForTesting()
+
+        #expect(await waitUntil { discards.withLock { $0 } == 1 }, "never discarded")
+        #expect(!watcher.isPreRolling)
+    }
+
+    @Test("saying yes elsewhere promotes the pre-roll instead of starting a second one")
+    func acceptPreRollPromotes() async {
+        let watcher = makeWatcher(Box(.init(name: "Teams", pid: 2221)))
+        let starts = OSAllocatedUnfairLock(initialState: 0)
+        watcher.onBeginPreRoll = { _, _ in starts.withLock { $0 += 1 } }
+
+        watcher.startForTesting()
+        #expect(await waitUntil { watcher.isPreRolling }, "pre-roll never started")
+
+        #expect(watcher.acceptPreRoll(appName: "Teams"))
+        #expect(watcher.state == .recording(appName: "Teams"))
+        #expect(!watcher.isPreRolling)
+        #expect(starts.withLock { $0 } == 1, "a second recorder was started over a live one")
+        #expect(!watcher.acceptPreRoll(appName: "Teams"), "promoting twice should be a no-op")
+    }
+
+    @Test("declining discards exactly once, even after the call ends", .timeLimit(.minutes(1)))
+    func declineDiscards() async {
+        let box = Box(.init(name: "Teams", pid: 2221))
+        let watcher = makeWatcher(box)
+        let discards = OSAllocatedUnfairLock(initialState: 0)
+        watcher.onDiscardPreRoll = { discards.withLock { $0 += 1 } }
+        watcher.onShowConsentPanel = { _, respond in respond(.declined) }
+
+        #expect(await tickUntil(watcher) { discards.withLock { $0 } > 0 },
+                "the prompt never fired or never discarded")
+        #expect(watcher.state == .declined)
+        #expect(!watcher.isPreRolling)
+
+        // Keep going past the decline. `.declined -> .idle` takes the same
+        // non-recording branch as the discard, so without the isPreRolling
+        // guard this fires a SECOND delete. Stopping at the first discard --
+        // as an earlier version of this test did -- makes the guard
+        // unfalsifiable: removing it changed nothing and the test still passed.
+        box.call = nil
+        watcher.startForTesting()
+        #expect(await waitUntil { watcher.state == .idle }, "never returned to idle")
+
+        #expect(discards.withLock { $0 } == 1, "discarded twice for one call")
+    }
+
+    @Test("stopping a manual recording never deletes it")
+    func manualStopDoesNotDiscard() async {
+        // markDeclined() is the manual-Stop path, and it lands in .declined
+        // just like a refusal does. If the discard were not guarded, the
+        // .declined -> .idle transition would delete a meeting the user had
+        // just recorded on purpose and the app had already saved.
+        let box = Box(.init(name: "Teams", pid: 2221))
+        let watcher = makeWatcher(box)
+        let discards = OSAllocatedUnfairLock(initialState: 0)
+        watcher.onDiscardPreRoll = { discards.withLock { $0 += 1 } }
+
+        _ = watcher.enterRecording(fallbackAppName: "Teams")
+        watcher.markDeclined()
+        box.call = nil
+        watcher.startForTesting()
+
+        #expect(await waitUntil { watcher.state == .idle }, "never returned to idle")
+        #expect(discards.withLock { $0 } == 0, "a manual recording was discarded")
+    }
+
+    @Test("an unanswered prompt keeps the recording", .timeLimit(.minutes(1)))
+    func firstTimeoutKeepsThePreRoll() async {
+        // R's decision, 2026-08-06: an unseen prompt is not a refusal. Deleting
+        // here would make the retry 60s later start from nothing, which is past
+        // the opening this whole change exists to save.
+        let watcher = makeWatcher(Box(.init(name: "Teams", pid: 2221)))
+        let discards = OSAllocatedUnfairLock(initialState: 0)
+        watcher.onDiscardPreRoll = { discards.withLock { $0 += 1 } }
+        watcher.onShowConsentPanel = { _, respond in respond(.timedOut) }
+
+        #expect(await tickUntil(watcher) {
+            if case .awaitingRetry = watcher.state { return true }
+            return false
+        }, "never reached awaitingRetry")
+
+        #expect(discards.withLock { $0 } == 0, "an unanswered prompt threw the recording away")
+        #expect(watcher.isPreRolling, "the pre-roll must survive the first timeout")
     }
 }
