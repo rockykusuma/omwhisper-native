@@ -43,7 +43,8 @@ nonisolated func applyReplacements(_ text: String, rules: [ReplacementRule]) -> 
 /// dictionary term. Conservative by design: short tokens are never touched,
 /// and a token within threshold distance of more than one dictionary term is
 /// left alone rather than guessed at.
-nonisolated func fuzzyCorrect(_ text: String, dictionary: [String]) -> String {
+nonisolated func fuzzyCorrect(_ text: String, dictionary: [String],
+                              gate: FuzzyGate = .standard) -> String {
     guard !dictionary.isEmpty else { return text }
     let dictLower = dictionary.map { $0.lowercased() }
 
@@ -63,7 +64,7 @@ nonisolated func fuzzyCorrect(_ text: String, dictionary: [String]) -> String {
             result += token
             continue
         }
-        guard let maxDistance = maxDistance(forTokenLength: coreLower.count) else {
+        guard let maxDistance = gate.maxDistance(forTokenLength: coreLower.count) else {
             result += token
             continue
         }
@@ -226,13 +227,35 @@ nonisolated private func isWordChar(_ c: Character) -> Bool {
     c.isLetter || c.isNumber || c == "'"
 }
 
-/// Threshold by token length: skip short words (high false-positive risk);
-/// tighter for medium words.
-nonisolated private func maxDistance(forTokenLength len: Int) -> Int? {
-    switch len {
-    case 0...3: return nil
-    case 4...6: return 1
-    default: return 2
+/// How far a token may be from a vocabulary term before correction gives up.
+///
+/// Parameterised so the choice can be MEASURED rather than argued: `--wer`
+/// scores a corpus under both policies on the same hypotheses. `.standard` is
+/// what shipped; `.wide` is the candidate that reaches "Versal" -> "Vercel",
+/// a distance-2 miss on a 6-character token from the 2026-08-01 corpus run.
+///
+/// Neither policy ever touches tokens of 3 characters or fewer: at that length
+/// almost every short English word is within one edit of another.
+nonisolated enum FuzzyGate: Sendable {
+    case standard
+    case wide
+
+    func maxDistance(forTokenLength len: Int) -> Int? {
+        switch self {
+        case .standard:
+            switch len {
+            case 0...3: return nil
+            case 4...6: return 1
+            default: return 2
+            }
+        case .wide:
+            switch len {
+            case 0...3: return nil
+            case 4:     return 1
+            case 5...7: return 2
+            default:    return 3
+            }
+        }
     }
 }
 

@@ -49,11 +49,14 @@ nonisolated enum WERBenchmark {
         /// The number that describes a real user with a vocabulary list:
         /// biasing on AND post-processing applied.
         var biasedCorrected: WER.Result?
+        /// The same user-visible pipeline under the candidate distance gate.
+        var biasedCorrectedWide: WER.Result?
     }
 
     private struct Measured {
         let raw: WER.Result
         let corrected: WER.Result
+        let correctedWide: WER.Result
         let seconds: Double
         let audioSeconds: Double
         let failures: [String]
@@ -85,6 +88,8 @@ nonisolated enum WERBenchmark {
         let vocabulary = loadVocabulary(directory)
         let replacements = loadReplacements(directory)
         let correct = corpusCorrection(vocabulary: vocabulary, replacements: replacements)
+        let correctWide = corpusCorrection(vocabulary: vocabulary, replacements: replacements,
+                                           gate: .wide)
         let hasCorrections = !vocabulary.isEmpty || !replacements.isEmpty
         if vocabulary.isEmpty {
             print("No vocabulary.txt — measuring engines with biasing OFF.")
@@ -110,16 +115,19 @@ nonisolated enum WERBenchmark {
             }
             guard let engine else { continue }
             print("· \(label): running…")
-            let plain = await measure(label: label, engine: engine, entries: entries, correct: correct)
+            let plain = await measure(label: label, engine: engine, entries: entries,
+                                      correct: correct, correctWide: correctWide)
             var row = Row(engine: label, result: plain.raw, seconds: plain.seconds,
                           audioSeconds: plain.audioSeconds, failures: plain.failures,
                           corrected: hasCorrections ? plain.corrected : nil)
             if !vocabulary.isEmpty {
                 print("· \(label): running with vocabulary…")
                 let biased = await measure(label: label, engine: engine, entries: entries,
-                                           vocabulary: vocabulary, correct: correct)
+                                           vocabulary: vocabulary,
+                                           correct: correct, correctWide: correctWide)
                 row.biased = biased.raw
                 row.biasedCorrected = hasCorrections ? biased.corrected : nil
+                row.biasedCorrectedWide = hasCorrections ? biased.correctedWide : nil
             }
             rows.append(row)
         }
@@ -198,13 +206,14 @@ nonisolated enum WERBenchmark {
     /// vocabulary.txt still measures the raw engine and stays comparable with
     /// every number published before this existed.
     static func corpusCorrection(vocabulary: [String],
-                                 replacements: [ReplacementRule]) -> (String) -> String {
+                                 replacements: [ReplacementRule],
+                                 gate: FuzzyGate = .standard) -> (String) -> String {
         guard !vocabulary.isEmpty || !replacements.isEmpty else { return { $0 } }
         return { text in
             var result = applyReplacements(text, rules: replacements)
             if !vocabulary.isEmpty {
                 result = joinSplitTerms(result, dictionary: vocabulary)
-                result = fuzzyCorrect(result, dictionary: vocabulary)
+                result = fuzzyCorrect(result, dictionary: vocabulary, gate: gate)
             }
             return result
         }
@@ -254,9 +263,11 @@ nonisolated enum WERBenchmark {
 
     private static func measure(label: String, engine: TranscriptionEngine, entries: [Entry],
                                 vocabulary: [String] = [],
-                                correct: @escaping (String) -> String) async -> Measured {
+                                correct: @escaping (String) -> String,
+                                correctWide: @escaping (String) -> String) async -> Measured {
         var rawResults: [WER.Result] = []
         var correctedResults: [WER.Result] = []
+        var wideResults: [WER.Result] = []
         var failures: [String] = []
         let started = Date()
 
@@ -268,6 +279,8 @@ nonisolated enum WERBenchmark {
                 let raw = WER.compare(reference: entry.reference, hypothesis: hypothesis)
                 rawResults.append(raw)
                 correctedResults.append(WER.compare(reference: entry.reference, hypothesis: fixed))
+                let wide = correctWide(hypothesis)
+                wideResults.append(WER.compare(reference: entry.reference, hypothesis: wide))
                 // Full hypothesis, never truncated. A 60-char preview here caused a
                 // real misreading on the first run: every engine's line was cut off
                 // mid-sentence, so which word actually failed was invisible and the
@@ -287,6 +300,7 @@ nonisolated enum WERBenchmark {
 
         return Measured(raw: WER.aggregate(rawResults),
                         corrected: WER.aggregate(correctedResults),
+                        correctedWide: WER.aggregate(wideResults),
                         seconds: Date().timeIntervalSince(started),
                         audioSeconds: entries.reduce(0) { $0 + $1.duration },
                         failures: failures)
@@ -306,16 +320,17 @@ nonisolated enum WERBenchmark {
         }
 
         if hasBiased {
-            print("engine                    off   off+fix     on    on+fix     RTF")
-            print("──────────────────────────────────────────────────────────────────")
+            print("engine                    off   off+fix     on    on+fix   on+wide     RTF")
+            print("──────────────────────────────────────────────────────────────────────────")
             // Sorted by the number that describes a real user: biasing on with
             // post-processing applied, falling back as those are unavailable.
             func headline(_ r: Row) -> WER.Result { r.biasedCorrected ?? r.biased ?? r.corrected ?? r.result }
             for row in rows.sorted(by: { headline($0).rate < headline($1).rate }) {
                 let rtf = row.audioSeconds > 0 ? row.seconds / row.audioSeconds : 0
-                print(String(format: "%-22@ %@  %@  %@  %@   %5.2fx",
+                print(String(format: "%-22@ %@  %@  %@  %@  %@   %5.2fx",
                              row.engine as NSString, pct(row.result), pct(row.corrected),
-                             pct(row.biased), pct(row.biasedCorrected), rtf))
+                             pct(row.biased), pct(row.biasedCorrected),
+                             pct(row.biasedCorrectedWide), rtf))
             }
         } else if hasCorrected {
             print("engine                        WER   WER+fix     RTF")
@@ -346,6 +361,8 @@ nonisolated enum WERBenchmark {
         if hasCorrected {
             print("+fix = after the post-processing a real dictation gets (replacements, then fuzzy")
             print("       correction). This is the column that describes a user; the others do not.")
+            print("+wide = the candidate distance gate (5...7 chars allow 2 edits, 8+ allow 3).")
+            print("        Better means loosen it; worse means the tight gate was right.")
         }
 
         let failed = rows.filter { !$0.failures.isEmpty }

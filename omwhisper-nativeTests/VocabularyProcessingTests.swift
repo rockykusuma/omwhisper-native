@@ -213,3 +213,44 @@ struct JoinSplitTermsTests {
                 == "the appcast a shadow")
     }
 }
+
+@Suite("Fuzzy distance gate")
+struct FuzzyGateTests {
+    @Test("the standard gate is exactly what shipped")
+    func standardGateIsUnchanged() {
+        // Pins today's behaviour so widening is opt-in and measurable rather
+        // than an accident of refactoring.
+        #expect(FuzzyGate.standard.maxDistance(forTokenLength: 3) == nil)
+        #expect(FuzzyGate.standard.maxDistance(forTokenLength: 4) == 1)
+        #expect(FuzzyGate.standard.maxDistance(forTokenLength: 6) == 1)
+        #expect(FuzzyGate.standard.maxDistance(forTokenLength: 7) == 2)
+    }
+
+    @Test("the wide gate reaches the measured miss")
+    func wideGateReachesVercel() {
+        // "Versal" -> "Vercel" is distance 2 on a 6-character token, which the
+        // standard gate refuses. This is the specific failure from the
+        // 2026-08-01 corpus run that motivated the candidate policy.
+        #expect(FuzzyGate.wide.maxDistance(forTokenLength: 6) == 2)
+        #expect(FuzzyGate.standard.maxDistance(forTokenLength: 6) == 1)
+        // Still never guesses at very short tokens under either policy.
+        #expect(FuzzyGate.wide.maxDistance(forTokenLength: 3) == nil)
+    }
+
+    @Test("the gate actually changes correction, not just arithmetic")
+    func gateChangesTheOutput() {
+        // A gate that were parameterised and then ignored would pass the two
+        // tests above and correct nothing differently.
+        #expect(fuzzyCorrect("pushed to versal", dictionary: ["Vercel"], gate: .standard)
+                == "pushed to versal")
+        #expect(fuzzyCorrect("pushed to versal", dictionary: ["Vercel"], gate: .wide)
+                == "pushed to Vercel")
+    }
+
+    @Test("the default gate is standard")
+    func defaultIsStandard() {
+        // Shipping behaviour must not change as a side effect of this task.
+        #expect(fuzzyCorrect("pushed to versal", dictionary: ["Vercel"])
+                == "pushed to versal")
+    }
+}

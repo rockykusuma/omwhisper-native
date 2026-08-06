@@ -34,6 +34,73 @@ disfluency. Treat the numbers as a floor.
 **Recorded** — read a prepared script into your own mic, in your room, and save what you read as
 the `.txt`. The only version whose numbers predict your experience.
 
+## Run — 2026-08-07, synthetic corpus + jargon samples, M2 Pro
+
+9 samples, 50.7s, 168 reference words, 10-term `vocabulary.txt`. **The first run to measure
+post-processing**, so the `+fix` columns are the first user-visible numbers this project has
+ever had.
+
+| Engine | off | off+fix | on | on+fix | on+wide |
+|---|---|---|---|---|---|
+| Whisper large-v3 turbo | 6.0% | 1.8% | 2.4% | **1.2%** | 1.2% |
+| Parakeet v2 | 8.3% | 2.4% | 8.3% | **2.4%** | 2.4% |
+| Whisper base | 7.1% | 3.0% | 3.6% | **2.4%** | 2.4% |
+| Whisper small | 7.7% | 3.6% | 3.6% | **2.4%** | 2.4% |
+| **Apple Speech** *(default)* | 8.3% | 5.4% | 8.3% | **5.4%** | 5.4% |
+| Parakeet v3 | 7.7% | 3.6% | 31.0% | 26.8% | 26.2% |
+
+### Post-processing helps every engine, substantially
+
+This is what was never measured before. On the **default** engine, Apple Speech, correction
+takes 8.3% → 5.4% — a 35% relative reduction — and it does so where biasing does nothing at
+all. Parakeet v2 goes 8.3% → 2.4%, a 71% relative reduction.
+
+The corrections are visible in the transcripts, not just the totals:
+
+```
+Apple      … I pushed the app cast of her cell …   → … I pushed the appcast of her cell …
+Parakeet   … We swapped Whisper Kit for Parakeet   → … We swapped WhisperKit for Parakeet
+Parakeet   … The Swift UI Settings pane …          → … The SwiftUI Settings pane …
+Parakeet   … before Omwisper starts.               → … before OmWhisper starts.
+Whisper    … app cast of Vercell …                 → … appcast of Vercel …
+```
+
+**So "the vocabulary list does nothing" was only ever true of engine biasing.** It is false of
+the pipeline — but only for a user who has turned `fuzzyVocabCorrection` on, and it defaults
+to **off**. That default is the single biggest reason the Vocabulary tab appears inert.
+
+### Biasing is still inert on Apple and Parakeet v2
+
+8.3% → 8.3% on both, confirming the 2026-08-01 finding on a larger corpus.
+
+### Parakeet v3 + a vocabulary list returns an EMPTY transcript
+
+The 31.0% is not a general accuracy regression, and reporting it as one would be wrong. It is
+**one sample** — `04-longer`, the longest at 41 reference words — coming back `<empty>` with
+biasing on, in both runs of this session. Every other sample is normal. The likely suspect is
+the CTC vocabulary-boosting path FluidAudio needs for `configureVocabularyBoosting`.
+
+Users on Parakeet v3 with a custom vocabulary can silently lose a whole long dictation. **Not
+yet filed or fixed** — recorded here so it is not rediscovered from scratch.
+
+### The wide distance gate earns nothing
+
+`on+fix` and `on+wide` are identical on five of six engines, and differ by 0.6% only on the one
+engine that is already broken. **No evidence to loosen the gate; `.standard` stays.** Written
+down so this is not re-litigated by taste.
+
+### Method note — the corpus decided the answer, twice
+
+The first run of this benchmark scored `+fix` identical to raw on every engine, which read as
+"the corrections do nothing". They were fine; the corpus `make-wer-corpus.sh` generates contains
+none of the terms in `vocabulary.txt`, so nothing could fire. Three jargon samples (`07`–`09`)
+were added, and `async` — which appears in `02-technical` and had been left out of the
+vocabulary file — was added too.
+
+This is the identical mistake recorded against the 2026-08-01 run, where the A/B used a term
+the engines already got right. **A vocabulary benchmark measures nothing unless the corpus
+contains words the engine actually gets wrong.**
+
 ## Run — 2026-08-01, synthetic corpus, M2 Pro
 
 8 samples, ~55s, 168 reference words, with a 10-term `vocabulary.txt`.
