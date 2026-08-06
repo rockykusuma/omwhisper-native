@@ -10,7 +10,13 @@
 
 import Foundation
 
-struct ReplacementRule: Codable, Equatable, Hashable {
+/// nonisolated for the same reason the functions below are: this crosses into
+/// the transcription pipeline's background Task. Unmarked, the project's
+/// MainActor-by-default isolation makes its Equatable conformance MainActor-
+/// bound, and comparing two rules from a plain test function fails to compile
+/// — the identical gap TranscriptEvent, EngineKind and HomeStats each hit the
+/// first time something outside MainActor compared them.
+nonisolated struct ReplacementRule: Codable, Equatable, Hashable {
     var from: String
     var to: String
 }

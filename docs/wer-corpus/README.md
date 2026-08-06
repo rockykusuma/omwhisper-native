@@ -11,8 +11,15 @@ audio `AVAudioFile` can open works — `.wav`, `.m4a`, `.caf`, `.mp3`, `.aiff`. 
 File → New Audio Recording produces a usable `.m4a`.
 
 Add an optional `vocabulary.txt` (one term per line, `#` comments allowed) and every engine runs
-**twice** — biasing off, then on — reporting the delta. Without it, engines are measured with
-their biasing switched off, which is not what a user with a vocabulary list experiences.
+**twice** — biasing off, then on. Without it, engines are measured with their biasing switched
+off, which is not what a user with a vocabulary list experiences.
+
+Add an optional `replacements.txt` (`from -> to` per line, `#` comments allowed) to measure the
+hand-authored replacement rules too. With either file present every engine is scored **twice
+from one transcription**: raw, and after the post-processing a real dictation receives
+(`applyReplacements`, then `fuzzyCorrect`). The `+fix` columns are the only ones that describe
+what a user actually sees — **every number published here before 2026-08-07 is a raw-engine
+number**, because the harness did not apply post-processing at all until then.
 
 There is no number/currency normalization, so a reference of "five" scores an engine that writes
 "5" as wrong. Pessimistic in absolute terms, fair between engines.
