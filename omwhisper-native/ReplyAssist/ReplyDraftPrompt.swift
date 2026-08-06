@@ -52,6 +52,18 @@ nonisolated enum ReplyDraftPrompt {
         switch mode {
         case .reply:
             instructions += "Draft a new reply appropriate to the conversation context below.\n"
+            // The escape hatch. ReplyStreamTypist has listed NO_REPLY_CONTEXT
+            // among its sentinels since it was written, and NOTHING has ever
+            // told the model to emit it -- a refusal path with no way to reach
+            // it. Without this clause a screen holding prose that merely looks
+            // like a conversation (a terminal, a code editor, a document) gets
+            // a confident invented reply instead: observed live 2026-08-06,
+            // three times running, in a terminal.
+            instructions += """
+                If the context below is not a conversation awaiting a reply -- \
+                for example terminal output, source code, a document, or a log -- \
+                output exactly \(ReplyStreamTypist.noReplyContextSentinel) and nothing else.\n
+                """
         case .continueDraft(let draft):
             // suffix, not prefix -- continuing a draft cares about its most
             // recent tail, not however it started.

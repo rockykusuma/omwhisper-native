@@ -115,3 +115,50 @@ struct ReplyDraftNothingToWorkFromTests {
             mode: .rewrite("make this sound better"), conversation: nil))
     }
 }
+
+@Suite("Reply Assist diagnostics and refusal")
+struct ReplyAssistRefusalTests {
+    @Test("the log names the mode and its size, never its content")
+    func logDescriptionIsUsefulAndContentFree() {
+        // The first version was String(describing:).prefix(14), which printed
+        // exactly "continueDraft(" — it stopped where the interesting part
+        // starts, and could not distinguish an empty compose box
+        // misclassified as a continuation from a real half-written draft.
+        #expect(ReplyMode.reply.logDescription == "reply")
+        #expect(ReplyMode.continueDraft("Thanks Christian").logDescription == "continue(16 chars)")
+        #expect(ReplyMode.rewrite("make it shorter").logDescription == "rewrite(15 chars)")
+        let secret = "the merge is blocked on Christian's 7.0.215 tag"
+        #expect(!ReplyMode.continueDraft(secret).logDescription.contains("Christian"))
+    }
+
+    @Test("the reply prompt tells the model how to refuse")
+    func replyPromptCarriesTheRefusalToken() {
+        // ReplyStreamTypist has listed NO_REPLY_CONTEXT among its sentinels
+        // since it was written, and no prompt ever asked for it — a refusal
+        // path with no way to reach it. This pins the two together.
+        let style = ReplyDraftPrompt.style(mode: .reply, appName: "Orca", windowTitle: nil,
+                                           windowContext: "$ git status", tonePrefix: nil)
+        #expect(style.prompt.contains(ReplyStreamTypist.noReplyContextSentinel))
+    }
+
+    @Test("continue and rewrite are never told to refuse")
+    func fieldModesAreNotOfferedTheEscapeHatch() {
+        // Their material is the user's own text. A model refusing to rewrite
+        // a selection because the surrounding window is not a chat would be
+        // a regression, not a safeguard.
+        for mode in [ReplyMode.continueDraft("half a sentence"), .rewrite("some text")] {
+            let style = ReplyDraftPrompt.style(mode: mode, appName: nil, windowTitle: nil,
+                                               windowContext: "$ git status", tonePrefix: nil)
+            #expect(!style.prompt.contains(ReplyStreamTypist.noReplyContextSentinel),
+                    "\(mode) was offered the refusal token")
+        }
+    }
+
+    @Test("the sentinel is short enough to be caught before anything is typed")
+    func sentinelFitsTheBuffer() {
+        // The typist buffers bufferThreshold characters and checks them before
+        // the first keystroke. A sentinel longer than that would be half-typed
+        // into the user's field before being recognised.
+        #expect(ReplyStreamTypist.noReplyContextSentinel.count < ReplyStreamTypist.bufferThreshold)
+    }
+}

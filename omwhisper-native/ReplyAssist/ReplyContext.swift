@@ -30,6 +30,20 @@ nonisolated enum ReplyMode: Equatable {
     case reply
     case continueDraft(String)
     case rewrite(String)
+
+    /// For the log: the mode and how much material it carries, never the
+    /// material itself. `String(describing:)` truncated to a fixed width was
+    /// the first attempt and it printed exactly "continueDraft(" — a
+    /// diagnostic that stops where the interesting part starts. The character
+    /// count is the number that matters: an empty compose box classified as a
+    /// continuation is a misclassification, and only the length reveals it.
+    var logDescription: String {
+        switch self {
+        case .reply:                 return "reply"
+        case .continueDraft(let d):  return "continue(\(d.count) chars)"
+        case .rewrite(let s):        return "rewrite(\(s.count) chars)"
+        }
+    }
 }
 
 nonisolated struct ReplyContext {

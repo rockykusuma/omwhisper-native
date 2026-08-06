@@ -2204,7 +2204,7 @@ final class AppState {
         log.notice("""
             reply assist — app=\(conversation?.appName ?? "?", privacy: .public) \
             context=\(conversation?.text?.count ?? 0, privacy: .public) chars \
-            mode=\(String(describing: context.mode).prefix(14), privacy: .public)
+            mode=\(context.mode.logDescription, privacy: .public)
             """)
         guard !ReplyDraftPrompt.hasNothingToWorkFrom(mode: context.mode,
                                                      conversation: conversation?.text) else {
@@ -2265,7 +2265,12 @@ final class AppState {
         let result = await replyStreamTypist.stream(drafted)
         if case .declinedSentinel(let sentinel) = result {
             log.warning("draftAndStream — declined on sentinel: \(sentinel)")
-            await failReplyAssist(.sentinelDeclined)
+            // The model saying "this is not a conversation" is a different
+            // thing from a draft that looks like an error text, and the user
+            // can act on the difference: one means try somewhere else, the
+            // other means something broke.
+            await failReplyAssist(sentinel == ReplyStreamTypist.noReplyContextSentinel
+                                  ? .noContext : .sentinelDeclined)
         }
     }
 

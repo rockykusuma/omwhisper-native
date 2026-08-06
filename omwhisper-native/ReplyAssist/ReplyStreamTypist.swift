@@ -38,8 +38,12 @@ nonisolated enum StreamResult: Equatable {
 
 @MainActor
 final class ReplyStreamTypist {
+    /// Named, because the draft prompt has to instruct the model to emit this
+    /// exact token and a second copy of the literal would drift from this one.
+    nonisolated static let noReplyContextSentinel = "NO_REPLY_CONTEXT"
+
     nonisolated static let sentinels = [
-        "NO_REPLY_CONTEXT", "Not logged in", "Please run /login", "Invalid API key",
+        noReplyContextSentinel, "Not logged in", "Please run /login", "Invalid API key",
     ]
     nonisolated static let bufferThreshold = 24
     nonisolated static let chunkSize = 1
