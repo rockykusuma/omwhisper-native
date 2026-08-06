@@ -140,13 +140,73 @@ struct CallDetectionTests {
         // the " | " split the whole string becomes the meeting name.
         #expect(CallDetection.cleanedMeetingTitle(
             windowTitle: "D-WHAS | Microsoft Teams", appName: "Teams") == "D-WHAS")
+        // Changed 2026-08-06: "Microsoft Teams" is app chrome, not a meeting
+        // name. It used to be kept, which filed calls under the product name.
+        // Falls back to appName for display.
         #expect(CallDetection.cleanedMeetingTitle(
-            windowTitle: "Microsoft Teams", appName: "Teams") == "Microsoft Teams")
+            windowTitle: "Microsoft Teams", appName: "Teams") == nil)
     }
 
     @Test func cleanedTitleKeepsPlainTitles() {
         #expect(CallDetection.cleanedMeetingTitle(
             windowTitle: "Design review with hardware team", appName: "Teams")
             == "Design review with hardware team")
+    }
+
+    @Test("app chrome is rejected, real names are kept")
+    func genericTitlesAreRejected() {
+        #expect(CallDetection.isGenericTitle("Chat", appName: "Teams"))
+        #expect(CallDetection.isGenericTitle("chat", appName: "Teams"))
+        #expect(CallDetection.isGenericTitle("Activity", appName: "Teams"))
+        #expect(CallDetection.isGenericTitle("Microsoft Teams", appName: "Teams"))
+        #expect(CallDetection.isGenericTitle("Teams", appName: "Teams"))
+        #expect(CallDetection.isGenericTitle("   ", appName: "Teams"))
+        // Matched exactly, never by substring: these are real meeting names.
+        #expect(!CallDetection.isGenericTitle("Chat app redesign", appName: "Teams"))
+        #expect(!CallDetection.isGenericTitle("Calendar migration", appName: "Teams"))
+        #expect(!CallDetection.isGenericTitle("D-WHAS", appName: "Teams"))
+    }
+
+    @Test("the call window wins over the longer nav window")
+    func callWindowBeatsLongerNavWindow() {
+        // The actual shape of the 2026-08-06 miss: the nav window's title is
+        // LONGER than the call window's, so the old `titles.max(by: count)`
+        // rule picked it. This test fails if that rule is restored.
+        let titles = ["Chat | Microsoft Teams", "Radha Krishnan"]
+        #expect(CallDetection.bestWindowTitle(titles, appName: "Teams") == "Radha Krishnan")
+    }
+
+    @Test("a call-like title still wins outright")
+    func callLikeTitleWinsFirst() {
+        // The first string must contain no call word at all -- an earlier
+        // draft used "...not a call at all", which hasCallLikeTitle matched on
+        // the word "call" and returned first. The fixture was wrong, not the
+        // rule.
+        let titles = ["Some very long window title about nothing in particular",
+                      "Meeting with the hardware team"]
+        #expect(CallDetection.bestWindowTitle(titles, appName: "Teams")
+                == "Meeting with the hardware team")
+    }
+
+    @Test("longest still wins among specific titles")
+    func longestWinsAmongSpecificTitles() {
+        let titles = ["Q3", "Q3 Planning and budget review"]
+        #expect(CallDetection.bestWindowTitle(titles, appName: "Teams")
+                == "Q3 Planning and budget review")
+    }
+
+    @Test("all-chrome yields nothing rather than a bad title")
+    func allChromeYieldsNil() {
+        #expect(CallDetection.bestWindowTitle(["Chat | Microsoft Teams", "Activity"],
+                                              appName: "Teams") == nil)
+        #expect(CallDetection.bestWindowTitle([], appName: "Teams") == nil)
+    }
+
+    @Test("a generic title never becomes the meeting name")
+    func cleanedTitleRejectsGenericSegments() {
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Chat | Microsoft Teams", appName: "Teams") == nil)
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Calls | Microsoft Teams", appName: "Teams") == nil)
     }
 }

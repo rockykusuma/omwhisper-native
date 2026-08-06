@@ -83,6 +83,60 @@ nonisolated enum CallDetection {
 
     private static let callLikeWords = ["call", "calling", "ringing", "meeting", "huddle"]
 
+    /// Window titles that are app chrome, never a meeting name. Teams' left
+    /// nav is the reason this exists: an ad-hoc 1:1 call on 2026-08-06 was
+    /// filed as "Chat", because the nav window's title is LONGER than the call
+    /// window's and the old rule picked the longest.
+    ///
+    /// This is a vendor-shaped string list -- the same class of heuristic that
+    /// missed a 30-minute call on 2026-08-03 -- and it will rot when Teams
+    /// renames a tab. It is here because without it a generic title wins and
+    /// the model is never asked to name the meeting. Its failure mode is
+    /// benign: a missed entry falls through to the generated title.
+    private static let genericTitles: Set<String> = [
+        "chat", "chats", "calls", "activity", "calendar", "home", "files",
+        "communities", "teams", "microsoft teams", "meet", "google meet",
+        "slack", "zoom", "zoom workplace", "discord", "whatsapp", "messages",
+        "facetime", "webex", "inbox", "untitled",
+    ]
+
+    /// Is this title app chrome rather than a meeting name?
+    ///
+    /// Matched EXACTLY (case-insensitive), never by substring: "Chat app
+    /// redesign" is a real meeting name. A `contains` test here would be the
+    /// same length-unbounded mistake that made `answer()` throw away extracts
+    /// beginning "Nothing relevant to the budget, but...".
+    static func isGenericTitle(_ title: String, appName: String) -> Bool {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return true }
+        if normalized == appName.lowercased() { return true }
+        return genericTitles.contains(normalized)
+    }
+
+    /// The leading segment of a window title, before the app's own suffix.
+    /// Extracted so `bestWindowTitle` judges the same string the meeting would
+    /// actually be named -- judging the raw title would let "Chat | Microsoft
+    /// Teams" pass, since that whole string is not itself in the chrome list.
+    private static func firstSegment(_ windowTitle: String) -> String {
+        windowTitle
+            .components(separatedBy: " – ").first!
+            .components(separatedBy: " - ").first!
+            .components(separatedBy: " | ").first!
+            .trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Pure: which of an app's window titles is most likely the CALL window.
+    ///
+    /// Prefer a call-like title, then the longest title whose leading segment
+    /// is not app chrome. The old rule was "longest, full stop", which for a
+    /// 1:1 Teams call picks the nav window over the call window.
+    static func bestWindowTitle(_ titles: [String], appName: String) -> String? {
+        if let callLike = titles.first(where: hasCallLikeTitle) { return callLike }
+        return titles
+            .filter { !isGenericTitle(firstSegment($0), appName: appName) }
+            .max { $0.count < $1.count }
+    }
+
     /// Exact match, or a dotted child (`base.helper`). The dot is load-bearing:
     /// a bare `hasPrefix` would make com.microsoft.teams2 match the
     /// com.microsoft.teams entry, and in general would match any app whose ID
@@ -119,11 +173,10 @@ nonisolated enum CallDetection {
         return callLikeWords.contains { title.localizedCaseInsensitiveContains($0) }
     }
 
-    /// The recorded call's window title, for use as the meeting's display title:
-    /// prefer a call-like-titled window, else the longest non-empty title
-    /// (browser tabs put the meeting name in long titles). Same AX enumeration
-    /// as hasActiveCallWindow; nil when AX yields nothing.
-    static func callWindowTitle(pid: pid_t) -> String? {
+    /// The recorded call's window title, for use as the meeting's display
+    /// title. Selection lives in `bestWindowTitle`; this is only the AX
+    /// enumeration. nil when AX yields nothing usable.
+    static func callWindowTitle(pid: pid_t, appName: String) -> String? {
         let app = AXUIElementCreateApplication(pid)
         var windowsRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
@@ -137,7 +190,7 @@ nonisolated enum CallDetection {
                 titles.append(title)
             }
         }
-        return titles.first(where: hasCallLikeTitle) ?? titles.max { $0.count < $1.count }
+        return bestWindowTitle(titles, appName: appName)
     }
 
     /// Pure: raw window title → meeting display title. Takes the first
@@ -149,13 +202,8 @@ nonisolated enum CallDetection {
     /// meeting name. The cost is a meeting genuinely named "Q3 | Planning"
     /// truncating to "Q3" — the same trade already accepted for " - ".
     static func cleanedMeetingTitle(windowTitle: String, appName: String) -> String? {
-        let first = windowTitle
-            .components(separatedBy: " – ").first!
-            .components(separatedBy: " - ").first!
-            .components(separatedBy: " | ").first!
-            .trimmingCharacters(in: .whitespaces)
-        guard !first.isEmpty,
-              first.localizedCaseInsensitiveCompare(appName) != .orderedSame else { return nil }
+        let first = firstSegment(windowTitle)
+        guard !isGenericTitle(first, appName: appName) else { return nil }
         return first
     }
 

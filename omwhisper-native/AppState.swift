@@ -666,7 +666,9 @@ final class AppState {
             // of unrecognized apps.
             let pid = meetingWatcher.recordingPID
                 ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
-            meetingWindowTitle = pid.flatMap { CallDetection.callWindowTitle(pid: $0) }
+            meetingWindowTitle = pid.flatMap {
+                CallDetection.callWindowTitle(pid: $0, appName: appName)
+            }
             isRecordingMeeting = true
         } catch {
             log.error("meeting recording failed to start: \(error)")

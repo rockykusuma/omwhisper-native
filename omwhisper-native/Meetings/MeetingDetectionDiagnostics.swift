@@ -34,7 +34,7 @@ nonisolated enum MeetingDetectionDiagnostics {
         }
         if let call = CallDetection.activeCall() {
             print("activeCall -> \(call.name) pid=\(call.pid)")
-            print("  callWindowTitle -> \(CallDetection.callWindowTitle(pid: call.pid) ?? "<none>")")
+            print("  callWindowTitle -> \(CallDetection.callWindowTitle(pid: call.pid, appName: call.name) ?? "<none>")")
         } else {
             print("activeCall -> nil")
         }
