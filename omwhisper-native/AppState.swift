@@ -590,8 +590,26 @@ final class AppState {
             }
             if newValue {
                 meetingWatcher.isSuppressed = { [weak self] in self?.dictation != .idle }
+                meetingWatcher.onBeginPreRoll = { [weak self] appName, pid in
+                    guard let self else { return }
+                    preRollRunning = beginRecording(appName: appName, pid: pid, visible: false)
+                }
+                meetingWatcher.onDiscardPreRoll = { [weak self] in
+                    Task { await self?.discardPreRollRecording() }
+                }
                 meetingWatcher.onStartRecording = { [weak self] appName in
-                    self?.beginRecording(appName: appName)
+                    guard let self else { return }
+                    // Normally the recording is already running from the
+                    // pre-roll and consent just makes it visible. Starting one
+                    // here is the fallback for a pre-roll that FAILED — in
+                    // which case a yes must still produce a recording.
+                    if preRollRunning {
+                        preRollRunning = false
+                        isRecordingMeeting = true
+                    } else {
+                        beginRecording(appName: appName,
+                                       pid: meetingWatcher.recordingPID, visible: true)
+                    }
                 }
                 meetingWatcher.onStopRecording = { [weak self] in
                     Task { await self?.endRecording() }
@@ -653,28 +671,64 @@ final class AppState {
         }
     }
 
-    /// Start the recorder and mark recording. Shared by the auto-detect closure
-    /// and the manual toggle. On failure, resets the watcher so it isn't stuck
-    /// showing .recording with no audio actually flowing.
-    private func beginRecording(appName: String) {
+    /// Start the recorder and capture the window title. Shared by the pre-roll,
+    /// the post-consent fallback, and the manual toggle. On failure, resets the
+    /// watcher so it isn't stuck showing .recording with no audio flowing.
+    ///
+    /// `pid` is passed rather than read from the watcher: during a pre-roll the
+    /// watcher's recordingPID is deliberately still nil (nothing is consented),
+    /// and reading it there would fall back to the frontmost app — which is
+    /// OmWhisper itself, since Record lives in the hub window.
+    ///
+    /// `visible` is false for a pre-roll: if isRecordingMeeting were true the
+    /// hub button would read "Stop recording" while the consent panel asks
+    /// "Record this Teams call?" — two contradictory statements about one
+    /// recording.
+    @discardableResult
+    private func beginRecording(appName: String, pid: pid_t?, visible: Bool) -> Bool {
         do {
             try meetingRecorder.start(appName: appName, preferredMicUID: audioInputDeviceUID)
             meetingStartedAt = Date()
             meetingAppName = appName
-            // Watcher pid in both auto and manual flows (enterRecording sets it
-            // before this runs); frontmost as a last resort for manual recordings
-            // of unrecognized apps.
-            let pid = meetingWatcher.recordingPID
-                ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
-            meetingWindowTitle = pid.flatMap {
+            // Frontmost is the last resort, for manual recordings of apps the
+            // detector doesn't recognise.
+            let resolved = pid ?? NSWorkspace.shared.frontmostApplication?.processIdentifier
+            meetingWindowTitle = resolved.flatMap {
                 CallDetection.callWindowTitle(pid: $0, appName: appName)
             }
-            isRecordingMeeting = true
+            isRecordingMeeting = visible
+            return true
         } catch {
             log.error("meeting recording failed to start: \(error)")
             meetingWatcher.failedToStartRecording()
             isRecordingMeeting = false
+            return false
         }
+    }
+
+    /// Is a pre-roll recorder actually running right now?
+    ///
+    /// Tracked explicitly rather than inferred from
+    /// `meetingRecorder.meetingDirectory != nil`, which looks like the obvious
+    /// test and is wrong: `stop()` never clears that property (recordFinished-
+    /// Meeting reads it AFTER stopping), so it stays non-nil for the rest of
+    /// the session once any recording has happened. Inferring from it would
+    /// make the post-consent fallback believe a failed pre-roll had succeeded,
+    /// and consent would produce a recording that was never started.
+    @ObservationIgnored private var preRollRunning = false
+
+    /// Stop an unconsented recording and delete everything it wrote. No row is
+    /// inserted, so nothing surfaces in the UI and nothing is left behind.
+    private func discardPreRollRecording() async {
+        guard preRollRunning else { return }
+        preRollRunning = false
+        let directory = meetingRecorder.meetingDirectory
+        await meetingRecorder.stop()
+        isRecordingMeeting = false
+        if let directory { try? FileManager.default.removeItem(at: directory) }
+        meetingStartedAt = nil
+        meetingAppName = nil
+        meetingWindowTitle = nil
     }
 
     /// Stop the recorder, clear the flag, and persist the finished-meeting row.
@@ -693,14 +747,24 @@ final class AppState {
         if isRecordingMeeting {
             meetingWatcher.markDeclined()
             Task { await endRecording() }
-        } else {
-            // The fallback is the frontmost app, but a detected call wins:
-            // Record lives in the hub window, so the frontmost app is usually
-            // OmWhisper itself.
-            let fallback = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Recording"
-            let appName = meetingWatcher.enterRecording(fallbackAppName: fallback)
-            beginRecording(appName: appName)
+            return
         }
+        // A pre-roll is running and the panel is asking: clicking Record here
+        // is the same yes. Without this we would start a second recorder over
+        // a live one.
+        if preRollRunning, meetingWatcher.isPreRolling, let appName = meetingAppName,
+           meetingWatcher.acceptPreRoll(appName: appName) {
+            meetingConsentPanel.dismiss()
+            preRollRunning = false
+            isRecordingMeeting = true
+            return
+        }
+        // The fallback is the frontmost app, but a detected call wins:
+        // Record lives in the hub window, so the frontmost app is usually
+        // OmWhisper itself.
+        let fallback = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Recording"
+        let appName = meetingWatcher.enterRecording(fallbackAppName: fallback)
+        beginRecording(appName: appName, pid: meetingWatcher.recordingPID, visible: true)
     }
 
     /// Called after meetingRecorder.stop() flushes me.caf/them.caf: insert a

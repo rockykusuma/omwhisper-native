@@ -37,8 +37,12 @@ final class MeetingConsentPanel {
             onDecision(consent)
         }
         let hosting = NSHostingView(rootView: content)
+        // Sized to the content, not to a hardcoded 120pt. AppKit resizes
+        // contentView to the panel, so a fixed height silently CLIPS text that
+        // grows -- and the subtitle is exactly the kind of copy that changes.
+        // The view pins its own width at 320.
         let newPanel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            contentRect: NSRect(origin: .zero, size: hosting.fittingSize),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -97,7 +101,12 @@ private struct MeetingConsentView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.omGlyphCore)
             }
-            Text("No answer? We'll ask once more, then leave it. Stays on this Mac.")
+            // Says that capture has ALREADY started. The old line ("No answer?
+            // We'll ask once more, then leave it.") implied nothing had been
+            // recorded yet, which stopped being true when pre-roll shipped —
+            // and a consent prompt that misdescribes what it is consenting to
+            // is worse than no prompt.
+            Text("Already recording so you don't lose the start — deleted unless you say yes. Stays on this Mac.")
                 .font(.system(size: 11))
                 .foregroundStyle(Color.omGlyphCore.opacity(0.55))
             HStack {
