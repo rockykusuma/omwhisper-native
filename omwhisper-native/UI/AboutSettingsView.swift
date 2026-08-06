@@ -14,6 +14,12 @@ import SwiftUI
 struct AboutSettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var copiedDebugInfo = false
+    @State private var collectingDebugInfo = false
+
+    private var debugButtonLabel: String {
+        if collectingDebugInfo { return "Collecting…" }
+        return copiedDebugInfo ? "Copied — paste it into your report" : "Copy Debug Info"
+    }
 
     var body: some View {
         PorcelainPage {
@@ -48,14 +54,30 @@ struct AboutSettingsView: View {
             }
 
             PorcelainSection(eyebrow: "Troubleshooting") {
-                Button(copiedDebugInfo ? "Copied — paste it into your report" : "Copy Debug Info") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(DebugInfo.text(for: appState), forType: .string)
-                    copiedDebugInfo = true
+                HStack(spacing: 8) {
+                    Button(debugButtonLabel) {
+                        // Re-entry guard: the gather takes long enough to click
+                        // twice, and two overlapping runs would race the
+                        // pasteboard.
+                        guard !collectingDebugInfo else { return }
+                        collectingDebugInfo = true
+                        copiedDebugInfo = false
+                        Task {
+                            let text = await DebugInfo.text(for: appState)
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(text, forType: .string)
+                            collectingDebugInfo = false
+                            copiedDebugInfo = true
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.Porcelain.emerald)
+                    .contentShape(Rectangle())
+                    .disabled(collectingDebugInfo)
+                    if collectingDebugInfo {
+                        ProgressView().controlSize(.small)
+                    }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.Porcelain.emerald)
-                .contentShape(Rectangle())
                 Text("Your settings, permissions, and recent log lines. No transcriptions, no window contents, no API keys.")
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)

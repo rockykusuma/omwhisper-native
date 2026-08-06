@@ -45,7 +45,26 @@ nonisolated enum DebugInfo {
         }
     }
 
-    @MainActor static func text(for state: AppState) -> String {
+    /// The whole dump. Async because gathering it is genuinely slow work that
+    /// must not run on MainActor: an OSLogStore scan, `BrowserURL.findWebArea`
+    /// per running browser (breadth-unbounded — the same walk that forced
+    /// meeting detection off MainActor on 2026-08-04), and SQLite over a store
+    /// that reaches hundreds of MB. Doing it inline froze the app for the whole
+    /// gather, and a spinner cannot animate on a blocked main thread — so the
+    /// fix is the thread, not the spinner.
+    @MainActor static func text(for state: AppState) async -> String {
+        // Snapshot the MainActor-only reads before hopping off. These are all
+        // cheap: UserDefaults, enums, and two Sendable store references.
+        let watcherState = state.meetingWatcherState
+        let historyStore = state.historyStore
+        let memoryStore = state.memoryStore
+        let slow = await Task.detached(priority: .userInitiated) {
+            (detection: meetingDetectionLines(watcherState: watcherState),
+             history: storageLine(try? historyStore?.storageInfo()),
+             memory: storageLine(try? memoryStore?.storageInfo()),
+             log: recentLogLines())
+        }.value
+
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "—"
         let build = info?["CFBundleVersion"] as? String ?? "—"
@@ -87,17 +106,16 @@ nonisolated enum DebugInfo {
           Meetings \(onOff(state.meetingsEnabled)) · Memory \(onOff(state.memoryEnabled)) (paused: \(onOff(state.memoryPaused))) · Reply assist \(onOff(state.replyAssistEnabled)) · MCP \(onOff(state.mcpAccessEnabled)) · Context-aware \(onOff(state.contextAwareDictationEnabled))
 
         MEETING DETECTION
-        \(meetingDetectionLines(state).map { "  \($0)" }.joined(separator: "\n"))
+        \(slow.detection.map { "  \($0)" }.joined(separator: "\n"))
 
         STORAGE
-          History: \(storageLine(try? state.historyStore?.storageInfo()))
-          Memory: \(storageLine(try? state.memoryStore?.storageInfo()))
+          History: \(slow.history)
+          Memory: \(slow.memory)
 
         RECENT LOG (unified log, last 30 min — .debug entries are not retained by the system)
         """
 
-        let lines = recentLogLines()
-        out += lines.isEmpty ? "\n  (nothing logged in this window)" : "\n  " + lines.joined(separator: "\n  ")
+        out += slow.log.isEmpty ? "\n  (nothing logged in this window)" : "\n  " + slow.log.joined(separator: "\n  ")
 
         // Degraded features, if any. Omitted entirely when healthy — a wall of
         // zeroes would be noise in something people paste into issues.
@@ -122,8 +140,13 @@ nonisolated enum DebugInfo {
     /// the accessibility read returned nothing rather than "not a meeting", but
     /// the PERMISSIONS section directly above already says whether Accessibility
     /// is granted, so no URL needs printing to tell those apart.
-    @MainActor private static func meetingDetectionLines(_ state: AppState) -> [String] {
-        var lines = ["Watcher: \(state.meetingWatcherState)"]
+    ///
+    /// Takes the watcher's state as a plain string rather than an AppState:
+    /// that was the only MainActor-bound thing it needed, and everything else
+    /// here (CoreAudio process reads, AX walks) has no main-thread affinity.
+    /// Passing the string is what lets the whole gather run off MainActor.
+    private static func meetingDetectionLines(watcherState: String) -> [String] {
+        var lines = ["Watcher: \(watcherState)"]
 
         let processes = AudioProcesses.capturingInput()
         if processes.isEmpty {
