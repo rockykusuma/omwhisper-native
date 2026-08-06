@@ -71,6 +71,7 @@ nonisolated enum OverlayPhase: Equatable {
     case none
     case pasting
     case polishing               // Smart Dictation / Polish Selected Text running the active style
+    case drafting                // Reply Assist composing a reply
     case error(label: String)   // "NOTHING HEARD" | "SOMETHING BROKE — TEXT COPIED"
     case cancelled
 }
@@ -2268,7 +2269,9 @@ final class AppState {
         case .pasting: .milliseconds(420)   // sized to contain the finalize pulse (§5.5); slide (§4) runs alongside
         case .error: .milliseconds(800)
         case .cancelled: .milliseconds(120)
-        case .none, .polishing: .zero   // .polishing is transient mid-flight state, restored to phase before this is called
+        // .polishing and .drafting are transient mid-flight states, restored to
+        // phase before this is called — neither is an exit flourish.
+        case .none, .polishing, .drafting: .zero
         }
     }
 

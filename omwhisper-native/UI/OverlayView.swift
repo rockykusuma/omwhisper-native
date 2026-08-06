@@ -27,14 +27,35 @@ struct OverlayView: View {
     ) -> Bool {
         if isPreview { return true }
         if dictation != .idle { return true }
-        return phase != .polishing
+        return phase != .polishing && phase != .drafting
     }
 
     @Environment(AppState.self) private var appState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Whether the HUD shows at all.
+    ///
+    /// `.error` was missing here, and that was a real bug rather than an
+    /// oversight of style: Reply Assist runs entirely at `dictation == .idle`,
+    /// so every one of its failures set an error phase that rendered nothing.
+    /// Extracted from a private computed property for the same reason
+    /// showsTranscript was -- a private var on a View cannot be asserted, and
+    /// AppState cannot be constructed in a test.
+    nonisolated static func isVisible(
+        dictation: DictationState, phase: OverlayPhase, isPreview: Bool
+    ) -> Bool {
+        if isPreview { return true }
+        if dictation != .idle { return true }
+        switch phase {
+        case .polishing, .drafting, .error: return true
+        case .none, .pasting, .cancelled: return false
+        }
+    }
+
     private var isVisible: Bool {
-        appState.dictation != .idle || appState.overlayPhase == .polishing || appState.overlayPreview != nil
+        OverlayView.isVisible(dictation: appState.dictation,
+                              phase: appState.overlayPhase,
+                              isPreview: appState.overlayPreview != nil)
     }
 
     private var activeStyle: OverlayStyle {
@@ -109,6 +130,8 @@ private struct FullStyleOverlay: View {
             return ""
         case .polishing:
             return "POLISHING"
+        case .drafting:
+            return "DRAFTING"
         case .error(let label):
             return label
         case .none:
@@ -124,6 +147,7 @@ private struct FullStyleOverlay: View {
     private var labelColor: Color {
         if case .error = appState.overlayPhase { return .omError }
         if case .polishing = appState.overlayPhase { return .omTeal }
+        if case .drafting = appState.overlayPhase { return .omTeal }
         switch appState.dictation {
         case .recording: return .omTeal
         case .finalizing: return .omMint
