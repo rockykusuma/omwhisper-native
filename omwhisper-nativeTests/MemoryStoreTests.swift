@@ -350,3 +350,51 @@ struct MemoryStoreTests {
         #expect(!hybrid.isEmpty)
     }
 }
+
+@Suite("Passage vector reuse")
+struct PassageVectorReuseTests {
+    private func makeStore() throws -> MemoryStore {
+        try MemoryStore(DatabaseQueue())
+    }
+
+    /// upsert() returns Void, so the id comes back through the pending query —
+    /// a snapshot with no passages yet is exactly what that returns.
+    private func storeSnapshot(_ store: MemoryStore, content: String, title: String) throws -> Int64 {
+        try store.upsert(appName: "Test", bundleID: "com.test", windowTitle: title,
+                         content: content, url: "")
+        let pending = try store.snapshotsMissingPassages(limit: 100)
+        return try #require(pending.last?.id)
+    }
+
+    @Test("a stored passage's vector is findable by its text hash")
+    func vectorIsFindableByHash() throws {
+        let s = try makeStore()
+        let id = try storeSnapshot(s, content: "body", title: "w1")
+        let vector = Data([1, 2, 3, 4])
+        try s.replacePassages(snapshotId: id, passages: [(text: "hello world", vector: vector)])
+
+        #expect(try s.vectorForText(hash: MemoryStore.contentHash("hello world")) == vector)
+    }
+
+    @Test("unknown text has no vector")
+    func unknownTextMisses() throws {
+        // The half that makes this real: a lookup returning *some* vector for
+        // anything would pass the test above and silently corrupt search.
+        let s = try makeStore()
+        #expect(try s.vectorForText(hash: MemoryStore.contentHash("never seen")) == nil)
+    }
+
+    @Test("deleting a snapshot takes its cached vectors with it")
+    func deleteRemovesVectors() throws {
+        // Passages cascade with their snapshot, so there is no separate cache
+        // to evict. Pinned, because the day it stops being true the store
+        // grows forever.
+        let s = try makeStore()
+        let id = try storeSnapshot(s, content: "body", title: "w2")
+        try s.replacePassages(snapshotId: id, passages: [(text: "doomed", vector: Data([9]))])
+        #expect(try s.vectorForText(hash: MemoryStore.contentHash("doomed")) != nil)
+
+        try s.delete(id: id)
+        #expect(try s.vectorForText(hash: MemoryStore.contentHash("doomed")) == nil)
+    }
+}

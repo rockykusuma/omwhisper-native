@@ -44,6 +44,11 @@ nonisolated struct MemoryPassage: Codable, FetchableRecord, MutablePersistableRe
     var ordinal: Int
     var text: String
     var vector: Data          // float16, see SemanticIndexing.encode
+    /// SHA-256 of `text`, so an identical passage can reuse an existing vector
+    /// instead of being embedded again. Measured on the real store: 70,835
+    /// passages held only 30,578 distinct texts, so 57% of all embedding redid
+    /// work already done -- one passage 285 times over.
+    var textHash: String = ""
 
     mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
@@ -109,6 +114,30 @@ nonisolated final class MemoryStore: Sendable {
                 t.add(column: "backend", .text)
             }
         }
+        migrator.registerMigration("passageTextHash") { db in
+            try db.alter(table: MemoryPassage.databaseTableName) { t in
+                t.add(column: "textHash", .text).notNull().defaults(to: "")
+            }
+            // Backfilled in chunks: this runs against a store already holding
+            // ~70k passages and ~59 MB of text. Hashing is cheap (SHA-256, not
+            // inference) but loading every row at once is not.
+            let ids = try Int64.fetchAll(db, sql: "SELECT id FROM passages")
+            for start in stride(from: 0, to: ids.count, by: 500) {
+                let slice = Array(ids[start..<min(start + 500, ids.count)])
+                let placeholders = slice.map { _ in "?" }.joined(separator: ",")
+                let rows = try Row.fetchAll(
+                    db, sql: "SELECT id, text FROM passages WHERE id IN (\(placeholders))",
+                    arguments: StatementArguments(slice))
+                for row in rows {
+                    let id: Int64 = row["id"]
+                    let text: String = row["text"]
+                    try db.execute(sql: "UPDATE passages SET textHash = ? WHERE id = ?",
+                                   arguments: [Self.contentHash(text), id])
+                }
+            }
+            try db.create(index: "passages_text_hash", on: MemoryPassage.databaseTableName,
+                          columns: ["textHash"])
+        }
         try migrator.migrate(dbQueue)
     }
 
@@ -166,7 +195,8 @@ nonisolated final class MemoryStore: Sendable {
             try MemoryPassage.filter(Column("snapshotId") == snapshotId).deleteAll(db)
             for (i, p) in passages.enumerated() {
                 var row = MemoryPassage(id: nil, snapshotId: snapshotId, ordinal: i,
-                                        text: p.text, vector: p.vector)
+                                        text: p.text, vector: p.vector,
+                                        textHash: Self.contentHash(p.text))
                 try row.insert(db)
             }
         }
@@ -180,6 +210,20 @@ nonisolated final class MemoryStore: Sendable {
             try MemoryPassage.fetchAll(db).map {
                 ($0.snapshotId, $0.ordinal, $0.vector, $0.text)
             }
+        }
+    }
+
+    /// Any previously stored vector for this exact passage text.
+    ///
+    /// Embedding is deterministic, so every row with the same text carries the
+    /// same vector and the first one found is as good as any. This is what
+    /// turns the passages already in the store into the embedding cache --
+    /// there is no separate cache table to fill, prune, or get out of step,
+    /// and vectors disappear with their snapshot for free.
+    func vectorForText(hash: String) throws -> Data? {
+        try dbQueue.read { db in
+            try Data.fetchOne(db, sql: "SELECT vector FROM passages WHERE textHash = ? LIMIT 1",
+                              arguments: [hash])
         }
     }
 
