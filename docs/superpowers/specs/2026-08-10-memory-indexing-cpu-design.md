@@ -117,3 +117,26 @@ falsifiable rather than hopeful:
 method used to find it — cumulative CPU seconds over a 60-second wall clock, before and after,
 on the same store with Memory enabled. **57.7% of a core is the baseline to beat**, and the
 result is recorded whatever it turns out to be, including if the cache disappoints.
+
+## Result (2026-08-10)
+
+| | sustained CPU |
+|---|---|
+| before | **57.7%** of one core |
+| after | **15.9%** of one core |
+
+**A 72% reduction**, measured the same way on the same store, both after a 60-second settle.
+
+Store at the time: 71,761 passages holding 30,872 distinct texts — **56% redundancy**, matching
+the figure the change was designed against. So the ratio is structural, not a one-off backlog:
+capture keeps producing snapshots whose passages are mostly text already embedded, and the
+cache keeps absorbing them.
+
+**15.9% is not nothing, and the remaining cost is real work**, not waste: the ~44% of passages
+that are genuinely new still have to be embedded, and the AX capture walk and SQLite writes
+continue regardless. The rejected power/idle policy is the lever left if that is still too
+much — the argument against it (that it would hide the redundancy) has now expired, since the
+redundancy is gone.
+
+**Not yet verified:** whether this shows up as a battery-drain ranking change over a normal
+working day. A 60-second measurement is not a soak test.

@@ -1089,11 +1089,22 @@ final class AppState {
     /// the one-time backfill and the per-capture trickle. Fire-and-forget: while
     /// it runs, and if it fails, Memory search simply stays keyword-only, which
     /// is exactly the behaviour before this feature existed.
-    private func indexPendingMemory() {
+    ///
+    /// `maxBatches` bounds ONE invocation. Passing no bound meant a single call
+    /// drained the entire pending queue flat out — the most likely source of
+    /// the 175% CPU spike after a relaunch with a backlog. A backlog now drains
+    /// across successive capture ticks instead, which is exactly the
+    /// self-healing, resumable design MemoryIndexer's own header describes: the
+    /// pending query IS the cursor, so there is no new state to persist.
+    ///
+    /// `catchUp` is the enable-time call, where the user is implicitly waiting
+    /// for a first index and a larger bound is the right trade.
+    private func indexPendingMemory(catchUp: Bool = false) {
         guard !isIndexingMemory, let store = memoryStore, let indexer = memoryIndexer else { return }
         isIndexingMemory = true
+        let maxBatches = catchUp ? 20 : 1
         Task.detached(priority: .utility) { [weak self] in
-            do { _ = try indexer.processPending(store: store) }
+            do { _ = try indexer.processPending(store: store, maxBatches: maxBatches) }
             catch { log.error("memory indexing failed: \(error)") }
             await MainActor.run { self?.isIndexingMemory = false }
         }
@@ -1144,7 +1155,7 @@ final class AppState {
                 }
                 memoryCapture.start()
                 // Catch up on everything captured before this feature existed.
-                indexPendingMemory()
+                indexPendingMemory(catchUp: true)
                 chronicleScheduler.store = memoryStore
                 chronicleScheduler.generate = { [weak self] day in
                     _ = try await self?.generateChronicle(day: day)
