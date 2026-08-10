@@ -19,8 +19,9 @@
 //  `SlidingWindowAsrManager.loadModels(_:)`). Switching variant (setModel) drops
 //  the cache on next load so the new one is fetched.
 //
-//  Vocabulary boosting needs a separate CtcModels download, only triggered when
-//  the caller actually has custom vocabulary, so most Parakeet users never pay it.
+//  Vocabulary boosting is NOT used (removed 2026-08-10 on measurement — see the
+//  long note in transcribe()). Custom vocabulary reaches Parakeet users through
+//  AppState's post-processing instead, which is the path that measurably works.
 //
 //  Concurrency: mutable cached-model state is guarded the same way AudioCapture
 //  guards its non-Sendable AVAudioEngine — a lock, not actor isolation, since
@@ -69,7 +70,6 @@ nonisolated final class ParakeetEngine: TranscriptionEngine {
     private struct State {
         var models: AsrModels?           // loaded once per variant, reused across fresh managers
         var loadedModel: ParakeetModel?  // which variant `models` holds (nil = none loaded)
-        var ctcModels: CtcModels?        // vocabulary-boosting model, loaded lazily
         var requestedModel: ParakeetModel = .v3  // the user's selected variant
     }
 
@@ -118,15 +118,9 @@ nonisolated final class ParakeetEngine: TranscriptionEngine {
         state.withLock { $0.models = models; $0.loadedModel = requested }
     }
 
-    /// Downloads + loads the smaller CTC keyword-spotting model needed for
-    /// vocabulary boosting. Separate from ensureModelsLoaded() and only triggered
-    /// when the caller actually has custom vocabulary.
-    private func ensureCtcModelsLoaded() async throws -> CtcModels {
-        if let existing = state.withLock({ $0.ctcModels }) { return existing }
-        let models = try await CtcModels.downloadAndLoad()
-        state.withLock { $0.ctcModels = models }
-        return models
-    }
+    // Vocabulary boosting is deliberately NOT configured here — see the note in
+    // transcribe(). The CtcModels loader that used to live at this spot was
+    // removed with it, so no user pays that second download any more.
 
     // nonisolated: this does real ASR work and must not run pinned to MainActor,
     // matching AppleEngine's own isolation.
@@ -149,14 +143,36 @@ nonisolated final class ParakeetEngine: TranscriptionEngine {
                 let manager = SlidingWindowAsrManager()
                 try await manager.loadModels(models)
 
-                if !vocabulary.isEmpty {
-                    let ctcModels = try await ensureCtcModelsLoaded()
-                    let terms = vocabulary.map { CustomVocabularyTerm(text: $0) }
-                    try await manager.configureVocabularyBoosting(
-                        vocabulary: CustomVocabularyContext(terms: terms),
-                        ctcModels: ctcModels
-                    )
-                }
+                // VOCABULARY BOOSTING IS NOT CONFIGURED, DELIBERATELY.
+                //
+                // `vocabulary` is accepted (the TranscriptionEngine contract
+                // passes it to every engine) and ignored here. Removed
+                // 2026-08-10 after measuring it, and the measurement is the
+                // whole argument -- do not re-enable without repeating it.
+                //
+                // It bought NOTHING: across two corpora every sample was
+                // byte-identical with and without boosting, on both v3 and v2
+                // (v2 pooled 8.3% either way). And intermittently it destroyed
+                // the transcript: 11.8s and 13.1s clips came back EMPTY, and a
+                // 22.4s clip lost 28 of 70 words, where the same audio
+                // unbiased scored 4.9%, 2.2% and 1.4%.
+                //
+                // Cause is in FluidAudio, not in this call: enabling boosting
+                // switches SlidingWindowAsrManager.finish() onto a different
+                // reconstruction path that rebuilds the text from
+                // confirmedTranscript/volatileTranscript instead of decoding
+                // accumulatedTokens -- and updateTranscriptionState OVERWRITES
+                // volatileTranscript rather than appending. A window whose
+                // rescored result is empty, before anything has been
+                // confirmed, therefore discards the whole dictation. That is a
+                // window-boundary condition, which is why it is intermittent
+                // rather than a clean length threshold.
+                //
+                // Custom vocabulary still reaches the user on this engine, via
+                // joinSplitTerms + fuzzyCorrect in AppState -- the path the
+                // 2026-08-07 corpus run measured at 8.3% -> 2.4% on Parakeet
+                // v2. Engine biasing was never what made it work.
+                _ = vocabulary
 
                 try await manager.startStreaming()
 
