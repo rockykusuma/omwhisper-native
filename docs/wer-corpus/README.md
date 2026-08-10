@@ -83,6 +83,31 @@ the CTC vocabulary-boosting path FluidAudio needs for `configureVocabularyBoosti
 Users on Parakeet v3 with a custom vocabulary can silently lose a whole long dictation. **Not
 yet filed or fixed** — recorded here so it is not rediscovered from scratch.
 
+**ROOT-CAUSED AND FIXED 2026-08-10.** Reproduced three times across two corpora: 11.8s and
+13.1s clips came back empty, and a 22.4s clip lost 28 of 70 words, where the same audio
+unbiased scored 4.9%, 2.2% and 1.4%. Not a length threshold — a **window-boundary condition**,
+which is why it is intermittent.
+
+The cause is in FluidAudio, not in our call. Enabling boosting switches
+`SlidingWindowAsrManager.finish()` onto a different reconstruction path that rebuilds the text
+from `confirmedTranscript`/`volatileTranscript` instead of decoding `accumulatedTokens` — and
+`updateTranscriptionState` does `volatileTranscript = result.text`, an **overwrite, not an
+append**. A window whose rescored result is empty, before anything has been confirmed, discards
+the whole dictation.
+
+**`configureVocabularyBoosting` is no longer called at all** (`ParakeetEngine`), because it
+bought nothing: across both corpora every sample was byte-identical with and without boosting,
+on v3 *and* v2. Zero measured benefit, occasional total loss. The `CtcModels` download went
+with it. Custom vocabulary still reaches these users through `joinSplitTerms` + `fuzzyCorrect`.
+Verified by re-running both reproductions — `04-longer` 100% → 4.9%, `len-70` 40.0% → 1.4%,
+each matching its unbiased score exactly.
+
+**Method note, and it nearly produced a false finding.** The first duration sweep built its
+samples by repeating one sentence. Repetitive audio is pathological for ASR — every engine
+looked dramatically worse with biasing, and v3 appeared to truncate long audio in general.
+Rebuilt with non-repeating prose, that disappeared: `len-110` (38s) scores 0.0% unbiased.
+**A fixture that makes every engine fail is measuring the fixture.**
+
 ### The wide distance gate earns nothing
 
 `on+fix` and `on+wide` are identical on five of six engines, and differ by 0.6% only on the one
