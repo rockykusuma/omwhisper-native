@@ -235,10 +235,24 @@ final class AppState {
             }
         }
     }
+    /// Defaults to ON since 2026-08-10, on measured evidence rather than taste.
+    ///
+    /// Engine biasing is inert on Apple Speech and Parakeet v2, so with this
+    /// off the Vocabulary tab changed nothing at all on the default engine —
+    /// a user could type `appcast`, dictate, and get "app cast" every time.
+    /// The 2026-08-07 corpus run (docs/wer-corpus/README.md) measured the
+    /// correction path instead of the raw engine for the first time: Apple
+    /// 8.3% → 5.4%, Parakeet v2 8.3% → 2.4%, Whisper turbo 6.0% → 1.8%.
+    ///
+    /// Safe to flip because both correction stages are no-ops on an empty
+    /// dictionary (pinned by tests), so this reaches only users who typed a
+    /// vocabulary term — i.e. who asked for exactly this. `object(forKey:)`
+    /// rather than `bool(forKey:)` means anyone who explicitly turned it OFF
+    /// has `false` stored and keeps their choice.
     var fuzzyVocabCorrection: Bool {
         get {
             access(keyPath: \.fuzzyVocabCorrection)
-            return UserDefaults.standard.object(forKey: SettingsKeys.fuzzyVocabCorrection) as? Bool ?? false
+            return UserDefaults.standard.object(forKey: SettingsKeys.fuzzyVocabCorrection) as? Bool ?? true
         }
         set {
             withMutation(keyPath: \.fuzzyVocabCorrection) {

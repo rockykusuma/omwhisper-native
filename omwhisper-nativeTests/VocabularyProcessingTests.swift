@@ -254,3 +254,32 @@ struct FuzzyGateTests {
                 == "pushed to versal")
     }
 }
+
+@Suite("Empty vocabulary is inert")
+struct EmptyVocabularyTests {
+    @Test("with no terms, correction cannot change a single character")
+    func emptyVocabularyIsAlwaysANoop() {
+        // The safety property that makes fuzzyVocabCorrection's ON default
+        // (2026-08-10) safe: a user who has never typed a vocabulary term must
+        // get byte-identical text whether the toggle is on or off.
+        //
+        // Each stage already has its own empty-dictionary test. This pins them
+        // TOGETHER, because the default rests on both being no-ops — one of
+        // them growing a fallback would silently start rewriting text for
+        // every user who has no vocabulary at all.
+        let samples = [
+            "the app cast a shadow over the whole quick brown fox",
+            "we notarise things, sometimes; often before 9 a.m.",
+            "",
+            "   ",
+            "Versal is not a word but nothing should touch it here",
+        ]
+        for text in samples {
+            #expect(joinSplitTerms(text, dictionary: []) == text)
+            #expect(fuzzyCorrect(text, dictionary: [], gate: .standard) == text)
+            #expect(fuzzyCorrect(text, dictionary: [], gate: .wide) == text)
+            // The composed pipeline, in the order AppState applies it.
+            #expect(fuzzyCorrect(joinSplitTerms(text, dictionary: []), dictionary: []) == text)
+        }
+    }
+}
