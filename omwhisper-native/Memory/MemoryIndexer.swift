@@ -28,9 +28,19 @@ nonisolated final class MemoryIndexer: Sendable {
     func index(snapshot: MemorySnapshot, boilerplate: Set<String>, in store: MemoryStore) throws {
         guard let id = snapshot.id else { return }
         let cleaned = SemanticIndexing.strip(snapshot.content, boilerplate: boilerplate)
-        let rows = SemanticIndexing.passages(cleaned).compactMap { p -> (text: String, vector: Data)? in
-            guard let v = embedder.vector(p) else { return nil }
-            return (p, SemanticIndexing.encode(v))
+        var rows: [(text: String, vector: Data)] = []
+        for p in SemanticIndexing.passages(cleaned) {
+            // Reuse before embedding. Capture takes the same window every few
+            // seconds and one line changes, so most passages of a "new"
+            // snapshot are byte-identical to ones already embedded -- measured
+            // at 57% of all passages, one text 285 times over. Embedding was
+            // 57.7% of a core, sustained, and the machine's top battery drain.
+            if let cached = try store.vectorForText(hash: MemoryStore.contentHash(p)) {
+                rows.append((p, cached))
+                continue
+            }
+            guard let v = embedder.vector(p) else { continue }
+            rows.append((p, SemanticIndexing.encode(v)))
         }
         // Even with no embeddable passages, write the (empty) result so this
         // snapshot leaves the pending set -- otherwise one unembeddable row
