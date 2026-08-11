@@ -109,6 +109,15 @@ final class MeetingRecorder: @unchecked Sendable {
             micDeviceID = try Self.defaultInputDeviceID()
         }
         let micUID = try Self.deviceUID(of: micDeviceID)
+        // Which device this recording is actually tapping. Nothing recorded it
+        // before, so "why does my own track sound like a room?" was
+        // unanswerable after the fact -- the same gap the consent-latency stamp
+        // filled. Device NAME only: config, never content, per DebugInfo's rule.
+        meetingLog.notice("""
+            recording mic device: \(Self.deviceName(of: micDeviceID) ?? "unknown", privacy: .public) \
+            (requested: \(preferredMicUID == nil ? "system default" : "specific device", privacy: .public))
+            """)
+        watchMicDeviceAlive(micDeviceID)
 
         let ownProcessID = try Self.ownProcessObjectID()
         let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [ownProcessID])
@@ -333,6 +342,59 @@ final class MeetingRecorder: @unchecked Sendable {
         }
         guard status == noErr, let uid else { throw error("kAudioDevicePropertyDeviceUID", status) }
         return uid.takeRetainedValue() as String
+    }
+
+    /// Human-readable device name, for the log line at record start. Returns
+    /// nil rather than throwing: not knowing the name must never stop a
+    /// recording.
+    nonisolated private static func deviceName(of deviceID: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = withUnsafeMutablePointer(to: &name) {
+            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, $0)
+        }
+        guard status == noErr, let name else { return nil }
+        return name.takeRetainedValue() as String
+    }
+
+    /// Log the moment the recorded mic device stops being alive.
+    ///
+    /// The device is a SNAPSHOT taken here: it is baked into the aggregate's
+    /// sub-device list and nothing follows a later change. So switching input
+    /// mid-call silently keeps recording the original device -- which is what
+    /// happened on 2026-08-11, where a call moved to a headset was captured on
+    /// the built-in mic for its whole 8m53s, and the opening transcribed as
+    /// room noise. Unplugging is the worse case, and until this listener
+    /// existed it was invisible: the track simply went quiet.
+    ///
+    /// This only REPORTS. Rebuilding the aggregate on a live recording is a
+    /// separate piece of work; naming the failure comes first.
+    nonisolated private func watchMicDeviceAlive(_ deviceID: AudioDeviceID) {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectAddPropertyListenerBlock(deviceID, &address, nil) { _, _ in
+            var alive: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            var addr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceIsAlive,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            _ = AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &alive)
+            meetingLog.error(
+                "recorded mic device is no longer alive (alive=\(alive, privacy: .public)) — the rest of this recording's own-voice track may be silent")
+        }
+        if status != noErr {
+            meetingLog.warning("could not watch mic device liveness: \(status)")
+        }
     }
 
     nonisolated private static func tapUID(of tapObjectID: AudioObjectID) throws -> String {
