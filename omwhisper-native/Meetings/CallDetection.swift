@@ -113,16 +113,38 @@ nonisolated enum CallDetection {
         return genericTitles.contains(normalized)
     }
 
-    /// The leading segment of a window title, before the app's own suffix.
+    /// The part of a window title that could actually be a meeting name.
+    ///
+    /// Dash separators keep first-segment semantics -- that is the browser tab
+    /// convention ("Q3 Planning - Google Meet - Google Chrome").
+    ///
+    /// **Pipes do not**, because Teams uses BOTH orders and position therefore
+    /// tells you nothing. Observed live on 2026-08-11:
+    ///
+    ///     pre-join window:   "Meeting join | CatchUp With Venkat"   name SECOND
+    ///     in-call window:    "CatchUp With Venkat"                  no separator
+    ///     older main window: "D-WHAS | Microsoft Teams"             name FIRST
+    ///
+    /// Taking the first segment stored "Meeting join" as the meeting name for
+    /// two real calls. So chrome segments are dropped and the longest survivor
+    /// wins, which is right in every observed case and needs no list of Teams'
+    /// UI strings -- a list that would have worked for "Meeting join" and
+    /// failed for whatever it is renamed to.
+    ///
     /// Extracted so `bestWindowTitle` judges the same string the meeting would
-    /// actually be named -- judging the raw title would let "Chat | Microsoft
+    /// actually be named: judging the raw title would let "Chat | Microsoft
     /// Teams" pass, since that whole string is not itself in the chrome list.
-    private static func firstSegment(_ windowTitle: String) -> String {
-        windowTitle
+    private static func meaningfulSegment(_ windowTitle: String, appName: String) -> String {
+        let base = windowTitle
             .components(separatedBy: " – ").first!
             .components(separatedBy: " - ").first!
-            .components(separatedBy: " | ").first!
-            .trimmingCharacters(in: .whitespaces)
+        let parts = base.components(separatedBy: " | ")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count > 1 else { return parts.first ?? "" }
+        let specific = parts.filter { !isGenericTitle($0, appName: appName) }
+        // All chrome: hand back the first so the caller's own rejection fires
+        // and the meeting falls through to being named from its summary.
+        return specific.max { $0.count < $1.count } ?? parts.first ?? ""
     }
 
     /// Pure: which of an app's window titles is most likely the CALL window.
@@ -140,7 +162,7 @@ nonisolated enum CallDetection {
     /// `cleanedMeetingTitle` -- the invariant the title poll relies on to know
     /// when to stop looking.
     static func bestWindowTitle(_ titles: [String], appName: String) -> String? {
-        let specific = titles.filter { !isGenericTitle(firstSegment($0), appName: appName) }
+        let specific = titles.filter { !isGenericTitle(meaningfulSegment($0, appName: appName), appName: appName) }
         if let callLike = specific.first(where: hasCallLikeTitle) { return callLike }
         return specific.max { $0.count < $1.count }
     }
@@ -210,7 +232,7 @@ nonisolated enum CallDetection {
     /// meeting name. The cost is a meeting genuinely named "Q3 | Planning"
     /// truncating to "Q3" — the same trade already accepted for " - ".
     static func cleanedMeetingTitle(windowTitle: String, appName: String) -> String? {
-        let first = firstSegment(windowTitle)
+        let first = meaningfulSegment(windowTitle, appName: appName)
         guard !isGenericTitle(first, appName: appName) else { return nil }
         return first
     }

@@ -239,4 +239,52 @@ struct CallDetectionTests {
         #expect(CallDetection.cleanedMeetingTitle(
             windowTitle: "Calls | Microsoft Teams", appName: "Teams") == nil)
     }
+
+    @Test("Teams puts the meeting name in the SECOND segment before you join")
+    func pipeSegmentOrderVaries() {
+        // Observed live 2026-08-11 on a scheduled call. Teams uses BOTH orders,
+        // so segment POSITION tells you nothing:
+        //   pre-join window:  "Meeting join | CatchUp With Venkat"
+        //   in-call window:   "CatchUp With Venkat"
+        //   older main window: "D-WHAS | Microsoft Teams"
+        // Taking the first segment stored "Meeting join" as the meeting name.
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Meeting join | CatchUp With Venkat", appName: "Teams")
+            == "CatchUp With Venkat")
+        // The original case must not regress: here the name IS first and the
+        // app name is second.
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "D-WHAS | Microsoft Teams", appName: "Teams") == "D-WHAS")
+    }
+
+    @Test("with three segments the app name loses and the longest real one wins")
+    func threeSegmentsPickTheName() {
+        // A real row from the meetings store, previously filed under the UI
+        // label rather than the people in the call.
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Meeting compact view | Akhilesh Deepak Jichkar, Shalu Pradhan | Microsoft Teams",
+            appName: "Teams") == "Akhilesh Deepak Jichkar, Shalu Pradhan")
+    }
+
+    @Test("an all-chrome pipe title still yields nothing")
+    func allChromeSegmentsStillRejected() {
+        // The half that keeps the model fallback reachable: if every segment is
+        // chrome there is no name here, and inventing one from the longest
+        // piece of furniture would be worse than asking the summarizer.
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Chat | Microsoft Teams", appName: "Teams") == nil)
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Calls | Microsoft Teams", appName: "Teams") == nil)
+    }
+
+    @Test("dash separators keep first-segment semantics")
+    func dashesAreUnchanged() {
+        // Browser tabs are "Page - Site - Browser", so first-segment is right
+        // there and must not be swept up in the pipe change.
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Q3 Planning - Google Meet - Google Chrome", appName: "Chrome")
+            == "Q3 Planning")
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Weekly Sync – Zoom", appName: "Zoom") == "Weekly Sync")
+    }
 }
