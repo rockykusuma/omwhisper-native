@@ -98,6 +98,12 @@ nonisolated enum CallDetection {
         "communities", "teams", "microsoft teams", "meet", "google meet",
         "slack", "zoom", "zoom workplace", "discord", "whatsapp", "messages",
         "facetime", "webex", "inbox", "untitled",
+        // Teams window states and its default meeting name, all observed as
+        // stored titles across 12 real recordings 11-14 Aug 2026. They arrive
+        // as SINGLE segments, so the pipe-splitting rule never engages and they
+        // were kept verbatim. Every one of those meetings had a rich summary,
+        // so the model names them far better than the label does.
+        "meeting join", "meeting compact view", "microsoft teams meeting",
     ]
 
     /// Is this title app chrome rather than a meeting name?

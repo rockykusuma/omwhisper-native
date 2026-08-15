@@ -15,6 +15,7 @@
 
 import AppKit
 import AVFoundation
+import EventKit
 import OSLog
 import Speech
 
@@ -97,6 +98,7 @@ nonisolated enum DebugInfo {
           Microphone: \(micStatus())
           Speech: \(speechStatus())
           Accessibility: \(yesNo(state.hasAccessibilityPermission, "granted"))
+          Calendars: \(calendarStatus(matchEnabled: state.meetingsCalendarEnabled))
 
         INPUT
           Shortcut: \(state.dictationShortcut.display) · Push-to-talk: \(state.pttKey.display)
@@ -202,6 +204,25 @@ nonisolated enum DebugInfo {
     private static func storageLine(_ info: (count: Int, bytes: Int64)??) -> String {
         guard let info = info.flatMap({ $0 }) else { return "unavailable" }
         return "\(info.count) rows, \(ByteCountFormatter.string(fromByteCount: info.bytes, countStyle: .file))"
+    }
+
+    /// Whether calendar matching can do anything at all.
+    ///
+    /// Reports the count of usable calendars, not just the permission, because
+    /// on 2026-08-16 the setting was ON, access was fine, and it had still
+    /// never matched a single meeting in a fortnight -- the Mac had seven
+    /// calendars and not one of them was the work calendar (Outlook/Entra
+    /// blocks Apple Internet Accounts tenant-wide, see the SP1 spec). Answering
+    /// that took a dig through Calendar.sqlitedb; it should be one line here.
+    ///
+    /// Counts and authorization state only, never event titles.
+    private static func calendarStatus(matchEnabled: Bool) -> String {
+        guard matchEnabled else { return "matching off" }
+        guard MeetingCalendar.hasAccess() else { return "matching ON but access NOT granted" }
+        let count = EKEventStore().calendars(for: .event).count
+        return count == 0
+            ? "access granted but NO calendars — matching cannot fire"
+            : "access granted, \(count) calendar(s)"
     }
 
     private static func machineArchitecture() -> String {

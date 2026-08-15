@@ -287,4 +287,32 @@ struct CallDetectionTests {
         #expect(CallDetection.cleanedMeetingTitle(
             windowTitle: "Weekly Sync – Zoom", appName: "Zoom") == "Weekly Sync")
     }
+
+    @Test("Teams' own UI labels and default meeting name are not meeting names")
+    func teamsUiLabelsRejected() {
+        // Observed across 12 real recordings, 11-14 Aug 2026. These arrive as
+        // SINGLE-segment titles, so the pipe-splitting fix never engages and
+        // they were stored verbatim:
+        //   "Meeting compact view"   - the window in compact mode
+        //   "Microsoft Teams meeting" - Teams' default name for an untitled meeting
+        // Both meetings had rich summaries, so the model names them far better.
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Meeting compact view", appName: "Teams") == nil)
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Microsoft Teams meeting", appName: "Teams") == nil)
+        #expect(CallDetection.cleanedMeetingTitle(
+            windowTitle: "Meeting join", appName: "Teams") == nil)
+    }
+
+    @Test("the real meeting names from those same recordings still survive")
+    func realMeetingNamesSurvive() {
+        // The half that makes the rejection safe. Every one of these came off a
+        // Teams window in the same fortnight and is exactly what the user wants
+        // to see; a broader rule would eat them.
+        for title in ["F1 STAND-UP MEETING", "Auracast Slicing Plan (D13, F1 & Allure)",
+                      "WSA Remote Mic", "Srikar Singaraju", "D-WHAS"] {
+            #expect(CallDetection.cleanedMeetingTitle(windowTitle: title, appName: "Teams") == title,
+                    "\(title) was wrongly rejected")
+        }
+    }
 }
