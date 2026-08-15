@@ -150,6 +150,20 @@ struct AISettingsView: View {
                 }
             }
 
+            PorcelainSection(eyebrow: "Which backend each feature uses") {
+                backendRow(title: "Default", choice: state.defaultBackend,
+                           includeDefaultOption: false) { state.defaultBackend = $0 }
+                Divider().overlay(Color.Porcelain.hair)
+                ForEach(AIFeature.allCases, id: \.self) { feature in
+                    backendRow(title: feature.displayName,
+                               choice: state.backend(for: feature),
+                               includeDefaultOption: true) { state.setBackend($0, for: feature) }
+                }
+                Text(egressSentence)
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
+            }
+
             PorcelainSection(eyebrow: "Smart Dictation & Polish Selected Text") {
                 Picker("Default style", selection: $state.activePolishStyleID) {
                     ForEach(PolishStyles.all(customStyles: state.customPolishStyles)) { style in
@@ -235,6 +249,71 @@ struct AISettingsView: View {
         try? Keychain.deleteCloudLLMKey()
         cloudHasSavedKey = false
         cloudTestResult = nil
+    }
+
+    /// One feature's row. `.menuStyle(.button)` + `.tint` + `.fixedSize()` is
+    /// required rather than cosmetic: a bare `Menu` inside a Porcelain card
+    /// renders as BLANK SPACE, with no chrome and no visible label — found by
+    /// screenshot during the Memory exclusions work, where it left the Apps
+    /// section with no way to add anything.
+    @ViewBuilder
+    private func backendRow(title: String, choice: FeatureBackend,
+                            includeDefaultOption: Bool,
+                            set: @escaping (FeatureBackend) -> Void) -> some View {
+        HStack {
+            Text(title).foregroundStyle(Color.Porcelain.ink)
+            Spacer()
+            Menu(label(for: choice)) {
+                if includeDefaultOption {
+                    Button("Default") { set(.useDefault) }
+                    Divider()
+                }
+                // Grouped by WHERE THE DATA GOES, not by vendor. The design
+                // system's rule is to state the mechanism rather than shout the
+                // slogan, and this means cloud cannot be picked without reading
+                // which side of the line it sits on.
+                Section("On this Mac") {
+                    Button("Apple Intelligence") { set(.system) }
+                    ForEach(ollamaModels, id: \.self) { model in
+                        Button("Ollama · \(model)") { set(.ollama(model: model)) }
+                    }
+                }
+                Section("Leaves this Mac") {
+                    Button("Cloud · \(appState.cloudModel)") { set(.cloud) }
+                }
+            }
+            .menuStyle(.button)
+            .tint(Color.Porcelain.emerald)
+            .fixedSize()
+        }
+    }
+
+    private func label(for choice: FeatureBackend) -> String {
+        switch choice {
+        case .useDefault:        return "Default"
+        case .system:            return "Apple Intelligence"
+        case .ollama(let model): return "Ollama · \(model)"
+        case .cloud:             return "Cloud · \(appState.cloudModel)"
+        }
+    }
+
+    /// Features whose data would leave the Mac, after resolving Default.
+    private var cloudFeatures: [AIFeature] {
+        AIFeature.allCases.filter { feature in
+            var choice = appState.backend(for: feature)
+            if case .useDefault = choice { choice = appState.defaultBackend }
+            return choice == .cloud
+        }
+    }
+
+    /// One factual line naming the real host — not a banner, and not repeated
+    /// on every row.
+    private var egressSentence: String {
+        guard !cloudFeatures.isEmpty else { return "Everything stays on this Mac." }
+        let names = cloudFeatures.map(\.displayName).joined(separator: ", ")
+        let host = URL(string: appState.cloudAPIURL)?.host ?? appState.cloudAPIURL
+        let verb = cloudFeatures.count == 1 ? "is" : "are"
+        return "\(names) \(verb) sent to \(host). Everything else stays on this Mac."
     }
 
     private func testCloud() {
