@@ -19,6 +19,14 @@ nonisolated enum BrainDumpStructurer {
     /// ramble becomes one or two calls here instead of a dozen.
     static let ollamaChunkLimit = 12_000
 
+    /// One call, not a map-reduce. A 59-minute meeting is ~51,000 characters --
+    /// about 13,000 tokens -- which every current cloud model takes whole,
+    /// where Ollama's 12,000-char envelope makes it 5 chunks plus collapse
+    /// rounds and a reduce: 7-8 sequential calls, 3-4 minutes of local
+    /// inference. Shipping cloud WITHOUT raising this would deliver the egress
+    /// and only a fraction of the speed-up.
+    static let cloudChunkLimit = 120_000
+
     /// Pure: greedily pack words into <=limit-char groups (verbatim from
     /// MeetingSummarizer.chunk — no content lost even for one long line).
     static func chunk(_ text: String, limit: Int = chunkCharLimit) -> [String] {

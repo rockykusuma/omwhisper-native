@@ -913,34 +913,83 @@ final class AppState {
     /// load. Cloud is never constructed, so recorded calls and chronicles
     /// cannot egress even as text, whatever the polish backend is.
     ///
+    /// The Default row. Ships as `.useDefault`, which means today's automatic
+    /// on-device order -- so an existing user sees no change until they
+    /// deliberately choose something.
+    var defaultBackend: FeatureBackend {
+        get {
+            access(keyPath: \.defaultBackend)
+            let raw = UserDefaults.standard.string(forKey: SettingsKeys.defaultAIBackend) ?? ""
+            return FeatureBackend(rawValue: raw) ?? .useDefault
+        }
+        set {
+            withMutation(keyPath: \.defaultBackend) {
+                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.defaultAIBackend)
+            }
+        }
+    }
+
+    /// Bumped on every per-feature change. `backend(for:)` is a FUNCTION, so
+    /// Observation has no key path of its own to track -- this is the
+    /// observable token the Pickers read. Without it the menus would not
+    /// re-render, which is the same @Observable gap that made the AI tab's
+    /// radio buttons stick in M3.
+    private(set) var aiBackendsVersion: Int = 0
+
+    /// One feature's choice. Unrecognised or missing resolves to `.useDefault`
+    /// -- never to cloud.
+    func backend(for feature: AIFeature) -> FeatureBackend {
+        access(keyPath: \.aiBackendsVersion)
+        let raw = UserDefaults.standard.string(forKey: feature.settingsKey) ?? ""
+        return FeatureBackend(rawValue: raw) ?? .useDefault
+    }
+
+    func setBackend(_ choice: FeatureBackend, for feature: AIFeature) {
+        withMutation(keyPath: \.aiBackendsVersion) {
+            UserDefaults.standard.set(choice.rawValue, forKey: feature.settingsKey)
+            aiBackendsVersion &+= 1
+        }
+    }
+
     /// `kind` rides along so callers can name whichever candidate won, without
     /// having to type-check a PolishBackend existential.
-    private func longFormBackends(ollamaChunkLimit: Int, systemChunkLimit: Int)
+    ///
+    /// Every long-form feature resolves through `LongFormBackends.candidates`,
+    /// so the rule that cloud is only ever reached when explicitly chosen lives
+    /// in exactly one place rather than at each call site.
+    private func backends(for feature: AIFeature,
+                          ollamaChunkLimit: Int, systemChunkLimit: Int, cloudChunkLimit: Int)
         -> [(kind: LongFormBackends.Kind, polish: PolishBackend, chunkLimit: Int)] {
-        LongFormBackends.order(ollamaConfigured: !ollamaModel.isEmpty,
-                               systemAvailable: SystemLLM.isAvailable())
-            .compactMap { kind in
-                switch kind {
-                case .ollama:
-                    return (kind,
-                            Ollama(baseURL: ollamaBaseURL, model: ollamaModel,
-                                   timeout: Ollama.longFormTimeout),
-                            ollamaChunkLimit)
-                case .system:
-                    return (kind, systemLLM, systemChunkLimit)
-                case .cloud:
-                    // Unreachable from `order()`, which only ever yields
-                    // on-device kinds. Cloud arrives with the per-feature
-                    // resolver that replaces this function.
-                    return nil
-                }
+        let cloudKey = Keychain.loadCloudLLMKey()
+        return LongFormBackends.candidates(
+            choice: backend(for: feature),
+            defaultChoice: defaultBackend,
+            ollamaConfigured: !ollamaModel.isEmpty,
+            systemAvailable: SystemLLM.isAvailable(),
+            cloudConfigured: !(cloudKey ?? "").isEmpty
+        ).compactMap { kind in
+            switch kind {
+            case .ollama:
+                return (kind,
+                        Ollama(baseURL: ollamaBaseURL, model: ollamaModel,
+                               timeout: Ollama.longFormTimeout),
+                        ollamaChunkLimit)
+            case .system:
+                return (kind, systemLLM, systemChunkLimit)
+            case .cloud:
+                guard let key = cloudKey, !key.isEmpty else { return nil }
+                return (kind, CloudLLM(apiURL: cloudAPIURL, model: cloudModel, apiKey: key),
+                        cloudChunkLimit)
             }
+        }
     }
 
     private func meetingSummaryBackends()
         -> [(kind: LongFormBackends.Kind, polish: PolishBackend, chunkLimit: Int)] {
-        longFormBackends(ollamaChunkLimit: MeetingSummarizer.ollamaChunkLimit,
-                         systemChunkLimit: MeetingSummarizer.chunkCharLimit)
+        backends(for: .meetings,
+                 ollamaChunkLimit: MeetingSummarizer.ollamaChunkLimit,
+                 systemChunkLimit: MeetingSummarizer.chunkCharLimit,
+                 cloudChunkLimit: MeetingSummarizer.cloudChunkLimit)
     }
 
     /// First candidate that produces a summary, with the name of whichever one
@@ -1276,8 +1325,10 @@ final class AppState {
     /// never leaves the device, whatever the polish backend is set to.
     private func chronicleBackends()
         -> [(kind: LongFormBackends.Kind, polish: PolishBackend, chunkLimit: Int)] {
-        longFormBackends(ollamaChunkLimit: Chronicler.ollamaChunkLimit,
-                         systemChunkLimit: Chronicler.chunkCharLimit)
+        backends(for: .chronicles,
+                 ollamaChunkLimit: Chronicler.ollamaChunkLimit,
+                 systemChunkLimit: Chronicler.chunkCharLimit,
+                 cloudChunkLimit: Chronicler.cloudChunkLimit)
     }
 
     /// First candidate that writes a chronicle wins. The three failure modes are
@@ -2269,7 +2320,7 @@ final class AppState {
                                            windowTitle: conversation?.windowTitle,
                                            windowContext: conversation?.text,
                                            tonePrefix: tonePrefix)
-        guard let backend = activePolishBackend() else {
+        guard let backend = activePolishBackend(for: .replyAssist) else {
             await failReplyAssist(.noBackend)
             return
         }
@@ -2353,7 +2404,25 @@ final class AppState {
     /// run (Disabled, System-but-unavailable, or Ollama with no model chosen).
     /// The single place backend selection happens — both dictation polish and
     /// Reply Assist route through it.
-    func activePolishBackend() -> PolishBackend? {
+    /// `feature` selects which per-feature choice applies. Dictation polish and
+    /// Reply Assist are separate choices for the same reason meetings and
+    /// chronicles are: a draft written into someone else's chat window and a
+    /// sentence you just dictated are not the same egress decision.
+    ///
+    /// A feature left on Default falls through to `polishBackend`, which keeps
+    /// the AI tab's existing radio group meaning exactly what it means today.
+    func activePolishBackend(for feature: AIFeature = .dictationPolish) -> PolishBackend? {
+        switch backend(for: feature) {
+        case .system:
+            return SystemLLM.isAvailable() ? systemLLM : nil
+        case .ollama(let model):
+            return model.isEmpty ? nil : Ollama(baseURL: ollamaBaseURL, model: model)
+        case .cloud:
+            guard let key = Keychain.loadCloudLLMKey(), !key.isEmpty else { return nil }
+            return CloudLLM(apiURL: cloudAPIURL, model: cloudModel, apiKey: key)
+        case .useDefault:
+            break
+        }
         switch polishBackend {
         case .disabled: return nil
         case .system: return SystemLLM.isAvailable() ? systemLLM : nil
@@ -2434,8 +2503,10 @@ final class AppState {
         // deliberately waiting on, so it takes Ollama's 12,000-char envelope and
         // 300s timeout rather than the 30s dictation one, which a cold model
         // blows every time.
-        let candidates = longFormBackends(ollamaChunkLimit: BrainDumpStructurer.ollamaChunkLimit,
-                                          systemChunkLimit: BrainDumpStructurer.chunkCharLimit)
+        let candidates = backends(for: .brainDump,
+                                  ollamaChunkLimit: BrainDumpStructurer.ollamaChunkLimit,
+                                  systemChunkLimit: BrainDumpStructurer.chunkCharLimit,
+                                  cloudChunkLimit: BrainDumpStructurer.cloudChunkLimit)
         guard !candidates.isEmpty, let shape = activeBrainDumpShape else { return original }
         var parts: [String] = []
         if let app = NSWorkspace.shared.frontmostApplication?.localizedName { parts.append("Target app: \(app)") }
@@ -2567,6 +2638,7 @@ nonisolated enum SettingsKeys {
     static let clipboardRestoreDelayMS = "clipboardRestoreDelayMS"
     static let appearancePreference = "appearancePreference"
     static let polishBackend = "polishBackend"
+    static let defaultAIBackend = "defaultAIBackend"
     static let ollamaBaseURL = "ollamaBaseURL"
     static let ollamaModel = "ollamaModel"
     static let cloudAPIURL = "cloudAPIURL"

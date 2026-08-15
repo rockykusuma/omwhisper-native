@@ -49,3 +49,17 @@ struct AIFeatureTests {
         #expect(FeatureBackend(rawValue: "ollama:qwen3.5:latest") == choice)
     }
 }
+
+@Suite("Chunk limits follow the backend")
+struct ChunkLimitTests {
+    @Test("cloud takes a whole meeting in one chunk where Ollama needs several")
+    func cloudNeedsOneChunk() {
+        // The performance claim, asserted rather than assumed. 50,967 chars is
+        // the real longest transcript on this machine — 5 chunks plus collapse
+        // rounds on Ollama, 3-4 minutes of local inference.
+        let transcript = String(repeating: "word ", count: 10_193)   // ~50,965 chars
+        #expect(transcript.count > 50_000)
+        #expect(MeetingSummarizer.chunk(transcript, limit: MeetingSummarizer.cloudChunkLimit).count == 1)
+        #expect(MeetingSummarizer.chunk(transcript, limit: MeetingSummarizer.ollamaChunkLimit).count >= 4)
+    }
+}

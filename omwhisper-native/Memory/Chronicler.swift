@@ -48,6 +48,14 @@ nonisolated enum Chronicler {
     /// two are the same trade-off and should not drift apart.
     static let ollamaChunkLimit = 12_000
 
+    /// One call, not a map-reduce. A 59-minute meeting is ~51,000 characters --
+    /// about 13,000 tokens -- which every current cloud model takes whole,
+    /// where Ollama's 12,000-char envelope makes it 5 chunks plus collapse
+    /// rounds and a reduce: 7-8 sequential calls, 3-4 minutes of local
+    /// inference. Shipping cloud WITHOUT raising this would deliver the egress
+    /// and only a fraction of the speed-up.
+    static let cloudChunkLimit = 120_000
+
     static let defaultBucketMinutes = 15
     static let defaultCap = 400
 
