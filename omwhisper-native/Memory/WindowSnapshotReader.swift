@@ -38,7 +38,7 @@ nonisolated enum WindowSnapshotReader {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier else { return nil }
 
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let appElement = AX.appElement(pid: app.processIdentifier)
         // Electron/Chromium apps (Teams, Slack, Discord, VS Code, …) don't expose
         // their AX tree until an assistive tech asks. Set the Chromium hydration
         // flag so their window/text become readable — idempotent, native apps
@@ -195,7 +195,7 @@ nonisolated enum WindowSnapshotReader {
         guard !exclusions.apps.contains(bundleID),
               !ScreenContextReader.excludedBundleIDs.contains(bundleID) else { return nil }
 
-        let appElement = AXUIElementCreateApplication(descriptor.pid)
+        let appElement = AX.appElement(pid: descriptor.pid)
         AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         guard let windows = ScreenContextReader.copyAttribute(appElement, kAXWindowsAttribute) as? [AXUIElement],
               let windowElement = windows.first(where: { frameMatches(descriptor.bounds, $0) })

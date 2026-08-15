@@ -79,7 +79,7 @@ nonisolated enum ReplyContextReader {
     @MainActor
     static func focusedElement(maxRetries: Int = 8, retryDelay: Duration = .milliseconds(200)) async -> AXUIElement? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let appElement = AX.appElement(pid: app.processIdentifier)
 
         if let focused = copyElement(appElement, kAXFocusedUIElementAttribute as String) {
             return focused
@@ -87,7 +87,7 @@ nonisolated enum ReplyContextReader {
 
         // The system-wide element often reports focus when the per-app query
         // returns NoValue (some Electron builds).
-        let systemWide = AXUIElementCreateSystemWide()
+        let systemWide = AX.systemWideElement()
         if let focused = copyElement(systemWide, kAXFocusedUIElementAttribute as String) {
             return focused
         }
