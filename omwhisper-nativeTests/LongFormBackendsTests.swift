@@ -36,11 +36,69 @@ struct LongFormBackendsTests {
         #expect(LongFormBackends.displayName(for: .ollama, ollamaModel: "") == "Ollama")
     }
 
-    @Test("cloud can never be a long-form candidate")
-    func noCloudCase() {
-        // Recordings and chronicles must never egress. That is guaranteed by
-        // Kind having no cloud case rather than by a check, so this asserts the
-        // enum itself — it fails the moment someone adds one.
-        #expect(LongFormBackends.Kind.allCases == [.ollama, .system])
+    @Test("cloud is a candidate ONLY when explicitly chosen")
+    func cloudOnlyWhenChosen() {
+        // Replaces the old `Kind.allCases == [.ollama, .system]` guard. That
+        // test existed to stop this change being made carelessly; this one
+        // pins what replaced it. Cloud must never appear for a feature that
+        // did not ask for it, however unavailable everything else is.
+        let everythingOff = LongFormBackends.candidates(
+            choice: .useDefault, defaultChoice: .useDefault,
+            ollamaConfigured: false, systemAvailable: false, cloudConfigured: true)
+        #expect(everythingOff.isEmpty, "cloud leaked in as a last resort")
+
+        let chosen = LongFormBackends.candidates(
+            choice: .cloud, defaultChoice: .useDefault,
+            ollamaConfigured: true, systemAvailable: true, cloudConfigured: true)
+        #expect(chosen.first == .cloud)
+    }
+
+    @Test("an on-device choice never falls back to cloud")
+    func onDeviceNeverFallsBackToCloud() {
+        // THE rule. A fallback that reached for cloud when Ollama was down
+        // would look like resilience and be a privacy breach.
+        for choice in [FeatureBackend.system, .ollama(model: "qwen3.5")] {
+            let list = LongFormBackends.candidates(
+                choice: choice, defaultChoice: .useDefault,
+                ollamaConfigured: true, systemAvailable: true, cloudConfigured: true)
+            #expect(!list.contains(.cloud), "\(choice) offered cloud as a fallback")
+        }
+    }
+
+    @Test("a cloud choice may fall back to on-device")
+    func cloudMayFallBackLocally() {
+        // The reverse direction is fine: less capable, never less private.
+        let list = LongFormBackends.candidates(
+            choice: .cloud, defaultChoice: .useDefault,
+            ollamaConfigured: true, systemAvailable: true, cloudConfigured: true)
+        #expect(list == [.cloud, .ollama, .system])
+    }
+
+    @Test("useDefault defers to the Default row")
+    func useDefaultDefers() {
+        let list = LongFormBackends.candidates(
+            choice: .useDefault, defaultChoice: .cloud,
+            ollamaConfigured: true, systemAvailable: true, cloudConfigured: true)
+        #expect(list.first == .cloud, "the Default row was ignored")
+    }
+
+    @Test("Default set to Default means today's automatic order")
+    func defaultOfDefaultIsAutomatic() {
+        // Shipping behaviour: nothing configured, everything on-device,
+        // Ollama preferred for its larger envelope.
+        let list = LongFormBackends.candidates(
+            choice: .useDefault, defaultChoice: .useDefault,
+            ollamaConfigured: true, systemAvailable: true, cloudConfigured: false)
+        #expect(list == [.ollama, .system])
+    }
+
+    @Test("an unconfigured backend is skipped, not offered")
+    func unconfiguredIsSkipped() {
+        #expect(LongFormBackends.candidates(
+            choice: .cloud, defaultChoice: .useDefault,
+            ollamaConfigured: false, systemAvailable: false, cloudConfigured: false).isEmpty)
+        #expect(LongFormBackends.candidates(
+            choice: .ollama(model: "x"), defaultChoice: .useDefault,
+            ollamaConfigured: false, systemAvailable: true, cloudConfigured: false) == [.system])
     }
 }

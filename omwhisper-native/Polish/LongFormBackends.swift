@@ -16,9 +16,12 @@
 //  call into ~6 passes instead of ~40, and every extra compression pass loses
 //  detail.
 //
-//  Both candidates run on-device, so preferring the better-fitting one carries
-//  no privacy consequence. Cloud is absent BY CONSTRUCTION rather than by a
-//  check: recordings and chronicles never reach a cloud provider.
+//  The on-device candidates run locally, so preferring the better-fitting one
+//  carries no privacy consequence. Cloud used to be absent BY CONSTRUCTION --
+//  the enum had no case for it. Since 2026-08-16 features can be pointed at
+//  cloud individually, so the guarantee moved into `candidates(...)`: cloud is
+//  a candidate ONLY where explicitly chosen, and never a fallback for an
+//  on-device backend that failed to answer.
 //
 //  Pure and free of AppState on purpose -- constructing AppState in a test opens
 //  the real history and memory stores.
@@ -27,10 +30,51 @@
 import Foundation
 
 nonisolated enum LongFormBackends {
-    /// CaseIterable so a test can assert cloud never joins this list.
     enum Kind: Equatable, CaseIterable {
         case ollama
         case system
+        /// Only ever reachable when a feature is EXPLICITLY set to cloud --
+        /// see `candidates(...)`. Never a fallback.
+        case cloud
+    }
+
+    /// Ordered candidates for one feature.
+    ///
+    /// The rule this function exists to enforce: **cloud appears only when
+    /// explicitly chosen.** An on-device choice that is unavailable falls back
+    /// to the other on-device backend and then to nothing. A fallback that
+    /// reached for cloud because Ollama was not answering would look like
+    /// resilience and be a privacy breach.
+    ///
+    /// The reverse is allowed: a cloud choice may fall back on-device, which
+    /// is less capable but never less private.
+    ///
+    /// Until 2026-08-16 this guarantee was expressed by `Kind` having no cloud
+    /// case at all, pinned by a test on `allCases`. Per-feature cloud made that
+    /// impossible, so the guarantee moved here -- and the test moved with it
+    /// rather than being deleted.
+    static func candidates(choice: FeatureBackend,
+                           defaultChoice: FeatureBackend,
+                           ollamaConfigured: Bool,
+                           systemAvailable: Bool,
+                           cloudConfigured: Bool) -> [Kind] {
+        // Resolve the sentinel once. A Default row left on Default means the
+        // automatic on-device order, which is exactly today's behaviour.
+        var resolved = choice
+        if case .useDefault = choice { resolved = defaultChoice }
+
+        let onDevice = order(ollamaConfigured: ollamaConfigured, systemAvailable: systemAvailable)
+
+        switch resolved {
+        case .useDefault:
+            return onDevice
+        case .system:
+            return systemAvailable ? [.system] + onDevice.filter { $0 != .system } : onDevice
+        case .ollama:
+            return ollamaConfigured ? [.ollama] + onDevice.filter { $0 != .ollama } : onDevice
+        case .cloud:
+            return (cloudConfigured ? [.cloud] : []) + onDevice
+        }
     }
 
     /// Preference order, best fit first. Empty when nothing is usable: callers
@@ -58,6 +102,7 @@ nonisolated enum LongFormBackends {
         switch kind {
         case .ollama: return ollamaModel.isEmpty ? "Ollama" : "Ollama (\(ollamaModel))"
         case .system: return "Apple Intelligence"
+        case .cloud:  return "Cloud"
         }
     }
 }

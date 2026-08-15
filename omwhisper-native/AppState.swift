@@ -919,7 +919,7 @@ final class AppState {
         -> [(kind: LongFormBackends.Kind, polish: PolishBackend, chunkLimit: Int)] {
         LongFormBackends.order(ollamaConfigured: !ollamaModel.isEmpty,
                                systemAvailable: SystemLLM.isAvailable())
-            .map { kind in
+            .compactMap { kind in
                 switch kind {
                 case .ollama:
                     return (kind,
@@ -928,6 +928,11 @@ final class AppState {
                             ollamaChunkLimit)
                 case .system:
                     return (kind, systemLLM, systemChunkLimit)
+                case .cloud:
+                    // Unreachable from `order()`, which only ever yields
+                    // on-device kinds. Cloud arrives with the per-feature
+                    // resolver that replaces this function.
+                    return nil
                 }
             }
     }
