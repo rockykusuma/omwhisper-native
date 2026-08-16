@@ -141,6 +141,23 @@ struct MeetingMicControlTests {
         #expect(recorder.micFramesWritten > 0)
     }
 
+    @Test("the mic-excluded path still records the meeting")
+    func systemOnlyPathRecords() throws {
+        let dir = try tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let recorder = MeetingRecorder()
+        recorder.beginWriting(to: dir)
+
+        recorder.handleSystemOnly(try buffer())
+        recorder.finishFilesForTesting()
+
+        // The failure this guards: a mic-less aggregate that silently records
+        // nothing, which looks identical to "the meeting had no audio".
+        let them = try #require(try? AVAudioFile(forReading: dir.appendingPathComponent("them.caf")))
+        #expect(them.length > 0)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("me.caf").path))
+    }
+
     @Test("muting late still reports the mic as captured")
     func lateMuteStillCounts() throws {
         let dir = try tempDirectory()

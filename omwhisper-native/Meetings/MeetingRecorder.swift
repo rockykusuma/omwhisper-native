@@ -89,6 +89,10 @@ final class MeetingRecorder: @unchecked Sendable {
         /// Frames actually written to me.caf. The observable the mute gate is
         /// tested on -- "the file exists" would pass with the gate broken.
         var micFramesWritten: AVAudioFramePosition = 0
+        /// Whether the mic sub-device is in the aggregate, which decides the
+        /// SHAPE of every buffer list the IOProc receives. NOT the same as
+        /// micMuted: muted still delivers a mic buffer that we drop.
+        var micInAggregate = true
     }
 
     nonisolated private let state = OSAllocatedUnfairLock(initialState: State())
@@ -149,14 +153,21 @@ final class MeetingRecorder: @unchecked Sendable {
         let tapUID = try Self.tapUID(of: newTapID)
 
         let aggregateUID = UUID().uuidString
-        let description: [String: Any] = [
+        // With the mic excluded there is no sub-device and no main sub-device --
+        // a tap-only aggregate. This is what makes "we never recorded your mic"
+        // a fact about the device rather than a promise about our code: the
+        // samples never reach this process at all.
+        var description: [String: Any] = [
             kAudioAggregateDeviceUIDKey: aggregateUID,
             kAudioAggregateDeviceNameKey: "OmWhisper Meeting Capture",
             kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceMainSubDeviceKey: micUID,
-            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: micUID]],
             kAudioAggregateDeviceTapListKey: [[kAudioSubTapUIDKey: tapUID]],
         ]
+        if recordMic {
+            description[kAudioAggregateDeviceMainSubDeviceKey] = micUID
+            description[kAudioAggregateDeviceSubDeviceListKey] = [[kAudioSubDeviceUIDKey: micUID]]
+        }
+        state.withLock { $0.micInAggregate = recordMic }
         var newAggregateID = kAudioObjectUnknown
         let aggregateStatus = AudioHardwareCreateAggregateDevice(description as CFDictionary, &newAggregateID)
         guard aggregateStatus == noErr else {
@@ -308,10 +319,37 @@ final class MeetingRecorder: @unchecked Sendable {
 
     nonisolated private func handleRaw(_ bufferList: UnsafePointer<AudioBufferList>) {
         let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: bufferList))
-        guard abl.count >= 2,
-              let micBuffer = Self.pcmBuffer(from: abl[0], sampleRate: streamSampleRate),
-              let systemBuffer = Self.pcmBuffer(from: abl[1], sampleRate: streamSampleRate) else { return }
-        handle(mic: micBuffer, system: systemBuffer)
+        // The buffer list's shape follows the aggregate's composition, so branch
+        // on what we BUILT rather than guessing from the count. With the mic
+        // excluded the tap is the only buffer and therefore index 0 -- the old
+        // `count >= 2` guard would have rejected every callback and recorded
+        // nothing at all, meeting audio included.
+        let micIncluded = state.withLock { $0.micInAggregate }
+        if micIncluded {
+            guard abl.count >= 2,
+                  let micBuffer = Self.pcmBuffer(from: abl[0], sampleRate: streamSampleRate),
+                  let systemBuffer = Self.pcmBuffer(from: abl[1], sampleRate: streamSampleRate) else { return }
+            handle(mic: micBuffer, system: systemBuffer)
+        } else {
+            guard abl.count >= 1,
+                  let systemBuffer = Self.pcmBuffer(from: abl[0], sampleRate: streamSampleRate) else { return }
+            handleSystemOnly(systemBuffer)
+        }
+    }
+
+    /// The mic-excluded path. Separate from handle(mic:system:) because there is
+    /// no mic buffer to pass it -- synthesising a silent one would defeat the
+    /// point and risk writing a silent me.caf, which the meeting path has no VAD
+    /// to protect against.
+    nonisolated func handleSystemOnly(_ systemBuffer: AVAudioPCMBuffer) {
+        state.withLock { s in
+            if let url = s.meetingDirectory?.appendingPathComponent("them.caf") {
+                if s.systemFile == nil {
+                    s.systemFile = try? AVAudioFile(forWriting: url, settings: systemBuffer.format.settings)
+                }
+                try? s.systemFile?.write(from: systemBuffer)
+            }
+        }
     }
 
     nonisolated func handle(mic micBuffer: AVAudioPCMBuffer, system systemBuffer: AVAudioPCMBuffer) {
