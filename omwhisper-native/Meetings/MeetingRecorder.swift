@@ -120,22 +120,32 @@ final class MeetingRecorder: @unchecked Sendable {
                            recordMic: Bool = true) throws {
         let dir = try Self.makeMeetingDirectory(appName: appName)
 
-        let micDeviceID: AudioDeviceID
-        if let preferredMicUID, let resolved = AudioCapture.coreAudioDeviceID(forUID: preferredMicUID) {
-            micDeviceID = resolved
+        // Resolving the mic AT ALL is skipped when nothing wants it. Both
+        // defaultInputDeviceID() and deviceUID(of:) throw, so a Mac with no
+        // usable input device -- a Mac mini with nothing plugged in, or a mic
+        // just unplugged -- could not record SYSTEM audio either, with the mic
+        // setting explicitly off and a tap-only aggregate that needs no mic.
+        var micUID: String?
+        if recordMic {
+            let micDeviceID: AudioDeviceID
+            if let preferredMicUID, let resolved = AudioCapture.coreAudioDeviceID(forUID: preferredMicUID) {
+                micDeviceID = resolved
+            } else {
+                micDeviceID = try Self.defaultInputDeviceID()
+            }
+            micUID = try Self.deviceUID(of: micDeviceID)
+            // Which device this recording is actually tapping. Nothing recorded it
+            // before, so "why does my own track sound like a room?" was
+            // unanswerable after the fact -- the same gap the consent-latency stamp
+            // filled. Device NAME only: config, never content, per DebugInfo's rule.
+            meetingLog.notice("""
+                recording mic device: \(Self.deviceName(of: micDeviceID) ?? "unknown", privacy: .public) \
+                (requested: \(preferredMicUID == nil ? "system default" : "specific device", privacy: .public))
+                """)
+            watchMicDeviceAlive(micDeviceID)
         } else {
-            micDeviceID = try Self.defaultInputDeviceID()
+            meetingLog.notice("recording system audio only — the mic is not part of this recording")
         }
-        let micUID = try Self.deviceUID(of: micDeviceID)
-        // Which device this recording is actually tapping. Nothing recorded it
-        // before, so "why does my own track sound like a room?" was
-        // unanswerable after the fact -- the same gap the consent-latency stamp
-        // filled. Device NAME only: config, never content, per DebugInfo's rule.
-        meetingLog.notice("""
-            recording mic device: \(Self.deviceName(of: micDeviceID) ?? "unknown", privacy: .public) \
-            (requested: \(preferredMicUID == nil ? "system default" : "specific device", privacy: .public))
-            """)
-        watchMicDeviceAlive(micDeviceID)
 
         let ownProcessID = try Self.ownProcessObjectID()
         let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [ownProcessID])
@@ -163,11 +173,14 @@ final class MeetingRecorder: @unchecked Sendable {
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceTapListKey: [[kAudioSubTapUIDKey: tapUID]],
         ]
-        if recordMic {
+        if let micUID {
             description[kAudioAggregateDeviceMainSubDeviceKey] = micUID
             description[kAudioAggregateDeviceSubDeviceListKey] = [[kAudioSubDeviceUIDKey: micUID]]
         }
-        state.withLock { $0.micInAggregate = recordMic }
+        // A `let`, not `micUID != nil` inline: withLock's closure is Sendable and
+        // capturing a `var` is a hard error under Swift 6.
+        let micIncluded = micUID != nil
+        state.withLock { $0.micInAggregate = micIncluded }
         var newAggregateID = kAudioObjectUnknown
         let aggregateStatus = AudioHardwareCreateAggregateDevice(description as CFDictionary, &newAggregateID)
         guard aggregateStatus == noErr else {
@@ -216,12 +229,19 @@ final class MeetingRecorder: @unchecked Sendable {
         }
         teardownHardware()
 
-        let peak = state.withLock { s -> Float in
+        let (peak, muted) = state.withLock { s -> (Float, Bool) in
             s.systemFile = nil
             s.micFile = nil
-            return s.micPeak
+            return (s.micPeak, s.micMuted)
         }
-        if peak < 0.00001 {  // roughly -100dBFS
+        // Only when the mic was actually being recorded. A muted, discarded or
+        // never-enabled mic leaves micPeak at 0 by construction, and blaming the
+        // VoIP app for that would send the next investigation at the historical
+        // smriti bug instead of at the setting the user just changed — the same
+        // misleading-diagnosis shape as "Is Ollama running?" for a timeout.
+        if muted {
+            meetingLog.notice("stop() — mic was not recorded for this meeting (setting off, muted, or discarded)")
+        } else if peak < 0.00001 {  // roughly -100dBFS
             meetingLog.warning("stop() — mic track peak was near-silent (\(peak)); the calling app may have blocked mic capture")
         }
     }
@@ -252,6 +272,15 @@ final class MeetingRecorder: @unchecked Sendable {
             s.micMuted = false
             s.micFramesWritten = 0
             s.micPeak = 0
+            // Closing the previous recording's handles is load-bearing, not
+            // hygiene. handle() only OPENS a file when its handle is nil, so a
+            // start() without an intervening stop() -- reachable when a pre-roll
+            // is live and acceptPreRoll declines, sending toggleMeetingRecording
+            // down the beginRecording path -- would append the new meeting's
+            // audio to the OLD directory's files, in a folder about to be
+            // deleted, while the new meeting's folder stayed empty.
+            s.systemFile = nil
+            s.micFile = nil
         }
     }
 

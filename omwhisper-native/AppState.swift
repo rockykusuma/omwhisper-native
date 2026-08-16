@@ -684,8 +684,13 @@ final class AppState {
 
     private var meetingMicVersion = 0
 
+    /// Whether a recorder is running at all — a visible recording OR a pre-roll,
+    /// which is deliberately invisible but is very much writing audio.
+    private var meetingCaptureRunning: Bool { isRecordingMeeting || preRollRunning }
+
     /// Stop capturing the mic for the rest of this recording. One-way.
     func muteMeetingMic() {
+        guard meetingCaptureRunning else { return }
         meetingRecorder.muteMic()
         meetingMicVersion &+= 1
     }
@@ -693,7 +698,18 @@ final class AppState {
     /// Delete this recording's mic track and stop capturing. One-way, and
     /// deliberately unconfirmed — it is reached for during a live meeting, and
     /// a modal would defeat the point.
+    ///
+    /// The guard is load-bearing, not defensive. `stop()` deliberately leaves
+    /// `meetingDirectory` pointing at the finished meeting, so calling this when
+    /// nothing is running would delete the PREVIOUS meeting's me.caf while its
+    /// stored row still said the mic was captured and still held every `You`
+    /// turn — silent, partial data loss with no UI trace. The views hide these
+    /// controls, but a stale SwiftUI body is not a safety mechanism.
     func discardMeetingMicAudio() {
+        guard meetingCaptureRunning else {
+            log.warning("discardMeetingMicAudio ignored — no recording is running")
+            return
+        }
         meetingRecorder.discardMicTrack()
         meetingMicVersion &+= 1
     }
@@ -875,7 +891,10 @@ final class AppState {
     private func recordFinishedMeeting() {
         guard let store = meetingStore, let dir = meetingRecorder.meetingDirectory else { return }
         let iso = ISO8601DateFormatter()
-        let duration = MeetingTranscriber.audioDuration(dir.appendingPathComponent("me.caf"))
+        // The LONGER of the two tracks, not the mic. Reading me.caf alone meant a
+        // recording made with "Record my microphone" off measured 0 and was filed
+        // as a failed, untranscribed meeting — while them.caf held the whole call.
+        let duration = MeetingTranscriber.recordingDuration(directory: dir)
 
         // No (meaningful) audio captured — almost always the System Audio Recording
         // permission being denied for this build: the CoreAudio process tap's IO

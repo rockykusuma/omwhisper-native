@@ -158,6 +158,53 @@ struct MeetingMicControlTests {
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("me.caf").path))
     }
 
+    @Test("a recording with no mic track still reports its real duration")
+    func durationComesFromWhicheverTrackExists() throws {
+        let dir = try tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let recorder = MeetingRecorder()
+        recorder.beginWriting(to: dir)
+        recorder.setMicEnabled(false)
+
+        // 48 buffers of 1024 frames at 48kHz ≈ 1.02s — just over the 1.0s floor
+        // that decides "captured no audio".
+        for _ in 0 ..< 48 { recorder.handleSystemOnly(try buffer()) }
+        recorder.finishFilesForTesting()
+
+        // Read from me.caf alone this is 0, which filed every mic-off recording
+        // as a failed meeting, wrote a false System-Audio-permission note in as
+        // its transcript, and skipped transcription of the system track holding
+        // the entire call.
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("me.caf").path))
+        #expect(MeetingTranscriber.recordingDuration(directory: dir) > 1.0)
+    }
+
+    @Test("beginWriting closes the previous recording's files")
+    func beginWritingClosesOldFiles() throws {
+        let first = try tempDirectory(), second = try tempDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: first)
+            try? FileManager.default.removeItem(at: second)
+        }
+        let recorder = MeetingRecorder()
+
+        recorder.beginWriting(to: first)
+        recorder.handle(mic: try buffer(), system: try buffer())
+        // No stop() — reachable when a pre-roll is live and acceptPreRoll
+        // declines, sending toggleMeetingRecording down the beginRecording path.
+        recorder.beginWriting(to: second)
+        recorder.handle(mic: try buffer(), system: try buffer())
+        recorder.finishFilesForTesting()
+
+        // Without the close, handle() reuses the still-open handles and the new
+        // meeting's audio lands in the OLD directory — which is about to be
+        // deleted — while the new meeting's folder stays empty.
+        let them = try #require(try? AVAudioFile(forReading: second.appendingPathComponent("them.caf")))
+        #expect(them.length > 0, "the second recording wrote nothing — its audio went to the first directory")
+        let firstThem = try #require(try? AVAudioFile(forReading: first.appendingPathComponent("them.caf")))
+        #expect(firstThem.length == 1024, "the first recording kept growing after a new one started")
+    }
+
     @Test("muting late still reports the mic as captured")
     func lateMuteStillCounts() throws {
         let dir = try tempDirectory()
