@@ -102,6 +102,45 @@ struct MeetingMicControlTests {
         #expect(recorder.micCaptured == true)
     }
 
+    @Test("a recording started with the mic disabled writes no mic frames")
+    func startedMutedWritesNothing() throws {
+        let dir = try tempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let recorder = MeetingRecorder()
+        recorder.beginWriting(to: dir)
+        recorder.setMicEnabled(false)
+
+        let buf = try buffer()
+        recorder.handle(mic: buf, system: buf)
+        recorder.finishFilesForTesting()
+
+        #expect(recorder.micFramesWritten == 0)
+        #expect(recorder.micCaptured == false)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("me.caf").path),
+                "me.caf was created even though the mic was disabled")
+    }
+
+    @Test("beginWriting resets a previous recording's muted state")
+    func muteDoesNotLeakBetweenRecordings() throws {
+        let first = try tempDirectory(), second = try tempDirectory()
+        defer {
+            try? FileManager.default.removeItem(at: first)
+            try? FileManager.default.removeItem(at: second)
+        }
+        let recorder = MeetingRecorder()
+
+        recorder.beginWriting(to: first)
+        recorder.muteMic()
+        // A one-way mute is one-way for THAT recording only. Leaking it would
+        // silently stop recording the user's voice in every later meeting —
+        // exactly the silent data loss this whole design rejects.
+        recorder.beginWriting(to: second)
+        #expect(!recorder.isMicMuted)
+
+        recorder.handle(mic: try buffer(), system: try buffer())
+        #expect(recorder.micFramesWritten > 0)
+    }
+
     @Test("muting late still reports the mic as captured")
     func lateMuteStillCounts() throws {
         let dir = try tempDirectory()

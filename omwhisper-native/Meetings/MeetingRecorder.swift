@@ -109,7 +109,11 @@ final class MeetingRecorder: @unchecked Sendable {
     /// `preferredMicUID` — the app's selected input device (from the Audio settings
     /// / menu-bar mic picker). Falls back to the system default when nil or the UID
     /// no longer resolves (e.g. the device was unplugged).
-    nonisolated func start(appName: String, preferredMicUID: String? = nil) throws {
+    /// - Parameter recordMic: the user's "Record my microphone" setting. False
+    ///   starts the recording already muted, so a pre-roll — which begins at
+    ///   detection, before any consent prompt exists — never captures the room.
+    nonisolated func start(appName: String, preferredMicUID: String? = nil,
+                           recordMic: Bool = true) throws {
         let dir = try Self.makeMeetingDirectory(appName: appName)
 
         let micDeviceID: AudioDeviceID
@@ -171,6 +175,8 @@ final class MeetingRecorder: @unchecked Sendable {
         }
 
         beginWriting(to: dir)
+        // Must follow beginWriting, which resets the flag.
+        setMicEnabled(recordMic)
 
         var newIOProcID: AudioDeviceIOProcID?
         let procStatus = AudioDeviceCreateIOProcIDWithBlock(&newIOProcID, aggregateDeviceID, nil) { [weak self] _, inInputData, _, _, _ in
@@ -253,6 +259,13 @@ final class MeetingRecorder: @unchecked Sendable {
             s.micFile = nil
         }
         meetingLog.notice("mic muted for the remainder of this recording")
+    }
+
+    /// Set at the start of a recording from the user's "Record my microphone"
+    /// setting. Separate from muteMic() only in intent -- both land on the same
+    /// one-way flag, and neither can be undone within a recording.
+    nonisolated func setMicEnabled(_ enabled: Bool) {
+        state.withLock { $0.micMuted = !enabled }
     }
 
     /// Delete the mic track outright and mute. Discarding WITHOUT muting would

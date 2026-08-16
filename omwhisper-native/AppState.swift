@@ -653,6 +653,51 @@ final class AppState {
         }
     }
 
+    /// Record the user's own microphone into meetings.
+    ///
+    /// Default TRUE — today's behaviour. Defaulting this off would silently stop
+    /// capturing every existing user's own voice in every meeting, which is the
+    /// silent data loss this feature exists to avoid, not cause.
+    ///
+    /// Read at `start()`, so it governs the pre-roll as well: that begins at
+    /// detection, before any consent prompt exists, and is the window a
+    /// conference room most needs protected.
+    var recordMeetingMic: Bool {
+        get {
+            access(keyPath: \.recordMeetingMic)
+            return UserDefaults.standard.object(forKey: SettingsKeys.recordMeetingMic) as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.recordMeetingMic) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.recordMeetingMic)
+            }
+        }
+    }
+
+    /// Live mic state for the recording controls. `meetingRecorder` is not
+    /// `@Observable`, so mutating it signals nothing on its own — reading the
+    /// version counter here is what makes SwiftUI re-read after mute/discard.
+    var meetingMicMuted: Bool {
+        _ = meetingMicVersion
+        return meetingRecorder.isMicMuted
+    }
+
+    private var meetingMicVersion = 0
+
+    /// Stop capturing the mic for the rest of this recording. One-way.
+    func muteMeetingMic() {
+        meetingRecorder.muteMic()
+        meetingMicVersion &+= 1
+    }
+
+    /// Delete this recording's mic track and stop capturing. One-way, and
+    /// deliberately unconfirmed — it is reached for during a live meeting, and
+    /// a modal would defeat the point.
+    func discardMeetingMicAudio() {
+        meetingRecorder.discardMicTrack()
+        meetingMicVersion &+= 1
+    }
+
     /// Default summary template for meetings; nil = Standard. Stored as a UUID
     /// string; an unknown ID (a deleted custom template) resolves to Standard
     /// at use rather than failing the summary.
@@ -701,7 +746,8 @@ final class AppState {
     @discardableResult
     private func beginRecording(appName: String, pid: pid_t?, visible: Bool) -> Bool {
         do {
-            try meetingRecorder.start(appName: appName, preferredMicUID: audioInputDeviceUID)
+            try meetingRecorder.start(appName: appName, preferredMicUID: audioInputDeviceUID,
+                                      recordMic: recordMeetingMic)
             meetingStartedAt = Date()
             meetingAppName = appName
             // Frontmost is the last resort, for manual recordings of apps the
@@ -2682,6 +2728,7 @@ nonisolated enum SettingsKeys {
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let meetingsEnabled = "meetingsEnabled"
     static let meetingsCalendarEnabled = "meetingsCalendarEnabled"
+    static let recordMeetingMic = "recordMeetingMic"
     static let meetingTemplateID = "meetingTemplateID"
     static let customMeetingTemplates = "customMeetingTemplates"
     static let replyAssistEnabled = "replyAssistEnabled"
