@@ -79,6 +79,16 @@ final class MeetingRecorder: @unchecked Sendable {
         /// logged as a warning on stop() if it never exceeds roughly -100dBFS,
         /// the "calling app blocked mic capture" self-check ported from smriti.
         var micPeak: Float = 0
+        /// ONE-WAY for the remainder of a recording -- there is deliberately no
+        /// unmute. A reversible mute would have to either drop frames (shifting
+        /// every later "You" timestamp earlier and corrupting the interleaved
+        /// transcript) or write silence (worse: the meeting path has no VAD, and
+        /// Whisper is on record inventing "Thank you." out of silence). Keeping
+        /// the retained audio a clean PREFIX avoids both.
+        var micMuted = false
+        /// Frames actually written to me.caf. The observable the mute gate is
+        /// tested on -- "the file exists" would pass with the gate broken.
+        var micFramesWritten: AVAudioFramePosition = 0
     }
 
     nonisolated private let state = OSAllocatedUnfairLock(initialState: State())
@@ -160,9 +170,7 @@ final class MeetingRecorder: @unchecked Sendable {
             throw error
         }
 
-        state.withLock { s in
-            s.meetingDirectory = dir
-        }
+        beginWriting(to: dir)
 
         var newIOProcID: AudioDeviceIOProcID?
         let procStatus = AudioDeviceCreateIOProcIDWithBlock(&newIOProcID, aggregateDeviceID, nil) { [weak self] _, inInputData, _, _, _ in
@@ -218,6 +226,73 @@ final class MeetingRecorder: @unchecked Sendable {
     /// (confirmed live) -- buffer[0] is the mic sub-device, buffer[1] is the
     /// stereo tap, in the fixed order this file's own sub-device/tap list
     /// construction controls. No channel-range slicing needed.
+    /// Open a recording at `directory` and reset every per-recording mic value.
+    /// Not test-only: `start()` is the production caller, and resetting here is
+    /// what stops a previous recording's muted state leaking into the next one.
+    nonisolated func beginWriting(to directory: URL) {
+        state.withLock { s in
+            s.meetingDirectory = directory
+            s.micMuted = false
+            s.micFramesWritten = 0
+            s.micPeak = 0
+        }
+    }
+
+    nonisolated var isMicMuted: Bool { state.withLock { $0.micMuted } }
+
+    nonisolated var micFramesWritten: AVAudioFramePosition {
+        state.withLock { $0.micFramesWritten }
+    }
+
+    /// Stop capturing the mic for the rest of this recording. One-way by design
+    /// -- see the comment on State.micMuted. Closing micFile here is safe
+    /// precisely because the gate in handle() will never reopen it.
+    nonisolated func muteMic() {
+        state.withLock { s in
+            s.micMuted = true
+            s.micFile = nil
+        }
+        meetingLog.notice("mic muted for the remainder of this recording")
+    }
+
+    /// Delete the mic track outright and mute. Discarding WITHOUT muting would
+    /// immediately re-accumulate what was just deleted.
+    nonisolated func discardMicTrack() {
+        // The URL is read under the lock; the file is removed outside it. This
+        // lock is taken by the real-time audio callback and must never hold I/O.
+        let url: URL? = state.withLock { s in
+            s.micMuted = true
+            s.micFile = nil
+            s.micFramesWritten = 0
+            return s.meetingDirectory?.appendingPathComponent("me.caf")
+        }
+        if let url { try? FileManager.default.removeItem(at: url) }
+        meetingLog.notice("mic track discarded at the user's request")
+    }
+
+    /// Did any mic audio survive into this recording.
+    ///
+    /// Read from the FILE, never from the settings that led here, so the stored
+    /// flag cannot drift from what is actually on disk. Length rather than byte
+    /// size: an AVAudioFile that was created and never written still has a CAF
+    /// header, so `size > 0` would answer true for an empty track.
+    nonisolated var micCaptured: Bool {
+        guard let dir = state.withLock({ $0.meetingDirectory }) else { return false }
+        let url = dir.appendingPathComponent("me.caf")
+        guard let file = try? AVAudioFile(forReading: url) else { return false }
+        return file.length > 0
+    }
+
+    /// Close both files so a test can read back what was written. Production
+    /// closes them in stop(); this is the same two assignments without the
+    /// hardware teardown, which no test has started.
+    nonisolated func finishFilesForTesting() {
+        state.withLock { s in
+            s.systemFile = nil
+            s.micFile = nil
+        }
+    }
+
     nonisolated private func handleRaw(_ bufferList: UnsafePointer<AudioBufferList>) {
         let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: bufferList))
         guard abl.count >= 2,
@@ -226,15 +301,21 @@ final class MeetingRecorder: @unchecked Sendable {
         handle(mic: micBuffer, system: systemBuffer)
     }
 
-    nonisolated private func handle(mic micBuffer: AVAudioPCMBuffer, system systemBuffer: AVAudioPCMBuffer) {
+    nonisolated func handle(mic micBuffer: AVAudioPCMBuffer, system systemBuffer: AVAudioPCMBuffer) {
         let peak = Self.peak(of: micBuffer)
         state.withLock { s in
-            s.micPeak = max(s.micPeak, peak)
-            if let url = s.meetingDirectory?.appendingPathComponent("me.caf") {
-                if s.micFile == nil {
-                    s.micFile = try? AVAudioFile(forWriting: url, settings: micBuffer.format.settings)
+            // The single place mic buffers reach a file, and therefore the only
+            // place the gate has to be. Muting upstream would leave this open.
+            if !s.micMuted {
+                s.micPeak = max(s.micPeak, peak)
+                if let url = s.meetingDirectory?.appendingPathComponent("me.caf") {
+                    if s.micFile == nil {
+                        s.micFile = try? AVAudioFile(forWriting: url, settings: micBuffer.format.settings)
+                    }
+                    if let file = s.micFile, (try? file.write(from: micBuffer)) != nil {
+                        s.micFramesWritten += AVAudioFramePosition(micBuffer.frameLength)
+                    }
                 }
-                try? s.micFile?.write(from: micBuffer)
             }
             if let url = s.meetingDirectory?.appendingPathComponent("them.caf") {
                 if s.systemFile == nil {
