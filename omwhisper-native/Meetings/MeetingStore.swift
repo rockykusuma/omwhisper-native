@@ -34,6 +34,12 @@ nonisolated struct Meeting: Codable, FetchableRecord, MutablePersistableRecord, 
     /// and for summaries the user has edited by hand.
     var summaryBackend: String? = nil
 
+    /// Did any mic audio survive into this recording. Nullable on purpose: rows
+    /// recorded before this existed read back NULL and must render as
+    /// "unknown", never as a claim either way. A transcript with no `You` turns
+    /// is otherwise ambiguous — did nobody speak, or was the mic off?
+    var micCaptured: Bool? = nil
+
     mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
 
@@ -142,6 +148,11 @@ nonisolated final class MeetingStore: Sendable {
         migrator.registerMigration("summaryProvenance") { db in
             try db.alter(table: Meeting.databaseTableName) { t in
                 t.add(column: "summaryBackend", .text)
+            }
+        }
+        migrator.registerMigration("micProvenance") { db in
+            try db.alter(table: Meeting.databaseTableName) { t in
+                t.add(column: "micCaptured", .boolean)
             }
         }
         try migrator.migrate(dbQueue)

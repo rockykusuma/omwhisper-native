@@ -868,7 +868,10 @@ final class AppState {
                 transcript: transcript, summary: nil,
                 createdAt: iso.string(from: Date()),
                 title: title,
-                attendees: attendees
+                attendees: attendees,
+                // Read after stop() closed the files, so this reflects what is
+                // actually on disk rather than the setting that led there.
+                micCaptured: meetingRecorder.micCaptured
             ))
             // Transcribe straight away rather than waiting for the user to open the
             // meeting and press a button. Skipped when `transcript` is already set —
