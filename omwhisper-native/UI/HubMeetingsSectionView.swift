@@ -69,11 +69,39 @@ struct HubMeetingsSectionView: View {
             ))
             .tint(Color.Porcelain.emerald)
             .foregroundStyle(Color.Porcelain.ink)
+            Toggle("Record my microphone", isOn: Binding(
+                get: { state.recordMeetingMic }, set: { state.recordMeetingMic = $0 }
+            ))
+                .tint(Color.Porcelain.emerald)
+                .foregroundStyle(Color.Porcelain.ink)
+                .help("When off, your microphone is never added to the recording — only the other side's audio is captured. Useful in a shared room, where the mic hears conversations that aren't part of the call.")
             Button("Templates…") { showTemplates = true }
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(Color.Porcelain.mint)
             Spacer()
+            // One-way for this recording, so the controls disappear once used
+            // rather than offering an unmute that cannot exist.
+            if state.isRecordingMeeting {
+                if state.meetingMicMuted {
+                    Label("Mic off", systemImage: "mic.slash.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.Porcelain.dim)
+                } else {
+                    Button("Mute my mic") { state.muteMeetingMic() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.Porcelain.mint)
+                    // No confirmation: this is a panic button reached for during
+                    // a live meeting, and a modal defeats its purpose. Distance
+                    // from Stop and destructive styling carry the warning.
+                    Button("Discard my audio") { state.discardMeetingMicAudio() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.red)
+                    Spacer().frame(width: 12)
+                }
+            }
             Button { state.toggleMeetingRecording() } label: {
                 HStack(spacing: 6) {
                     if state.isRecordingMeeting {
@@ -383,6 +411,10 @@ private struct MeetingDetailView: View {
         let speakers = Set(turns.map(\.speaker)).count
         if speakers > 1 { parts.append("\(speakers) speakers") }
         parts.append("Transcribed on this Mac")
+        // Only for an explicit false. NULL means "recorded before this was
+        // tracked" and must claim nothing — otherwise every meeting from before
+        // today would assert its mic was deliberately left off.
+        if meeting.micCaptured == false { parts.append("Your microphone wasn't recorded") }
         return parts.joined(separator: "  ·  ")
     }
 
