@@ -2,9 +2,11 @@
 //  AISettingsView.swift
 //  OmWhisper
 //
-//  AI polish backend + style settings (M3 sub-project 1: System/Foundation
-//  Models only — Ollama/Cloud are a separate sub-project). See
-//  docs/superpowers/specs/2026-07-07-m3-core-ai-polish-design.md.
+//  The "AI Models" hub section: which backend each feature uses, the config
+//  for Ollama and Cloud, and the polish styles. Started life as AI-polish-only
+//  settings (docs/superpowers/specs/2026-07-07-m3-core-ai-polish-design.md);
+//  since per-feature routing landed it also decides what leaves this Mac, which
+//  is why the section stopped being called "AI Polish" on 2026-08-16.
 //
 
 import SwiftUI

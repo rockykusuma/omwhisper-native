@@ -14,7 +14,7 @@
 import SwiftUI
 
 /// Lets a nested section jump the hub elsewhere -- e.g. a chronicle that can't
-/// be written offering "Open AI settings" rather than telling the user to go
+/// be written offering "Open AI Models" rather than telling the user to go
 /// find it. An environment value rather than state on AppState: this is view
 /// navigation, it persists nothing, and AppState is already the app's largest
 /// type. Defaults to a no-op, so a view hosted outside the hub (previews, the
@@ -32,11 +32,17 @@ extension EnvironmentValues {
 
 enum HubSection: String, CaseIterable, Identifiable {
     // Order here IS the sidebar order (contentSections filters allCases).
-    // Transcription sits under Vocabulary and above AI Polish: it's a feature
-    // area, not app-wide chrome, and it's the counterpart to AI Polish —
+    // Transcription sits under Vocabulary and above AI Models: it's a feature
+    // area, not app-wide chrome, and it's the counterpart to AI Models —
     // speech -> text, then text -> better text. It was a Settings tab, which
     // buried the app's most-changed setting two levels down.
-    case home, history, meetings, vocabulary, transcription, aiPolish, brainDump, replyAssist, memory, settings
+    //
+    // "AI Models", not the "AI Polish" it was called until 2026-08-16: that
+    // section now routes FIVE features (dictation polish, Reply Assist,
+    // meeting summaries, chronicles, brain-dump), and the per-feature table is
+    // where someone decides whether a recorded call leaves this Mac. Nobody
+    // worried about that opens a tab named after one of the five.
+    case home, history, meetings, vocabulary, transcription, aiModels, brainDump, replyAssist, memory, settings
 
     var id: String { rawValue }
 
@@ -53,7 +59,7 @@ enum HubSection: String, CaseIterable, Identifiable {
         case .meetings: "Meetings"
         case .vocabulary: "Vocabulary"
         case .transcription: "Transcription"
-        case .aiPolish: "AI Polish"
+        case .aiModels: "AI Models"
         case .brainDump: "Brain-dump"
         case .replyAssist: "Reply Assist"
         case .memory: "Memory"
@@ -68,7 +74,7 @@ enum HubSection: String, CaseIterable, Identifiable {
         case .meetings: "person.2"
         case .vocabulary: "textformat.abc"
         case .transcription: "waveform.badge.mic"
-        case .aiPolish: "sparkles"
+        case .aiModels: "sparkles"
         case .brainDump: "list.bullet.rectangle"
         case .replyAssist: "text.bubble"
         case .memory: "brain"
@@ -296,7 +302,7 @@ struct HubShellView: View {
         case .meetings: HubMeetingsSectionView()
         case .vocabulary: VocabularySettingsView()
         case .transcription: TranscriptionSettingsView()
-        case .aiPolish: AISettingsView()
+        case .aiModels: AISettingsView()
         case .brainDump: HubBrainDumpSectionView()
         case .replyAssist: ReplyAssistSettingsView()
         case .memory: HubMemorySectionView()

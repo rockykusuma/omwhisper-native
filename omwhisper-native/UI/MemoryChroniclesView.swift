@@ -38,9 +38,9 @@ struct MemoryChroniclesView: View {
             // The message names the backend to switch to; this opens the place
             // to switch it, rather than telling the user to go and find it.
             if errorIsBackend {
-                Button("Open AI settings") {
+                Button("Open AI Models") {
                     errorMessage = nil
-                    hubNavigate(.aiPolish)
+                    hubNavigate(.aiModels)
                 }
             }
             Button("OK") { errorMessage = nil }
