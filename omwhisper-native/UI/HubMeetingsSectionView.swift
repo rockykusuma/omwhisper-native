@@ -267,6 +267,7 @@ private struct MeetingDetailView: View {
     @State private var answer: String?
     @State private var asking = false
     @State private var draft: String?
+    @State private var confirmingMicDelete = false
 
     /// Busy for either reason: this view kicked off a transcribe, or the meeting
     /// is still being auto-transcribed from when its recording stopped.
@@ -302,6 +303,17 @@ private struct MeetingDetailView: View {
             }
         }
         .background(Color.Porcelain.bg)
+        // Confirmed, where the live "Discard my audio" button is not: that one
+        // is a panic button during a running meeting where a modal defeats the
+        // purpose. This is a considered decision with no time pressure, and it
+        // cannot be undone.
+        .confirmationDialog("Delete your microphone from this meeting?",
+                            isPresented: $confirmingMicDelete, titleVisibility: .visible) {
+            Button("Delete my audio", role: .destructive) { deleteMicAudio() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Removes your audio track, every turn you spoke, and the summary written from them. The rest of the meeting is kept. This can't be undone.")
+        }
         // Shown for review before it reaches anyone: the draft is only ever
         // copied, never sent.
         .sheet(isPresented: Binding(get: { draft != nil }, set: { if !$0 { draft = nil } })) {
@@ -390,6 +402,13 @@ private struct MeetingDetailView: View {
                     .popover(isPresented: $editingDetails, arrowEdge: .bottom) {
                         detailsEditor
                     }
+                if meeting.micCaptured != false {
+                    // Hidden once there is nothing left to delete, so the button
+                    // never offers an action that would clear a valid summary
+                    // to remove audio that was never recorded.
+                    Button("Delete my audio…") { confirmingMicDelete = true }
+                        .disabled(busy)
+                }
                 Button("Delete", role: .destructive) { delete() }.disabled(busy)
                 if busy { ProgressView().controlSize(.small) }
             }
@@ -414,7 +433,12 @@ private struct MeetingDetailView: View {
         // Only for an explicit false. NULL means "recorded before this was
         // tracked" and must claim nothing — otherwise every meeting from before
         // today would assert its mic was deliberately left off.
-        if meeting.micCaptured == false { parts.append("Your microphone wasn't recorded") }
+        //
+        // "isn't in this recording" rather than "wasn't recorded": the second
+        // would be a lie about history once Delete my audio exists, since the
+        // mic WAS recorded and the user removed it. This wording is true in both
+        // cases, which beats carrying a third state for one line of copy.
+        if meeting.micCaptured == false { parts.append("Your microphone isn't in this recording") }
         return parts.joined(separator: "  ·  ")
     }
 
@@ -670,6 +694,18 @@ private struct MeetingDetailView: View {
         guard let id = meeting.id, let store = appState.meetingStore else { return }
         try? store.delete(id: id)
         Task { await onChanged() }
+    }
+
+    private func deleteMicAudio() {
+        guard let id = meeting.id else { return }
+        working = true
+        errorMessage = nil
+        Task {
+            do { _ = try await appState.deleteMeetingMicAudio(id: id) }
+            catch { errorMessage = "Couldn't remove your audio from this meeting." }
+            await onChanged()
+            working = false
+        }
     }
 
     private func shortDate(_ iso: String) -> String {
