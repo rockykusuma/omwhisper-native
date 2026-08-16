@@ -166,4 +166,32 @@ nonisolated enum MeetingDiarization {
         }
         return out
     }
+
+    /// Drop every turn spoken by the user from a stored transcript.
+    ///
+    /// Block-filtering rather than `AppMarkdown.turns` -> `renderInterleaved`: a
+    /// round trip through the parser silently loses anything the parser does not
+    /// model, where filtering preserves each surviving block verbatim.
+    ///
+    /// ONLY a label line is ever matched. A body line reading "You mentioned the
+    /// deadline" belongs to whoever was speaking, and a `contains("You")` would
+    /// delete their turn while every store-level assertion still passed. The
+    /// ":**" inside the prefix is load-bearing for the same reason it is in
+    /// applySpeakerNames above -- it is what stops a speaker actually named
+    /// "Young" losing their turns.
+    static func removingYouTurns(_ markdown: String) -> String {
+        markdown
+            .components(separatedBy: "\n\n")
+            .filter { block in
+                // The label is the block's FIRST line, matched the way
+                // AppMarkdown.parseLabel matches it, so the filter and the
+                // renderer cannot disagree about what a label is.
+                guard let first = block.split(separator: "\n", maxSplits: 1,
+                                              omittingEmptySubsequences: false).first
+                else { return true }
+                return !first.trimmingCharacters(in: .whitespaces).hasPrefix("**You:**")
+            }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

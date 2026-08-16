@@ -13,6 +13,25 @@ struct AXTimeoutTests {
         #expect(AX.messagingTimeout <= 5)
     }
 
+    @Test("an element is refused for our own process")
+    func refusesOwnProcess() {
+        // The deadlock guard, and the reason it is a guard rather than tidiness:
+        // an AX read against ANOTHER app is Mach IPC, bounded by
+        // messagingTimeout above. A read against ourselves short-circuits that
+        // and runs AppKit's accessibility code inline on the calling thread, so
+        // a background thread drives a SwiftUI view-graph update and takes
+        // SwiftUI's global update lock while the main thread waits for it in
+        // Update.locked. Observed 2026-08-16: MemoryCapture snapshotting the hub
+        // window wedged the whole app.
+        let own = ProcessInfo.processInfo.processIdentifier
+        #expect(AX.appElement(pid: own) == nil)
+
+        // Another process still resolves, or the guard would have disabled every
+        // feature that reads another app's UI rather than fixing one of them.
+        // pid 1 is launchd — always alive, and its AX tree is never walked here.
+        #expect(AX.appElement(pid: 1) != nil)
+    }
+
     @Test("no AX element is created outside the helper")
     func noUnboundedElementCreation() throws {
         // The test that matters, and the only one that can catch the NEXT

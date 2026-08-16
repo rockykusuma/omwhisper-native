@@ -97,10 +97,26 @@ nonisolated enum MeetingTranscriber {
         return finals.joined(separator: " ")
     }
 
-    /// Meeting length in seconds, read from the mic track. 0 if unreadable.
+    /// Length in seconds of one track. 0 if unreadable or absent.
     static func audioDuration(_ url: URL) -> Double {
         guard let file = try? AVAudioFile(forReading: url) else { return 0 }
         return Double(file.length) / file.processingFormat.sampleRate
+    }
+
+    /// How long a recording actually ran: the longer of the two tracks.
+    ///
+    /// **Not the mic track alone.** That is what it used to read, and once the
+    /// mic became optional it meant a meeting recorded with "Record my
+    /// microphone" off — or with Mute/Discard pressed early — had no me.caf, so
+    /// it measured 0, was filed as "captured no audio", had a false
+    /// System-Audio-permission note written in as its transcript, and was never
+    /// transcribed at all. The system track holds the entire call in exactly
+    /// that case, which is the case the setting exists to serve.
+    ///
+    /// "No audio" now means what it says: neither track has anything.
+    static func recordingDuration(directory: URL) -> Double {
+        max(audioDuration(directory.appendingPathComponent("me.caf")),
+            audioDuration(directory.appendingPathComponent("them.caf")))
     }
 
     enum MeetingTranscriberError: Error { case noSpeakers }

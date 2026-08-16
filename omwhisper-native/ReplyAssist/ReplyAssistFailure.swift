@@ -40,7 +40,7 @@ nonisolated enum ReplyAssistFailure: Equatable {
         case .noContext:
             return "Reply assist: nothing readable on screen to reply to. Some apps (terminals, canvas-rendered editors) expose no text to Accessibility."
         case .noBackend:
-            return "Reply assist needs an AI polish backend enabled in AI settings."
+            return "Reply assist needs a backend enabled under AI Models."
         case .draftFailed(let reason):
             return "Reply assist: draft failed (\(reason))."
         case .focusChanged:

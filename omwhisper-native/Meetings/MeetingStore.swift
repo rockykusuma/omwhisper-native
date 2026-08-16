@@ -34,6 +34,12 @@ nonisolated struct Meeting: Codable, FetchableRecord, MutablePersistableRecord, 
     /// and for summaries the user has edited by hand.
     var summaryBackend: String? = nil
 
+    /// Did any mic audio survive into this recording. Nullable on purpose: rows
+    /// recorded before this existed read back NULL and must render as
+    /// "unknown", never as a claim either way. A transcript with no `You` turns
+    /// is otherwise ambiguous — did nobody speak, or was the mic off?
+    var micCaptured: Bool? = nil
+
     mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
 
@@ -144,6 +150,11 @@ nonisolated final class MeetingStore: Sendable {
                 t.add(column: "summaryBackend", .text)
             }
         }
+        migrator.registerMigration("micProvenance") { db in
+            try db.alter(table: Meeting.databaseTableName) { t in
+                t.add(column: "micCaptured", .boolean)
+            }
+        }
         try migrator.migrate(dbQueue)
     }
 
@@ -184,6 +195,33 @@ nonisolated final class MeetingStore: Sendable {
             guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
             m.summary = summary
             m.summaryBackend = nil
+            try m.update(db)
+        }
+    }
+
+    /// Remove the user's own microphone from a recorded meeting: the stripped
+    /// transcript, no summary, and micCaptured false — in ONE write.
+    ///
+    /// Not two existing calls. `setTranscriptAndSummary` does not touch
+    /// micCaptured and `setSummary` does not touch the transcript, so composing
+    /// them would open a window where the transcript is stripped while the row
+    /// still claims the mic was captured, and a crash between them would persist
+    /// exactly that.
+    ///
+    /// The summary is cleared rather than kept: it was written from the
+    /// unstripped transcript and may quote what is being removed. Regenerating
+    /// it is the caller's job, deliberately afterwards, so a backend failure
+    /// leaves no summary rather than the old one.
+    ///
+    /// The title is deliberately untouched — see the design note; wiping one the
+    /// user typed would cost more than it protects.
+    func removeMicTrack(id: Int64, transcript: String?) throws {
+        try dbQueue.write { db in
+            guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
+            m.transcript = transcript
+            m.summary = nil
+            m.summaryBackend = nil
+            m.micCaptured = false
             try m.update(db)
         }
     }

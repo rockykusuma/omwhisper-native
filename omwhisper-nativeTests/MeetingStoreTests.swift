@@ -15,6 +15,69 @@ struct MeetingStoreTests {
         ))
     }
 
+    @Test("micCaptured round-trips, and defaults to nil for rows that never set it")
+    func micCapturedRoundTrips() throws {
+        let store = try makeStore()
+        let iso = ISO8601DateFormatter().string(from: Date())
+
+        let withMic = try store.insert(Meeting(
+            id: nil, startedAt: iso, appName: "Teams", directory: "/tmp/omw-mic-a",
+            durationSeconds: 60, transcript: nil, summary: nil, createdAt: iso,
+            micCaptured: true))
+        let withoutMic = try store.insert(Meeting(
+            id: nil, startedAt: iso, appName: "Teams", directory: "/tmp/omw-mic-b",
+            durationSeconds: 60, transcript: nil, summary: nil, createdAt: iso,
+            micCaptured: false))
+        let unknown = try seed(store, app: "Teams")
+
+        #expect(try store.get(id: withMic)?.micCaptured == true)
+        #expect(try store.get(id: withoutMic)?.micCaptured == false)
+        // Three states, not two: unknown must stay distinguishable from false,
+        // or every meeting recorded before this existed would claim its mic was
+        // deliberately left off.
+        #expect(try store.get(id: unknown)?.micCaptured == nil)
+    }
+
+    @Test("removeMicTrack rewrites transcript, clears the summary, and marks the mic gone")
+    func removeMicTrackClearsEverything() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Teams")
+        try store.setTranscriptAndSummary(
+            id: id,
+            transcript: "**You:** [0:00]\nprivate aside\n\n**Speaker 1:** [0:04]\nthe real meeting",
+            summary: "## Summary\n\nThey discussed a private aside.",
+            summaryBackend: "Ollama (qwen3.5:latest)")
+
+        try store.removeMicTrack(id: id, transcript: "**Speaker 1:** [0:04]\nthe real meeting")
+
+        let after = try #require(try store.get(id: id))
+        // Asserted together on purpose: rewriting the transcript while leaving a
+        // summary quoting the removed conversation would pass a check that only
+        // looked at the transcript.
+        #expect(after.transcript == "**Speaker 1:** [0:04]\nthe real meeting")
+        #expect(after.summary == nil)
+        #expect(after.summaryBackend == nil)
+        #expect(after.micCaptured == false)
+    }
+
+    @Test("a phrase from the removed track stops matching a search")
+    func removedTrackLeavesTheSearchIndex() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Teams")
+        try store.setTranscriptAndSummary(
+            id: id,
+            transcript: "**You:** [0:00]\npomegranate marmalade\n\n**Speaker 1:** [0:04]\nquarterly numbers",
+            summary: nil)
+        #expect(try store.search("pomegranate").count == 1, "precondition: FTS indexed the transcript")
+
+        try store.removeMicTrack(id: id, transcript: "**Speaker 1:** [0:04]\nquarterly numbers")
+
+        // The check a user actually performs, and the one that fails if the
+        // write bypasses GRDB's synchronize triggers.
+        #expect(try store.search("pomegranate").isEmpty)
+        #expect(try store.search("quarterly").count == 1, "the rest of the meeting must stay findable")
+    }
+
     @Test("the summary backend round-trips, and older rows survive without one")
     func summaryBackendRoundTrips() throws {
         let store = try makeStore()

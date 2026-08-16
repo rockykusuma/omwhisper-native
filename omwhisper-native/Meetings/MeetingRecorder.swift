@@ -79,6 +79,16 @@ final class MeetingRecorder: @unchecked Sendable {
         /// logged as a warning on stop() if it never exceeds roughly -100dBFS,
         /// the "calling app blocked mic capture" self-check ported from smriti.
         var micPeak: Float = 0
+        /// ONE-WAY for the remainder of a recording -- there is deliberately no
+        /// unmute. A reversible mute would have to either drop frames (shifting
+        /// every later "You" timestamp earlier and corrupting the interleaved
+        /// transcript) or write silence (worse: the meeting path has no VAD, and
+        /// Whisper is on record inventing "Thank you." out of silence). Keeping
+        /// the retained audio a clean PREFIX avoids both.
+        var micMuted = false
+        /// Frames actually written to me.caf. The observable the mute gate is
+        /// tested on -- "the file exists" would pass with the gate broken.
+        var micFramesWritten: AVAudioFramePosition = 0
     }
 
     nonisolated private let state = OSAllocatedUnfairLock(initialState: State())
@@ -91,6 +101,16 @@ final class MeetingRecorder: @unchecked Sendable {
     /// (mic), buffer[1] 2ch interleaved (tap). Only the sample rate is shared
     /// across streams; each buffer's own channel count comes from the HAL callback.
     nonisolated(unsafe) private var streamSampleRate: Double = 48000
+    /// Whether the mic sub-device is in the aggregate, which decides the SHAPE of
+    /// every buffer list the IOProc receives. NOT the same as `micMuted`: muted
+    /// still delivers a mic buffer that we drop.
+    ///
+    /// Beside `streamSampleRate` rather than inside the lock for the same reason
+    /// it is: written once in `start()` before the IOProc exists, then only read
+    /// on the real-time thread. Taking the lock for it cost an extra acquisition
+    /// on every buffer cycle, contending with mute/discard on MainActor, to read
+    /// a value that cannot change during a recording.
+    nonisolated(unsafe) private var micInAggregate = true
 
     nonisolated var meetingDirectory: URL? {
         state.withLock { $0.meetingDirectory }
@@ -99,25 +119,39 @@ final class MeetingRecorder: @unchecked Sendable {
     /// `preferredMicUID` — the app's selected input device (from the Audio settings
     /// / menu-bar mic picker). Falls back to the system default when nil or the UID
     /// no longer resolves (e.g. the device was unplugged).
-    nonisolated func start(appName: String, preferredMicUID: String? = nil) throws {
+    /// - Parameter recordMic: the user's "Record my microphone" setting. False
+    ///   starts the recording already muted, so a pre-roll — which begins at
+    ///   detection, before any consent prompt exists — never captures the room.
+    nonisolated func start(appName: String, preferredMicUID: String? = nil,
+                           recordMic: Bool = true) throws {
         let dir = try Self.makeMeetingDirectory(appName: appName)
 
-        let micDeviceID: AudioDeviceID
-        if let preferredMicUID, let resolved = AudioCapture.coreAudioDeviceID(forUID: preferredMicUID) {
-            micDeviceID = resolved
+        // Resolving the mic AT ALL is skipped when nothing wants it. Both
+        // defaultInputDeviceID() and deviceUID(of:) throw, so a Mac with no
+        // usable input device -- a Mac mini with nothing plugged in, or a mic
+        // just unplugged -- could not record SYSTEM audio either, with the mic
+        // setting explicitly off and a tap-only aggregate that needs no mic.
+        var micUID: String?
+        if recordMic {
+            let micDeviceID: AudioDeviceID
+            if let preferredMicUID, let resolved = AudioCapture.coreAudioDeviceID(forUID: preferredMicUID) {
+                micDeviceID = resolved
+            } else {
+                micDeviceID = try Self.defaultInputDeviceID()
+            }
+            micUID = try Self.deviceUID(of: micDeviceID)
+            // Which device this recording is actually tapping. Nothing recorded it
+            // before, so "why does my own track sound like a room?" was
+            // unanswerable after the fact -- the same gap the consent-latency stamp
+            // filled. Device NAME only: config, never content, per DebugInfo's rule.
+            meetingLog.notice("""
+                recording mic device: \(Self.deviceName(of: micDeviceID) ?? "unknown", privacy: .public) \
+                (requested: \(preferredMicUID == nil ? "system default" : "specific device", privacy: .public))
+                """)
+            watchMicDeviceAlive(micDeviceID)
         } else {
-            micDeviceID = try Self.defaultInputDeviceID()
+            meetingLog.notice("recording system audio only — the mic is not part of this recording")
         }
-        let micUID = try Self.deviceUID(of: micDeviceID)
-        // Which device this recording is actually tapping. Nothing recorded it
-        // before, so "why does my own track sound like a room?" was
-        // unanswerable after the fact -- the same gap the consent-latency stamp
-        // filled. Device NAME only: config, never content, per DebugInfo's rule.
-        meetingLog.notice("""
-            recording mic device: \(Self.deviceName(of: micDeviceID) ?? "unknown", privacy: .public) \
-            (requested: \(preferredMicUID == nil ? "system default" : "specific device", privacy: .public))
-            """)
-        watchMicDeviceAlive(micDeviceID)
 
         let ownProcessID = try Self.ownProcessObjectID()
         let tapDescription = CATapDescription(stereoGlobalTapButExcludeProcesses: [ownProcessID])
@@ -135,14 +169,21 @@ final class MeetingRecorder: @unchecked Sendable {
         let tapUID = try Self.tapUID(of: newTapID)
 
         let aggregateUID = UUID().uuidString
-        let description: [String: Any] = [
+        // With the mic excluded there is no sub-device and no main sub-device --
+        // a tap-only aggregate. This is what makes "we never recorded your mic"
+        // a fact about the device rather than a promise about our code: the
+        // samples never reach this process at all.
+        var description: [String: Any] = [
             kAudioAggregateDeviceUIDKey: aggregateUID,
             kAudioAggregateDeviceNameKey: "OmWhisper Meeting Capture",
             kAudioAggregateDeviceIsPrivateKey: true,
-            kAudioAggregateDeviceMainSubDeviceKey: micUID,
-            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: micUID]],
             kAudioAggregateDeviceTapListKey: [[kAudioSubTapUIDKey: tapUID]],
         ]
+        if let micUID {
+            description[kAudioAggregateDeviceMainSubDeviceKey] = micUID
+            description[kAudioAggregateDeviceSubDeviceListKey] = [[kAudioSubDeviceUIDKey: micUID]]
+        }
+        micInAggregate = micUID != nil
         var newAggregateID = kAudioObjectUnknown
         let aggregateStatus = AudioHardwareCreateAggregateDevice(description as CFDictionary, &newAggregateID)
         guard aggregateStatus == noErr else {
@@ -160,9 +201,7 @@ final class MeetingRecorder: @unchecked Sendable {
             throw error
         }
 
-        state.withLock { s in
-            s.meetingDirectory = dir
-        }
+        beginWriting(to: dir, micEnabled: recordMic)
 
         var newIOProcID: AudioDeviceIOProcID?
         let procStatus = AudioDeviceCreateIOProcIDWithBlock(&newIOProcID, aggregateDeviceID, nil) { [weak self] _, inInputData, _, _, _ in
@@ -191,12 +230,19 @@ final class MeetingRecorder: @unchecked Sendable {
         }
         teardownHardware()
 
-        let peak = state.withLock { s -> Float in
+        let (peak, muted) = state.withLock { s -> (Float, Bool) in
             s.systemFile = nil
             s.micFile = nil
-            return s.micPeak
+            return (s.micPeak, s.micMuted)
         }
-        if peak < 0.00001 {  // roughly -100dBFS
+        // Only when the mic was actually being recorded. A muted, discarded or
+        // never-enabled mic leaves micPeak at 0 by construction, and blaming the
+        // VoIP app for that would send the next investigation at the historical
+        // smriti bug instead of at the setting the user just changed — the same
+        // misleading-diagnosis shape as "Is Ollama running?" for a timeout.
+        if muted {
+            meetingLog.notice("stop() — mic was not recorded for this meeting (setting off, muted, or discarded)")
+        } else if peak < 0.00001 {  // roughly -100dBFS
             meetingLog.warning("stop() — mic track peak was near-silent (\(peak)); the calling app may have blocked mic capture")
         }
     }
@@ -212,36 +258,158 @@ final class MeetingRecorder: @unchecked Sendable {
         }
     }
 
-    /// Runs on the HAL's real-time IO thread -- must never touch MainActor
-    /// state directly, matching AudioCapture's tap callback rationale.
-    /// The aggregate delivers exactly two streams as separate AudioBuffers
-    /// (confirmed live) -- buffer[0] is the mic sub-device, buffer[1] is the
-    /// stereo tap, in the fixed order this file's own sub-device/tap list
-    /// construction controls. No channel-range slicing needed.
-    nonisolated private func handleRaw(_ bufferList: UnsafePointer<AudioBufferList>) {
-        let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: bufferList))
-        guard abl.count >= 2,
-              let micBuffer = Self.pcmBuffer(from: abl[0], sampleRate: streamSampleRate),
-              let systemBuffer = Self.pcmBuffer(from: abl[1], sampleRate: streamSampleRate) else { return }
-        handle(mic: micBuffer, system: systemBuffer)
+    /// Open a recording at `directory` and reset every per-recording mic value.
+    ///
+    /// Not test-only: `start()` is the production caller, and resetting here is
+    /// what stops a previous recording's muted state leaking into the next one.
+    ///
+    /// `micEnabled` is a parameter rather than a follow-up `setMicEnabled` call
+    /// because this method unconditionally clears `micMuted`. As two statements
+    /// their order was load-bearing and protected by nothing but a comment —
+    /// swap them, a plausible edit since configuration usually precedes opening,
+    /// and a recording the user asked to start with the mic OFF starts with it
+    /// on, capturing the room for the whole call with no visible symptom.
+    nonisolated func beginWriting(to directory: URL, micEnabled: Bool = true) {
+        state.withLock { s in
+            s.meetingDirectory = directory
+            s.micMuted = !micEnabled
+            s.micFramesWritten = 0
+            s.micPeak = 0
+            // Closing the previous recording's handles is load-bearing, not
+            // hygiene. handle() only OPENS a file when its handle is nil, so a
+            // start() without an intervening stop() -- reachable when a pre-roll
+            // is live and acceptPreRoll declines, sending toggleMeetingRecording
+            // down the beginRecording path -- would append the new meeting's
+            // audio to the OLD directory's files, in a folder about to be
+            // deleted, while the new meeting's folder stayed empty.
+            s.systemFile = nil
+            s.micFile = nil
+        }
     }
 
-    nonisolated private func handle(mic micBuffer: AVAudioPCMBuffer, system systemBuffer: AVAudioPCMBuffer) {
-        let peak = Self.peak(of: micBuffer)
+    nonisolated var isMicMuted: Bool { state.withLock { $0.micMuted } }
+
+    nonisolated var micFramesWritten: AVAudioFramePosition {
+        state.withLock { $0.micFramesWritten }
+    }
+
+    /// Stop capturing the mic for the rest of this recording. One-way by design
+    /// -- see the comment on State.micMuted. Closing micFile here is safe
+    /// precisely because the gate in handle() will never reopen it.
+    nonisolated func muteMic() {
         state.withLock { s in
-            s.micPeak = max(s.micPeak, peak)
-            if let url = s.meetingDirectory?.appendingPathComponent("me.caf") {
-                if s.micFile == nil {
-                    s.micFile = try? AVAudioFile(forWriting: url, settings: micBuffer.format.settings)
+            s.micMuted = true
+            s.micFile = nil
+        }
+        meetingLog.notice("mic muted for the remainder of this recording")
+    }
+
+    /// Set at the start of a recording from the user's "Record my microphone"
+    /// setting. Separate from muteMic() only in intent -- both land on the same
+    /// one-way flag, and neither can be undone within a recording.
+    nonisolated func setMicEnabled(_ enabled: Bool) {
+        state.withLock { $0.micMuted = !enabled }
+    }
+
+    /// Delete the mic track outright and mute. Discarding WITHOUT muting would
+    /// immediately re-accumulate what was just deleted.
+    nonisolated func discardMicTrack() {
+        // The URL is read under the lock; the file is removed outside it. This
+        // lock is taken by the real-time audio callback and must never hold I/O.
+        let url: URL? = state.withLock { s in
+            s.micMuted = true
+            s.micFile = nil
+            s.micFramesWritten = 0
+            return s.meetingDirectory?.appendingPathComponent("me.caf")
+        }
+        if let url { try? FileManager.default.removeItem(at: url) }
+        meetingLog.notice("mic track discarded at the user's request")
+    }
+
+    /// Did any mic audio survive into this recording.
+    ///
+    /// Read from the FILE, never from the settings that led here, so the stored
+    /// flag cannot drift from what is actually on disk. Length rather than byte
+    /// size: an AVAudioFile that was created and never written still has a CAF
+    /// header, so `size > 0` would answer true for an empty track.
+    nonisolated var micCaptured: Bool {
+        guard let dir = state.withLock({ $0.meetingDirectory }) else { return false }
+        let url = dir.appendingPathComponent("me.caf")
+        guard let file = try? AVAudioFile(forReading: url) else { return false }
+        return file.length > 0
+    }
+
+    /// Close both files so a test can read back what was written. Production
+    /// closes them in stop(); this is the same two assignments without the
+    /// hardware teardown, which no test has started.
+    nonisolated func finishFilesForTesting() {
+        state.withLock { s in
+            s.systemFile = nil
+            s.micFile = nil
+        }
+    }
+
+    nonisolated private func handleRaw(_ bufferList: UnsafePointer<AudioBufferList>) {
+        let abl = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: bufferList))
+        // The buffer list's shape follows the aggregate's composition, so branch
+        // on what we BUILT rather than guessing from the count. With the mic
+        // excluded the tap is the only buffer and therefore index 0 -- the old
+        // `count >= 2` guard would have rejected every callback and recorded
+        // nothing at all, meeting audio included.
+        if micInAggregate {
+            guard abl.count >= 2,
+                  let micBuffer = Self.pcmBuffer(from: abl[0], sampleRate: streamSampleRate),
+                  let systemBuffer = Self.pcmBuffer(from: abl[1], sampleRate: streamSampleRate) else { return }
+            handle(mic: micBuffer, system: systemBuffer)
+        } else {
+            guard abl.count >= 1,
+                  let systemBuffer = Self.pcmBuffer(from: abl[0], sampleRate: streamSampleRate) else { return }
+            handleSystemOnly(systemBuffer)
+        }
+    }
+
+    /// The mic-excluded path. Separate from handle(mic:system:) because there is
+    /// no mic buffer to pass it -- synthesising a silent one would defeat the
+    /// point and risk writing a silent me.caf, which the meeting path has no VAD
+    /// to protect against.
+    nonisolated func handleSystemOnly(_ systemBuffer: AVAudioPCMBuffer) {
+        state.withLock { s in
+            Self.writeSystem(systemBuffer, into: &s)
+        }
+    }
+
+    /// The system track write, shared by both IOProc shapes. Extracted rather
+    /// than duplicated because this is the path that must never silently stop
+    /// working: a frame counter, a write-failure log or a format fix made in one
+    /// copy and not the other would be invisible until a meeting came back empty.
+    nonisolated private static func writeSystem(_ buffer: AVAudioPCMBuffer, into s: inout State) {
+        guard let url = s.meetingDirectory?.appendingPathComponent("them.caf") else { return }
+        if s.systemFile == nil {
+            s.systemFile = try? AVAudioFile(forWriting: url, settings: buffer.format.settings)
+        }
+        try? s.systemFile?.write(from: buffer)
+    }
+
+    nonisolated func handle(mic micBuffer: AVAudioPCMBuffer, system systemBuffer: AVAudioPCMBuffer) {
+        state.withLock { s in
+            // The single place mic buffers reach a file, and therefore the only
+            // place the gate has to be. Muting upstream would leave this open.
+            if !s.micMuted {
+                // Inside the branch: this is an O(frames x channels) scan on the
+                // real-time IO thread, and it was being run and then discarded
+                // for the entire duration of every mic-off recording. Cheap
+                // relative to the file write already happening under this lock.
+                s.micPeak = max(s.micPeak, Self.peak(of: micBuffer))
+                if let url = s.meetingDirectory?.appendingPathComponent("me.caf") {
+                    if s.micFile == nil {
+                        s.micFile = try? AVAudioFile(forWriting: url, settings: micBuffer.format.settings)
+                    }
+                    if let file = s.micFile, (try? file.write(from: micBuffer)) != nil {
+                        s.micFramesWritten += AVAudioFramePosition(micBuffer.frameLength)
+                    }
                 }
-                try? s.micFile?.write(from: micBuffer)
             }
-            if let url = s.meetingDirectory?.appendingPathComponent("them.caf") {
-                if s.systemFile == nil {
-                    s.systemFile = try? AVAudioFile(forWriting: url, settings: systemBuffer.format.settings)
-                }
-                try? s.systemFile?.write(from: systemBuffer)
-            }
+            Self.writeSystem(systemBuffer, into: &s)
         }
     }
 

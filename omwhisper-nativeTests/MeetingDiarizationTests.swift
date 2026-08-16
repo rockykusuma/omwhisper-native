@@ -143,4 +143,72 @@ struct MeetingDiarizationTests {
         let out = D.applySpeakerNames(transcript, names: ["Speaker 1": "Alice"])
         #expect(out == transcript)  // "**Speaker 1:**" ≠ "**Speaker 10:**" — colon guards it
     }
+
+    @Test("removingYouTurns drops You blocks from a diarized transcript")
+    func removesYouFromDiarized() {
+        let input = """
+        **You:** [0:00]
+        Let me put myself on mute.
+
+        **Speaker 1:** [0:04]
+        We shipped the release on Tuesday.
+
+        **You:** [0:09]
+        Did you see the game last night?
+
+        **Speaker 2:** [0:12]
+        The rollout looked clean.
+        """
+        #expect(D.removingYouTurns(input) == """
+        **Speaker 1:** [0:04]
+        We shipped the release on Tuesday.
+
+        **Speaker 2:** [0:12]
+        The rollout looked clean.
+        """)
+    }
+
+    @Test("removingYouTurns handles the legacy You/Others transcript")
+    func removesYouFromLegacy() {
+        let input = "**You:**\nmy side\n\n**Others:**\ntheir side"
+        #expect(D.removingYouTurns(input) == "**Others:**\ntheir side")
+    }
+
+    @Test("a body line that mentions You is never removed")
+    func bodyMentionsAreSafe() {
+        // The failure this exists for: a contains("You") filter would delete
+        // Speaker 1 entirely — someone else's sentence, silently — and every
+        // store-level assertion would still pass.
+        let input = """
+        **Speaker 1:** [0:02]
+        You mentioned the deadline, and **You:** was in my notes too.
+
+        **You:** [0:08]
+        that was my aside
+        """
+        let out = D.removingYouTurns(input)
+        #expect(out.contains("You mentioned the deadline"))
+        #expect(out.contains("**Speaker 1:**"))
+        #expect(!out.contains("that was my aside"))
+    }
+
+    @Test("a transcript with no You turns is returned unchanged")
+    func noYouTurnsIsUnchanged() {
+        let input = "**Speaker 1:** [0:00]\nhello\n\n**Speaker 2:** [0:03]\nhi"
+        #expect(D.removingYouTurns(input) == input)
+    }
+
+    @Test("a transcript of only You turns becomes empty")
+    func onlyYouTurnsBecomesEmpty() {
+        #expect(D.removingYouTurns("**You:** [0:00]\nall mine").isEmpty)
+    }
+
+    @Test("renamed speakers are not mistaken for You")
+    func renamedSpeakersSurvive() {
+        // applySpeakerNames rewrites labels at read time, but the STORED
+        // transcript keeps generic labels. A meeting where someone is actually
+        // named "Young" must not lose their turns to a prefix match.
+        let input = "**Young:** [0:00]\nkeep me\n\n**You:** [0:04]\ndrop me"
+        #expect(D.removingYouTurns(input) == "**Young:** [0:00]\nkeep me")
+    }
 }

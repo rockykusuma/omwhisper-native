@@ -81,7 +81,7 @@ nonisolated enum ScreenContextReader {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier else { return nil }
 
-        let appElement = AX.appElement(pid: app.processIdentifier)
+        guard let appElement = AX.appElement(pid: app.processIdentifier) else { return nil }
         guard let window = copyAttribute(appElement, kAXFocusedWindowAttribute) else { return nil }
         // Not `as?`: the compiler rejects that as dead code ("conditional downcast
         // to CoreFoundation type 'AXUIElement' will always succeed") — CFTypeRef
@@ -126,7 +126,7 @@ nonisolated enum ScreenContextReader {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier else { return nil }
 
-        let appElement = AX.appElement(pid: app.processIdentifier)
+        guard let appElement = AX.appElement(pid: app.processIdentifier) else { return nil }
         guard let window = copyAttribute(appElement, kAXFocusedWindowAttribute) else { return nil }
         // Not `as?`: the compiler rejects that as dead code ("conditional downcast
         // to CoreFoundation type 'AXUIElement' will always succeed") — CFTypeRef

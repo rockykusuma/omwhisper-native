@@ -653,6 +653,67 @@ final class AppState {
         }
     }
 
+    /// Record the user's own microphone into meetings.
+    ///
+    /// Default TRUE — today's behaviour. Defaulting this off would silently stop
+    /// capturing every existing user's own voice in every meeting, which is the
+    /// silent data loss this feature exists to avoid, not cause.
+    ///
+    /// Read at `start()`, so it governs the pre-roll as well: that begins at
+    /// detection, before any consent prompt exists, and is the window a
+    /// conference room most needs protected.
+    var recordMeetingMic: Bool {
+        get {
+            access(keyPath: \.recordMeetingMic)
+            return UserDefaults.standard.object(forKey: SettingsKeys.recordMeetingMic) as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.recordMeetingMic) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.recordMeetingMic)
+            }
+        }
+    }
+
+    /// Live mic state for the recording controls. `meetingRecorder` is not
+    /// `@Observable`, so mutating it signals nothing on its own — reading the
+    /// version counter here is what makes SwiftUI re-read after mute/discard.
+    var meetingMicMuted: Bool {
+        _ = meetingMicVersion
+        return meetingRecorder.isMicMuted
+    }
+
+    private var meetingMicVersion = 0
+
+    /// Whether a recorder is running at all — a visible recording OR a pre-roll,
+    /// which is deliberately invisible but is very much writing audio.
+    private var meetingCaptureRunning: Bool { isRecordingMeeting || preRollRunning }
+
+    /// Stop capturing the mic for the rest of this recording. One-way.
+    func muteMeetingMic() {
+        guard meetingCaptureRunning else { return }
+        meetingRecorder.muteMic()
+        meetingMicVersion &+= 1
+    }
+
+    /// Delete this recording's mic track and stop capturing. One-way, and
+    /// deliberately unconfirmed — it is reached for during a live meeting, and
+    /// a modal would defeat the point.
+    ///
+    /// The guard is load-bearing, not defensive. `stop()` deliberately leaves
+    /// `meetingDirectory` pointing at the finished meeting, so calling this when
+    /// nothing is running would delete the PREVIOUS meeting's me.caf while its
+    /// stored row still said the mic was captured and still held every `You`
+    /// turn — silent, partial data loss with no UI trace. The views hide these
+    /// controls, but a stale SwiftUI body is not a safety mechanism.
+    func discardMeetingMicAudio() {
+        guard meetingCaptureRunning else {
+            log.warning("discardMeetingMicAudio ignored — no recording is running")
+            return
+        }
+        meetingRecorder.discardMicTrack()
+        meetingMicVersion &+= 1
+    }
+
     /// Default summary template for meetings; nil = Standard. Stored as a UUID
     /// string; an unknown ID (a deleted custom template) resolves to Standard
     /// at use rather than failing the summary.
@@ -701,7 +762,8 @@ final class AppState {
     @discardableResult
     private func beginRecording(appName: String, pid: pid_t?, visible: Bool) -> Bool {
         do {
-            try meetingRecorder.start(appName: appName, preferredMicUID: audioInputDeviceUID)
+            try meetingRecorder.start(appName: appName, preferredMicUID: audioInputDeviceUID,
+                                      recordMic: recordMeetingMic)
             meetingStartedAt = Date()
             meetingAppName = appName
             // Frontmost is the last resort, for manual recordings of apps the
@@ -829,7 +891,10 @@ final class AppState {
     private func recordFinishedMeeting() {
         guard let store = meetingStore, let dir = meetingRecorder.meetingDirectory else { return }
         let iso = ISO8601DateFormatter()
-        let duration = MeetingTranscriber.audioDuration(dir.appendingPathComponent("me.caf"))
+        // The LONGER of the two tracks, not the mic. Reading me.caf alone meant a
+        // recording made with "Record my microphone" off measured 0 and was filed
+        // as a failed, untranscribed meeting — while them.caf held the whole call.
+        let duration = MeetingTranscriber.recordingDuration(directory: dir)
 
         // No (meaningful) audio captured — almost always the System Audio Recording
         // permission being denied for this build: the CoreAudio process tap's IO
@@ -868,7 +933,10 @@ final class AppState {
                 transcript: transcript, summary: nil,
                 createdAt: iso.string(from: Date()),
                 title: title,
-                attendees: attendees
+                attendees: attendees,
+                // Read after stop() closed the files, so this reflects what is
+                // actually on disk rather than the setting that led there.
+                micCaptured: meetingRecorder.micCaptured
             ))
             // Transcribe straight away rather than waiting for the user to open the
             // meeting and press a button. Skipped when `transcript` is already set —
@@ -1055,6 +1123,49 @@ final class AppState {
                                           summary: written?.summary,
                                           summaryBackend: written?.backend)
         if let summary = written?.summary { await nameMeetingIfNeeded(id: id, summary: summary) }
+        return try store.get(id: id) ?? meeting
+    }
+
+    /// Remove the user's own microphone from a meeting that is already recorded.
+    ///
+    /// The ORDER is the feature, not an implementation detail. Deleting the
+    /// audio alone fixes nothing — the private words are already in the
+    /// transcript, which is the searchable, exportable, summarised copy. Each
+    /// step is persisted before the next begins, so an interruption anywhere
+    /// leaves the recording MORE private, never less.
+    @discardableResult
+    func deleteMeetingMicAudio(id: Int64) async throws -> Meeting {
+        guard let store = meetingStore, let meeting = try store.get(id: id) else {
+            throw MeetingStoreError.notFound
+        }
+
+        // 1. The audio. try? — a directory the user already cleaned out by hand
+        //    must not stop the transcript being stripped.
+        try? FileManager.default.removeItem(
+            at: URL(fileURLWithPath: meeting.directory).appendingPathComponent("me.caf"))
+
+        // 2. + 3. The transcript, with no summary. One write, so there is no
+        //    state where the transcript is clean but the row still claims the
+        //    mic was captured.
+        let stripped = meeting.transcript.map(MeetingDiarization.removingYouTurns)
+        try store.removeMicTrack(id: id, transcript: (stripped?.isEmpty ?? true) ? nil : stripped)
+
+        // 4. Regenerate, best-effort and deliberately LAST. The summary is
+        //    already gone by now, so a backend that is unavailable or times out
+        //    leaves this meeting with no summary — never the old one, which
+        //    quoted what was just removed. The user can press Regenerate
+        //    summary whenever they like.
+        if let transcript = stripped, !transcript.isEmpty {
+            let resolved = MeetingDiarization.applySpeakerNames(
+                transcript, names: meeting.speakerNames ?? [:])
+            let template = MeetingSummarizer.template(
+                id: meetingTemplateID, custom: customMeetingTemplates)
+            if let written = await generateMeetingSummary(transcript: resolved, template: template) {
+                try? store.setTranscriptAndSummary(id: id, transcript: transcript,
+                                                   summary: written.summary,
+                                                   summaryBackend: written.backend)
+            }
+        }
         return try store.get(id: id) ?? meeting
     }
 
@@ -1933,14 +2044,9 @@ final class AppState {
         case .idle:
             // Claim the state synchronously (before any await) so a second fast
             // toggle can't pass startDictation's guard and double-start.
-            overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
             pttPressedAt = nil   // toggle has no "hold" concept — never inherit a stale PTT timestamp
             sessionMode = mode
-            dictation = .starting
-            sessionOverlayStyle = overlayStyle
-            overlay.show(appState: self)   // instant — warming look, before any permission/capture work
-            contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
-            Task { await startDictation() }
+            beginSession()
         case .recording:
             Task { await stopDictation() }
         case .starting, .finalizing:
@@ -1954,12 +2060,31 @@ final class AppState {
         // Ignore if already toggled-on via Cmd+Shift+V, or mid-transition — same
         // one-attempt-in-flight discipline as toggleDictation's .idle case.
         guard dictation == .idle else { return }
-        overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
         stopRequestedWhilePTTStarting = false
         pttPressedAt = .now
         sessionMode = .normal   // PTT is always normal dictation — never inherit a stale mode
+        beginSession()
+    }
+
+    /// The synchronous preamble every dictation entry point shares: claim the
+    /// state, wipe the last session's text, and put the warming pill on screen
+    /// before any permission or capture work.
+    ///
+    /// **The transcript clear belongs here, not in `startDictation()`.** It used
+    /// to live there, and `startDictation()` runs in a Task behind two awaited
+    /// permission checks while `overlay.show` happens synchronously -- so the HUD
+    /// rendered the PREVIOUS dictation's finalized text for the whole gap, about
+    /// a second, before blanking. `stopDictation` can't clear it either: the exit
+    /// flourish is still rendering that text as the panel animates away.
+    ///
+    /// The one place `dictation = .starting` is assigned, pinned by a test, so a
+    /// future entry point cannot skip the clear by open-coding the preamble.
+    private func beginSession() {
+        overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
         dictation = .starting
         sessionOverlayStyle = overlayStyle
+        finalizedTranscript = ""
+        volatileTranscript = ""
         overlay.show(appState: self)   // instant — warming look, before any permission/capture work
         contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
         Task { await startDictation() }
@@ -2062,8 +2187,9 @@ final class AppState {
             return
         }
 
-        finalizedTranscript = ""
-        volatileTranscript = ""
+        // Transcripts were cleared in beginSession(), synchronously, before the
+        // overlay was shown — clearing them here instead is what made the last
+        // sentence flash on screen while the permission checks above awaited.
 
         do {
             let audioStream = try audioCapture.start(preferredDeviceUID: audioInputDeviceUID)
@@ -2664,6 +2790,7 @@ nonisolated enum SettingsKeys {
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
     static let meetingsEnabled = "meetingsEnabled"
     static let meetingsCalendarEnabled = "meetingsCalendarEnabled"
+    static let recordMeetingMic = "recordMeetingMic"
     static let meetingTemplateID = "meetingTemplateID"
     static let customMeetingTemplates = "customMeetingTemplates"
     static let replyAssistEnabled = "replyAssistEnabled"

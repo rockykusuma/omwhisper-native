@@ -37,6 +37,7 @@ struct MiniPanelView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(Color.Porcelain.dim)
             recordMeetingButton
+            micControls
             microphoneRow
             styleRow
             crossLingualRow
@@ -99,6 +100,38 @@ struct MiniPanelView: View {
             LinearGradient(colors: [Color.Porcelain.emerald, Color.Porcelain.teal], startPoint: .leading, endPoint: .trailing)
         )
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// Stop your own mic being recorded into the meeting in progress.
+    ///
+    /// The menu bar is the surface that matters here: during a Teams call the
+    /// hub window isn't open, and the reason you reach for this — a private
+    /// aside, a phone ringing — gives you seconds, not minutes.
+    ///
+    /// Both actions are one-way for this recording, so once used the controls
+    /// become an inert indicator rather than offering an unmute that cannot
+    /// exist. See MeetingRecorder.State.micMuted for why.
+    @ViewBuilder
+    private var micControls: some View {
+        if appState.isRecordingMeeting {
+            if appState.meetingMicMuted {
+                Label("Mic off for this recording", systemImage: "mic.slash.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.Porcelain.dim)
+            } else {
+                HStack(spacing: 10) {
+                    Button("Mute my mic") { appState.muteMeetingMic() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.Porcelain.mint)
+                    // Deliberately unconfirmed — a modal defeats a panic button.
+                    Button("Discard my audio") { appState.discardMeetingMicAudio() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.red)
+                    Spacer()
+                }
+                .font(.system(size: 11, weight: .medium))
+            }
+        }
     }
 
     // Quick mic override, in case the right device isn't auto-selected. Bound to

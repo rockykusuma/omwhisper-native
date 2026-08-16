@@ -72,7 +72,7 @@ nonisolated enum MeetingDetectionDiagnostics {
     }
 
     private static func resolvedDomain(pid: pid_t, bundleID: String) -> String? {
-        let appElement = AX.appElement(pid: pid)
+        guard let appElement = AX.appElement(pid: pid) else { return nil }
         guard let window = ScreenContextReader.copyAttribute(appElement, kAXFocusedWindowAttribute)
         else { return nil }
         let windowElement = window as! AXUIElement

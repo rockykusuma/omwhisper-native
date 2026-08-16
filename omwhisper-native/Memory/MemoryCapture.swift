@@ -18,6 +18,7 @@
 //  MeetingWatcher's isolation, not AudioCapture's nonisolated+lock pattern.
 //
 
+import AppKit
 import Foundation
 import os
 
@@ -48,6 +49,25 @@ final class MemoryCapture {
     nonisolated struct Outcome: Equatable {
         let stored: Int
         let capturedNothing: Bool
+        /// There was legitimately nothing to capture, as opposed to a capture
+        /// that failed. Kept apart from `capturedNothing` because the two lead
+        /// to opposite places: a failure is worth escalating, "the user is
+        /// looking at OmWhisper" is not, and conflating them accuses a granted
+        /// Accessibility permission of being missing.
+        var nothingToCapture = false
+    }
+
+    /// True when the user is looking at OmWhisper itself on a single-display Mac.
+    ///
+    /// We refuse to read our own AX tree — it deadlocks the app, see
+    /// `AX.appElement` — so `captureVisible` correctly returns nothing here.
+    /// That is the daemon working as designed, and it must not be counted as a
+    /// failed capture: on a single display it would otherwise trip the
+    /// degradation alert after ten minutes of reading your own meeting notes.
+    nonisolated static func nothingCapturableRightNow() -> Bool {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier
+            == ProcessInfo.processInfo.processIdentifier
+            && VisibleWindows.activeDisplays().count <= 1
     }
 
     /// The capture pass itself. Injectable so the in-flight guard can be tested
@@ -124,6 +144,14 @@ final class MemoryCapture {
     /// @MainActor and must not be touched from the background path.
     private func finish(_ outcome: Outcome) {
         if outcome.capturedNothing {
+            // Not a failure: we deliberately refuse to read our own AX tree, so
+            // a single-display Mac with the hub in front has nothing capturable.
+            // Recording a degradation here would tell the user to check an
+            // Accessibility permission that is granted and irrelevant.
+            guard !outcome.nothingToCapture else {
+                memoryLog.debug("tick — nothing to capture (OmWhisper is frontmost)")
+                return
+            }
             memoryLog.debug("tick — no snapshots (no focused window, excluded, empty text, or missing Accessibility permission)")
             Degradation.record(.memoryCapture, reason: "nothing captured — check Accessibility permission")
             onDegradation()
@@ -146,7 +174,10 @@ final class MemoryCapture {
         store: MemoryStore, exclusions: MemoryExclusions, excludedDomains: [String]
     ) -> Outcome {
         let snapshots = WindowSnapshotReader.captureVisible(exclusions: exclusions)
-        guard !snapshots.isEmpty else { return Outcome(stored: 0, capturedNothing: true) }
+        guard !snapshots.isEmpty else {
+            return Outcome(stored: 0, capturedNothing: true,
+                           nothingToCapture: nothingCapturableRightNow())
+        }
 
         var stored = 0
         for snapshot in snapshots {
