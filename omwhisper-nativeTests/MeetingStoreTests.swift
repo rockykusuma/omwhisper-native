@@ -38,6 +38,46 @@ struct MeetingStoreTests {
         #expect(try store.get(id: unknown)?.micCaptured == nil)
     }
 
+    @Test("removeMicTrack rewrites transcript, clears the summary, and marks the mic gone")
+    func removeMicTrackClearsEverything() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Teams")
+        try store.setTranscriptAndSummary(
+            id: id,
+            transcript: "**You:** [0:00]\nprivate aside\n\n**Speaker 1:** [0:04]\nthe real meeting",
+            summary: "## Summary\n\nThey discussed a private aside.",
+            summaryBackend: "Ollama (qwen3.5:latest)")
+
+        try store.removeMicTrack(id: id, transcript: "**Speaker 1:** [0:04]\nthe real meeting")
+
+        let after = try #require(try store.get(id: id))
+        // Asserted together on purpose: rewriting the transcript while leaving a
+        // summary quoting the removed conversation would pass a check that only
+        // looked at the transcript.
+        #expect(after.transcript == "**Speaker 1:** [0:04]\nthe real meeting")
+        #expect(after.summary == nil)
+        #expect(after.summaryBackend == nil)
+        #expect(after.micCaptured == false)
+    }
+
+    @Test("a phrase from the removed track stops matching a search")
+    func removedTrackLeavesTheSearchIndex() throws {
+        let store = try makeStore()
+        let id = try seed(store, app: "Teams")
+        try store.setTranscriptAndSummary(
+            id: id,
+            transcript: "**You:** [0:00]\npomegranate marmalade\n\n**Speaker 1:** [0:04]\nquarterly numbers",
+            summary: nil)
+        #expect(try store.search("pomegranate").count == 1, "precondition: FTS indexed the transcript")
+
+        try store.removeMicTrack(id: id, transcript: "**Speaker 1:** [0:04]\nquarterly numbers")
+
+        // The check a user actually performs, and the one that fails if the
+        // write bypasses GRDB's synchronize triggers.
+        #expect(try store.search("pomegranate").isEmpty)
+        #expect(try store.search("quarterly").count == 1, "the rest of the meeting must stay findable")
+    }
+
     @Test("the summary backend round-trips, and older rows survive without one")
     func summaryBackendRoundTrips() throws {
         let store = try makeStore()

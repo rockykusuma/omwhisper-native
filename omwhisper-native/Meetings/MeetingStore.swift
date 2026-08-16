@@ -199,6 +199,33 @@ nonisolated final class MeetingStore: Sendable {
         }
     }
 
+    /// Remove the user's own microphone from a recorded meeting: the stripped
+    /// transcript, no summary, and micCaptured false — in ONE write.
+    ///
+    /// Not two existing calls. `setTranscriptAndSummary` does not touch
+    /// micCaptured and `setSummary` does not touch the transcript, so composing
+    /// them would open a window where the transcript is stripped while the row
+    /// still claims the mic was captured, and a crash between them would persist
+    /// exactly that.
+    ///
+    /// The summary is cleared rather than kept: it was written from the
+    /// unstripped transcript and may quote what is being removed. Regenerating
+    /// it is the caller's job, deliberately afterwards, so a backend failure
+    /// leaves no summary rather than the old one.
+    ///
+    /// The title is deliberately untouched — see the design note; wiping one the
+    /// user typed would cost more than it protects.
+    func removeMicTrack(id: Int64, transcript: String?) throws {
+        try dbQueue.write { db in
+            guard var m = try Meeting.fetchOne(db, key: id) else { throw MeetingStoreError.notFound }
+            m.transcript = transcript
+            m.summary = nil
+            m.summaryBackend = nil
+            m.micCaptured = false
+            try m.update(db)
+        }
+    }
+
     /// User-typed title/attendees. Blank input is normalised to nil here rather
     /// than at the call site, so no caller can persist "" (which would render an
     /// empty header instead of falling back to the app name) or [] (an empty
