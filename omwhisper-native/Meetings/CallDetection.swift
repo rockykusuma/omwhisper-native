@@ -213,7 +213,7 @@ nonisolated enum CallDetection {
     /// title. Selection lives in `bestWindowTitle`; this is only the AX
     /// enumeration. nil when AX yields nothing usable.
     static func callWindowTitle(pid: pid_t, appName: String) -> String? {
-        let app = AX.appElement(pid: pid)
+        guard let app = AX.appElement(pid: pid) else { return nil }
         var windowsRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsRef) == .success,
               let windows = windowsRef as? [AXUIElement] else { return nil }
@@ -320,7 +320,7 @@ nonisolated enum CallDetection {
     /// prompts during ordinary browsing, a false negative costs one
     /// auto-started recording and the Record button still works.
     static func hasMeetingPage(pid: pid_t, bundleID: String) -> Bool {
-        let appElement = AX.appElement(pid: pid)
+        guard let appElement = AX.appElement(pid: pid) else { return false }
         guard let window = ScreenContextReader.copyAttribute(appElement, kAXFocusedWindowAttribute)
         else { return false }
         // Not `as?`: the compiler rejects that as dead code ("conditional

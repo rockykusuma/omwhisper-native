@@ -37,7 +37,27 @@ nonisolated enum AX {
     /// slow app costs one second and then the walk gives up on its own.
     static let messagingTimeout: Float = 1.0
 
-    /// An application element that cannot hang forever.
+    /// An application element that cannot hang forever, for any app but our own.
+    ///
+    /// **nil for our own process, and that is a deadlock guard, not tidiness.**
+    /// An AX read against another app is Mach IPC, bounded by the timeout below.
+    /// A read against OURSELVES short-circuits that entirely and runs AppKit's
+    /// accessibility code *inline on the calling thread* -- so a background
+    /// thread ends up driving a SwiftUI view-graph update, taking SwiftUI's
+    /// global update lock, and (observed) calling -[NSView setFrameSize:]. The
+    /// main thread then blocks forever in Update.locked waiting for that lock.
+    ///
+    /// Observed 2026-08-16: MemoryCapture, off MainActor since the freeze fix of
+    /// 2026-08-02, snapshotted the hub window while it was frontmost and wedged
+    /// the whole app. **`messagingTimeout` cannot save this** -- there is no
+    /// Mach round trip to time out. Same symptom as the earlier AX hang,
+    /// completely different mechanism.
+    ///
+    /// Refused HERE rather than at the eight call sites because every AX element
+    /// in this app is created through this type (pinned by
+    /// `AXTimeoutTests.noUnboundedElementCreation`), so this is the one place a
+    /// future caller cannot route around. Nothing here has ever wanted to read
+    /// our own UI: every caller reads some *other* app the user is working in.
     ///
     /// The timeout is also applied to the system-wide element once, because
     /// Apple documents that as the default for elements that carry no timeout
@@ -45,7 +65,8 @@ nonisolated enum AX {
     /// an application element is inherited by the child elements a tree walk
     /// obtains from it. Setting both is cheap; guessing wrong is a wedged
     /// thread.
-    static func appElement(pid: pid_t) -> AXUIElement {
+    static func appElement(pid: pid_t) -> AXUIElement? {
+        guard pid != ProcessInfo.processInfo.processIdentifier else { return nil }
         installGlobalDefaultOnce()
         let element = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(element, messagingTimeout)

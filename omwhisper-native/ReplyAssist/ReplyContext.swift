@@ -79,7 +79,7 @@ nonisolated enum ReplyContextReader {
     @MainActor
     static func focusedElement(maxRetries: Int = 8, retryDelay: Duration = .milliseconds(200)) async -> AXUIElement? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AX.appElement(pid: app.processIdentifier)
+        guard let appElement = AX.appElement(pid: app.processIdentifier) else { return nil }
 
         if let focused = copyElement(appElement, kAXFocusedUIElementAttribute as String) {
             return focused
