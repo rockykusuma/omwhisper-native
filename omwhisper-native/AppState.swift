@@ -1107,6 +1107,49 @@ final class AppState {
         return try store.get(id: id) ?? meeting
     }
 
+    /// Remove the user's own microphone from a meeting that is already recorded.
+    ///
+    /// The ORDER is the feature, not an implementation detail. Deleting the
+    /// audio alone fixes nothing — the private words are already in the
+    /// transcript, which is the searchable, exportable, summarised copy. Each
+    /// step is persisted before the next begins, so an interruption anywhere
+    /// leaves the recording MORE private, never less.
+    @discardableResult
+    func deleteMeetingMicAudio(id: Int64) async throws -> Meeting {
+        guard let store = meetingStore, let meeting = try store.get(id: id) else {
+            throw MeetingStoreError.notFound
+        }
+
+        // 1. The audio. try? — a directory the user already cleaned out by hand
+        //    must not stop the transcript being stripped.
+        try? FileManager.default.removeItem(
+            at: URL(fileURLWithPath: meeting.directory).appendingPathComponent("me.caf"))
+
+        // 2. + 3. The transcript, with no summary. One write, so there is no
+        //    state where the transcript is clean but the row still claims the
+        //    mic was captured.
+        let stripped = meeting.transcript.map(MeetingDiarization.removingYouTurns)
+        try store.removeMicTrack(id: id, transcript: (stripped?.isEmpty ?? true) ? nil : stripped)
+
+        // 4. Regenerate, best-effort and deliberately LAST. The summary is
+        //    already gone by now, so a backend that is unavailable or times out
+        //    leaves this meeting with no summary — never the old one, which
+        //    quoted what was just removed. The user can press Regenerate
+        //    summary whenever they like.
+        if let transcript = stripped, !transcript.isEmpty {
+            let resolved = MeetingDiarization.applySpeakerNames(
+                transcript, names: meeting.speakerNames ?? [:])
+            let template = MeetingSummarizer.template(
+                id: meetingTemplateID, custom: customMeetingTemplates)
+            if let written = await generateMeetingSummary(transcript: resolved, template: template) {
+                try? store.setTranscriptAndSummary(id: id, transcript: transcript,
+                                                   summary: written.summary,
+                                                   summaryBackend: written.backend)
+            }
+        }
+        return try store.get(id: id) ?? meeting
+    }
+
     /// Re-run the summary over the existing transcript with speaker names
     /// resolved — no ASR/diarization. The correct-then-regenerate loop: rename
     /// "Speaker 1" to "Alice", regenerate, and the summary says Alice.
