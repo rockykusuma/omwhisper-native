@@ -56,8 +56,10 @@ nonisolated enum AX {
     /// Refused HERE rather than at the eight call sites because every AX element
     /// in this app is created through this type (pinned by
     /// `AXTimeoutTests.noUnboundedElementCreation`), so this is the one place a
-    /// future caller cannot route around. Nothing here has ever wanted to read
-    /// our own UI: every caller reads some *other* app the user is working in.
+    /// pid-based caller cannot route around. Nothing here has ever wanted to
+    /// read our own UI: every caller reads some *other* app the user is working
+    /// in. Note the guarantee is **pid-based only** — see `systemWideElement()`,
+    /// which has no pid to refuse and is safe today for a different reason.
     ///
     /// The timeout is also applied to the system-wide element once, because
     /// Apple documents that as the default for elements that carry no timeout
@@ -73,6 +75,20 @@ nonisolated enum AX {
         return element
     }
 
+    /// The system-wide element, which **cannot carry the same guarantee** as
+    /// `appElement(pid:)`.
+    ///
+    /// It resolves to whichever app holds focus, so a read of
+    /// `kAXFocusedUIElementAttribute` through it lands on US whenever OmWhisper
+    /// is frontmost — the exact inline-AppKit path the guard above exists to
+    /// prevent — and there is no pid at creation time to refuse.
+    ///
+    /// Safe today only because its one caller (`ReplyContext.focusedElement`) is
+    /// `@MainActor`, where servicing our own accessibility request cannot
+    /// deadlock against the main thread. **A `nonisolated` caller would
+    /// reintroduce the 2026-08-16 hang with every test still green.** If one is
+    /// ever needed, it must either hop to MainActor or check
+    /// `NSWorkspace.shared.frontmostApplication` against our own pid first.
     static func systemWideElement() -> AXUIElement {
         installGlobalDefaultOnce()
         let element = AXUIElementCreateSystemWide()
