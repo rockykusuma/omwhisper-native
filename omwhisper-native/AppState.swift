@@ -1933,14 +1933,9 @@ final class AppState {
         case .idle:
             // Claim the state synchronously (before any await) so a second fast
             // toggle can't pass startDictation's guard and double-start.
-            overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
             pttPressedAt = nil   // toggle has no "hold" concept — never inherit a stale PTT timestamp
             sessionMode = mode
-            dictation = .starting
-            sessionOverlayStyle = overlayStyle
-            overlay.show(appState: self)   // instant — warming look, before any permission/capture work
-            contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
-            Task { await startDictation() }
+            beginSession()
         case .recording:
             Task { await stopDictation() }
         case .starting, .finalizing:
@@ -1954,12 +1949,31 @@ final class AppState {
         // Ignore if already toggled-on via Cmd+Shift+V, or mid-transition — same
         // one-attempt-in-flight discipline as toggleDictation's .idle case.
         guard dictation == .idle else { return }
-        overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
         stopRequestedWhilePTTStarting = false
         pttPressedAt = .now
         sessionMode = .normal   // PTT is always normal dictation — never inherit a stale mode
+        beginSession()
+    }
+
+    /// The synchronous preamble every dictation entry point shares: claim the
+    /// state, wipe the last session's text, and put the warming pill on screen
+    /// before any permission or capture work.
+    ///
+    /// **The transcript clear belongs here, not in `startDictation()`.** It used
+    /// to live there, and `startDictation()` runs in a Task behind two awaited
+    /// permission checks while `overlay.show` happens synchronously -- so the HUD
+    /// rendered the PREVIOUS dictation's finalized text for the whole gap, about
+    /// a second, before blanking. `stopDictation` can't clear it either: the exit
+    /// flourish is still rendering that text as the panel animates away.
+    ///
+    /// The one place `dictation = .starting` is assigned, pinned by a test, so a
+    /// future entry point cannot skip the clear by open-coding the preamble.
+    private func beginSession() {
+        overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
         dictation = .starting
         sessionOverlayStyle = overlayStyle
+        finalizedTranscript = ""
+        volatileTranscript = ""
         overlay.show(appState: self)   // instant — warming look, before any permission/capture work
         contextCaptureTask = startContextCapture(enabled: contextAwareDictationEnabled)
         Task { await startDictation() }
@@ -2062,8 +2076,9 @@ final class AppState {
             return
         }
 
-        finalizedTranscript = ""
-        volatileTranscript = ""
+        // Transcripts were cleared in beginSession(), synchronously, before the
+        // overlay was shown — clearing them here instead is what made the last
+        // sentence flash on screen while the permission checks above awaited.
 
         do {
             let audioStream = try audioCapture.start(preferredDeviceUID: audioInputDeviceUID)
