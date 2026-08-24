@@ -2334,9 +2334,13 @@ final class AppState {
             SoundPlayer.play(.stop, volume: Float(soundVolume))
         }
 
-        // Non-nil only when Smart Dictation's polish genuinely broke — surfaced
-        // after the overlay's exit below, so the capsule doesn't fight it.
+        // Non-nil only when Smart Dictation's polish or brain-dump's structuring
+        // genuinely broke — surfaced after the overlay's exit below, so the
+        // capsule doesn't fight it.
         var polishFailure: String?
+        // Brain-dump's failure is not a polish failure; naming it "POLISH
+        // FAILED" would send someone to the wrong setting.
+        var failureLabel = "POLISH FAILED"
         if phase == .pasting {
             switch sessionMode {
             case .smart where !Self.tooShortForPolish(text):
@@ -2345,7 +2349,8 @@ final class AppState {
                 overlayPhase = phase
             case .brainDump:
                 overlayPhase = .polishing
-                text = await brainDumpStructured(for: text)
+                (text, polishFailure) = await brainDumpStructured(for: text)
+                failureLabel = "STRUCTURING FAILED"
                 overlayPhase = phase
             default:
                 break
@@ -2384,7 +2389,7 @@ final class AppState {
         sessionMode = .normal
         onboardingDemoActive = false   // demo bracket ends with the session (set on .recording in TryItStep)
         await finishOverlayExit(exitDuration(for: phase))
-        if let polishFailure { await showFailure(label: "POLISH FAILED", message: polishFailure) }
+        if let polishFailure { await showFailure(label: failureLabel, message: polishFailure) }
     }
 
     // MARK: Reply assist (S4)
@@ -2670,13 +2675,18 @@ final class AppState {
     /// Structure a brain-dump ramble into the active shape via the active backend,
     /// grounded in the target app + captured screen terms. Any failure returns the
     /// raw ramble — words are never dropped (same rule as polishedText).
-    private func brainDumpStructured(for original: String) async -> String {
+    /// Same contract as `polishedText`: nil failure for configuration states,
+    /// non-nil when structuring was asked for and could not run. A brain-dump
+    /// that silently pastes the raw ramble is the worst case of all — the whole
+    /// point was the shape, and an unstructured wall of text looks like the
+    /// feature simply did nothing.
+    private func brainDumpStructured(for original: String) async -> (text: String, failure: String?) {
         if polishBackend == .system, !SystemLLM.isAvailable() {
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
                 errorMessage = systemUnavailableMessage("structure brain-dumps") + " Pasted raw text for now."
             }
-            return original
+            return (original, systemUnavailableMessage("structure brain-dumps") + " Pasted raw text.")
         }
         // Long-form, not dictation: a ramble is large input the user is
         // deliberately waiting on, so it takes Ollama's 12,000-char envelope and
@@ -2686,23 +2696,29 @@ final class AppState {
                                   ollamaChunkLimit: BrainDumpStructurer.ollamaChunkLimit,
                                   systemChunkLimit: BrainDumpStructurer.chunkCharLimit,
                                   cloudChunkLimit: BrainDumpStructurer.cloudChunkLimit)
-        guard !candidates.isEmpty, let shape = activeBrainDumpShape else { return original }
+        // Configuration, not fault: no backend enabled or no shape chosen means
+        // the user turned structuring off, which must not raise an alarm.
+        guard !candidates.isEmpty, let shape = activeBrainDumpShape else { return (original, nil) }
         var parts: [String] = []
         if let app = NSWorkspace.shared.frontmostApplication?.localizedName { parts.append("Target app: \(app)") }
         if !sessionScreenTerms.isEmpty { parts.append("On-screen terms: \(sessionScreenTerms.prefix(20).joined(separator: ", "))") }
         let context = parts.isEmpty ? nil : parts.joined(separator: ". ")
         // Falls through the list rather than straight to raw text: Ollama being
         // down should cost the bigger envelope, not the structuring entirely.
+        var lastError: Error?
         for candidate in candidates {
             do {
-                return try await BrainDumpStructurer.structure(
+                let structured = try await BrainDumpStructurer.structure(
                     transcript: original, shape: shape, context: context,
                     polish: candidate.polish, chunkLimit: candidate.chunkLimit)
+                return (structured, nil)
             } catch {
                 log.error("brainDumpStructured — \(String(describing: candidate.kind)) failed: \(error)")
+                lastError = error
             }
         }
-        return original
+        let reason = lastError.map { "Structuring failed: \($0.localizedDescription)" } ?? "Structuring failed."
+        return (original, reason + " Pasted your raw text.")
     }
 
     /// Re-runs a past history entry's text through the current polish
