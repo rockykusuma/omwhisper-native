@@ -462,10 +462,22 @@ final class AppState {
         }
     }
 
+    // These were briefly moved to ⌃⌥ because ⌘⇧B is Notes' "Body" style and ⌘|
+    // is Center in every standard AppKit document app, and the old global
+    // NSEvent monitor could not consume the keystroke — so the target app ran
+    // its menu command on every use. GlobalHotkey's CGEventTap now swallows a
+    // matched combo before anyone is offered it, which removes the constraint
+    // rather than working around it, so the ⌘⇧ family is back.
+    // Caveat: without Accessibility the tap cannot be created and the keystroke
+    // does reach the app again — but Polish Selected needs Accessibility to
+    // copy and paste at all, so it is broken in that state regardless.
     static let defaultSmartDictation = KeyCombo(
         keyCode: 11, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "B")
+    // kVK_ANSI_Backslash. label "|" is what KeyRecorderView captures for this
+    // combo (charactersIgnoringModifiers keeps Shift's character), so a
+    // hand-written default and a recorded one render identically.
     static let defaultPolishSelected = KeyCombo(
-        keyCode: 35, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "P")
+        keyCode: 42, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "|")
     static let defaultBrainDump = KeyCombo(
         keyCode: 2, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "D")
 
@@ -2026,7 +2038,7 @@ final class AppState {
         toggleOrStop(mode: .normal)
     }
 
-    /// Cmd+Shift+B — identical to toggleDictation() except it flags the session
+    /// ⌘⇧B (default) — identical to toggleDictation() except it flags the session
     /// as smart, so stopDictation() runs the active polish style before pasting.
     /// Toggle-style, like Cmd+Shift+V — no separate PTT variant for this one.
     func beginSmartDictation() {
@@ -2034,7 +2046,7 @@ final class AppState {
     }
 
     /// ⌘⇧D — capture a long ramble, then structure it into the active brain-dump
-    /// shape on stop. Toggle-style, like ⌘⇧V/⌘⇧B.
+    /// shape on stop. Toggle-style, like the dictation and smart-dictation shortcuts.
     func beginBrainDump() {
         toggleOrStop(mode: .brainDump)
     }
@@ -2101,7 +2113,7 @@ final class AppState {
         }
     }
 
-    /// Cmd+Shift+P. Guarded on dictation == .idle so this can't fire mid-session
+    /// ⌘⇧\\ (default). Guarded on dictation == .idle so this can't fire mid-session
     /// and race the dictation state machine — press it while dictating and it's
     /// simply ignored. Nothing is selected -> silent no-op (no overlay, no paste).
     func beginPolishSelectedText() {
