@@ -2110,13 +2110,23 @@ final class AppState {
     }
 
     private func runPolishSelectedText() async {
-        guard let original = await PasteService.copySelection() else { return }
+        // Named, not silent: a copy that doesn't land (nothing selected, or the
+        // app didn't answer Cmd+C) is indistinguishable from a broken feature
+        // otherwise — which is exactly how this looked when polish itself broke.
+        guard let original = await PasteService.copySelection() else {
+            await showFailure(label: "NOTHING SELECTED",
+                              message: "Polish Selected Text: couldn't read a selection from the frontmost app.")
+            return
+        }
         overlayPhase = .polishing
         overlay.show(appState: self)
-        let result = await polishedText(for: original)
+        let (result, failure) = await polishedText(for: original)
         overlay.hide()
         overlayPhase = .none
         pasteRespectingClipboardSettings(result)
+        // Paste first, then report: the selection is restored either way, and a
+        // 2.2s capsule must not delay putting the text back.
+        if let failure { await showFailure(label: "POLISH FAILED", message: failure) }
     }
 
     /// Play a one-off canned demo of `style` in the real HUD so the settings
@@ -2308,11 +2318,14 @@ final class AppState {
             SoundPlayer.play(.stop, volume: Float(soundVolume))
         }
 
+        // Non-nil only when Smart Dictation's polish genuinely broke — surfaced
+        // after the overlay's exit below, so the capsule doesn't fight it.
+        var polishFailure: String?
         if phase == .pasting {
             switch sessionMode {
             case .smart where !Self.tooShortForPolish(text):
                 overlayPhase = .polishing
-                text = await polishedText(for: text)
+                (text, polishFailure) = await polishedText(for: text)
                 overlayPhase = phase
             case .brainDump:
                 overlayPhase = .polishing
@@ -2355,6 +2368,7 @@ final class AppState {
         sessionMode = .normal
         onboardingDemoActive = false   // demo bracket ends with the session (set on .recording in TryItStep)
         await finishOverlayExit(exitDuration(for: phase))
+        if let polishFailure { await showFailure(label: "POLISH FAILED", message: polishFailure) }
     }
 
     // MARK: Reply assist (S4)
@@ -2428,8 +2442,16 @@ final class AppState {
     /// Show the cause in the HUD, record it, and clear after a beat. One path so
     /// no failure can be added later that forgets to surface itself.
     private func failReplyAssist(_ failure: ReplyAssistFailure) async {
-        errorMessage = failure.message
-        overlayPhase = .error(label: failure.overlayLabel)
+        await showFailure(label: failure.overlayLabel, message: failure.message)
+    }
+
+    /// The HUD's error capsule for a feature that ran and produced nothing.
+    /// Shared by reply assist and by the two shortcuts where polish IS the
+    /// deliverable — there the fail-safe's raw text is not a consolation, it is
+    /// the whole request silently failing.
+    private func showFailure(label: String, message: String) async {
+        errorMessage = message
+        overlayPhase = .error(label: label)
         overlay.show(appState: self)
         try? await Task.sleep(for: .milliseconds(2200))
         overlay.hide()
@@ -2559,10 +2581,16 @@ final class AppState {
         }
     }
 
-    private func polishedText(for original: String) async -> String {
+    /// Returns the text to paste plus, when polish genuinely broke, the message
+    /// to show. `failure` is nil for configuration states (backend disabled, no
+    /// active style) — the user turned polish off, that is not a fault. It is
+    /// non-nil only when polish was asked for and could not run, because the
+    /// fail-safe pastes the original and an unannounced fallback is
+    /// indistinguishable from a working feature.
+    private func polishedText(for original: String) async -> (text: String, failure: String?) {
         // Sarvam already produced English — paste as-is; never run the
         // translate/polish prompt on it, and no polish backend is required.
-        if crossLingualUsesSarvam { return original }
+        if crossLingualUsesSarvam { return (original, nil) }
         // The one-time nudge fires only when System is selected but off — not for
         // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
         if polishBackend == .system, !SystemLLM.isAvailable() {
@@ -2572,11 +2600,11 @@ final class AppState {
                 errorMessage = systemUnavailableMessage("polish") + " Pasted raw text for now."
             }
             escalateDegradationIfNeeded(.polish)
-            return original
+            return (original, systemUnavailableMessage("polish") + " Pasted raw text.")
         }
         guard let backend = activePolishBackend() else {
             Degradation.recordUnlessConfiguration(.polish, reason: "backend disabled")
-            return original
+            return (original, nil)
         }
         let style: PolishStyle
         let target: String?
@@ -2589,7 +2617,7 @@ final class AppState {
         } else {
             guard let active = activePolishStyle else {
                 Degradation.recordUnlessConfiguration(.polish, reason: "no active style")
-                return original
+                return (original, nil)
             }
             style = active
             target = active.requiresTargetLanguage ? translateTargetLanguage : nil
@@ -2597,12 +2625,12 @@ final class AppState {
         do {
             let polished = try await backend.polish(original, style: style, targetLanguage: target)
             Degradation.recordSuccess(.polish)
-            return polished
+            return (polished, nil)
         } catch {
             log.error("polishedText — polish failed: \(error)")
             Degradation.record(.polish, reason: error.localizedDescription)
             escalateDegradationIfNeeded(.polish)
-            return original
+            return (original, "Polish failed: \(error.localizedDescription) Pasted your original text.")
         }
     }
 
@@ -2657,7 +2685,7 @@ final class AppState {
     /// pastes into the frontmost app the way live dictation's stop-and-paste
     /// does, since there's no "target app" context for a hub-window action.
     func rePolish(_ text: String) async -> String {
-        await polishedText(for: text)
+        await polishedText(for: text).text
     }
 
     /// Pure decision: what the overlay's exit flourish should be. Evaluated
