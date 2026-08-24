@@ -2095,6 +2095,10 @@ final class AppState {
         overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
         dictation = .starting
         sessionOverlayStyle = overlayStyle
+        // A failure capsule from the previous session may still be on screen —
+        // showFailure holds it for 2.2s. Without this the new session's HUD
+        // opens reading "POLISH FAILED".
+        overlayPhase = .none
         finalizedTranscript = ""
         volatileTranscript = ""
         overlay.show(appState: self)   // instant — warming look, before any permission/capture work
@@ -2463,9 +2467,18 @@ final class AppState {
     /// the whole request silently failing.
     private func showFailure(label: String, message: String) async {
         errorMessage = message
+        // A live session owns the HUD. Report through errorMessage alone rather
+        // than painting an error capsule over someone's running recording.
+        guard dictation == .idle else { return }
         overlayPhase = .error(label: label)
         overlay.show(appState: self)
         try? await Task.sleep(for: .milliseconds(2200))
+        // A dictation started during that beat now owns the overlay — abandon
+        // quietly, the same way runOverlayPreview does. Hiding here would
+        // orderOut the panel that session just showed, and startDictation never
+        // re-shows it ("overlay already shown in toggleDictation()"), so the
+        // rest of the session would run with no HUD at all.
+        guard dictation == .idle else { return }
         overlay.hide()
         overlayPhase = .none
     }
