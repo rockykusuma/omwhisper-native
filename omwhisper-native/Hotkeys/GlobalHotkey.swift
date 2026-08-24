@@ -77,6 +77,20 @@ final class GlobalHotkey {
 
     // MARK: The one shared tap
 
+    /// While a KeyRecorderView is listening, the tap must let every keystroke
+    /// through untouched. It swallows a matched combo at the head of the
+    /// session, so rebinding a shortcut to one that is already bound would
+    /// otherwise never reach the recorder's local monitor — the field would sit
+    /// on "Press keys…" showing no conflict while the EXISTING hotkey fired,
+    /// starting a dictation the user never asked for. A count, not a flag:
+    /// clicking a second recorder before finishing the first is one click away,
+    /// and a flag cleared by whichever finishes first re-arms the tap under the
+    /// one still listening.
+    private static var recordingCount = 0
+    static var isRecordingShortcut: Bool { recordingCount > 0 }
+    static func beginShortcutRecording() { recordingCount += 1 }
+    static func endShortcutRecording() { recordingCount = max(0, recordingCount - 1) }
+
     private static var tap: CFMachPort?
     private static var runLoopSource: CFRunLoopSource?
     private struct WeakHotkey { weak var hotkey: GlobalHotkey? }
@@ -105,7 +119,7 @@ final class GlobalHotkey {
         // also type into a focused field. When the tap IS live it swallows
         // first and this never runs.
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
+            guard let self, !Self.isRecordingShortcut else { return event }
             if self.matches(keyCode: event.keyCode,
                             mods: event.modifierFlags.intersection(Self.relevantMask)) {
                 if !event.isARepeat { self.action() }
@@ -181,6 +195,7 @@ final class GlobalHotkey {
     /// never fires the action: holding the combo must not leak a stream of
     /// keystrokes into the frontmost app, which is the whole reason this is a tap.
     fileprivate static func handleTapped(keyCode: UInt16, rawMods: UInt, isRepeat: Bool) -> Bool {
+        guard !isRecordingShortcut else { return false }   // the recorder needs to see this key
         let mods = NSEvent.ModifierFlags(rawValue: rawMods)
         guard let hotkey = registry.compactMap(\.hotkey).first(where: { $0.matches(keyCode: keyCode, mods: mods) })
         else { return false }

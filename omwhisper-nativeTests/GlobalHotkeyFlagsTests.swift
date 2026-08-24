@@ -43,3 +43,39 @@ struct GlobalHotkeyFlagsTests {
         }
     }
 }
+
+/// The tap swallows a matched combo before any app sees it, so it has to go
+/// quiet while a shortcut recorder is listening — otherwise rebinding to an
+/// already-bound combo fires that hotkey instead of being captured.
+@MainActor
+struct GlobalHotkeyRecordingGateTests {
+    @Test func gateOpensAndClosesAroundOneRecorder() {
+        #expect(GlobalHotkey.isRecordingShortcut == false)
+        GlobalHotkey.beginShortcutRecording()
+        #expect(GlobalHotkey.isRecordingShortcut)
+        GlobalHotkey.endShortcutRecording()
+        #expect(GlobalHotkey.isRecordingShortcut == false)
+    }
+
+    /// Clicking a second "Press keys…" before finishing the first is one click
+    /// away. A Bool cleared by whichever finishes first would re-arm the tap
+    /// under the recorder still listening — which is the bug, again.
+    @Test func staysClosedWhileASecondRecorderIsStillListening() {
+        GlobalHotkey.beginShortcutRecording()
+        GlobalHotkey.beginShortcutRecording()
+        GlobalHotkey.endShortcutRecording()
+        #expect(GlobalHotkey.isRecordingShortcut, "tap re-armed while a recorder was still listening")
+        GlobalHotkey.endShortcutRecording()
+        #expect(GlobalHotkey.isRecordingShortcut == false)
+    }
+
+    /// onDisappear can stop() a recorder that already stopped; an unbalanced
+    /// end must never drive the count negative and wedge the gate open.
+    @Test func unbalancedEndCannotWedgeTheGate() {
+        GlobalHotkey.endShortcutRecording()
+        GlobalHotkey.beginShortcutRecording()
+        #expect(GlobalHotkey.isRecordingShortcut)
+        GlobalHotkey.endShortcutRecording()
+        #expect(GlobalHotkey.isRecordingShortcut == false)
+    }
+}
