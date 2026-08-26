@@ -462,10 +462,22 @@ final class AppState {
         }
     }
 
+    // These were briefly moved to ⌃⌥ because ⌘⇧B is Notes' "Body" style and ⌘|
+    // is Center in every standard AppKit document app, and the old global
+    // NSEvent monitor could not consume the keystroke — so the target app ran
+    // its menu command on every use. GlobalHotkey's CGEventTap now swallows a
+    // matched combo before anyone is offered it, which removes the constraint
+    // rather than working around it, so the ⌘⇧ family is back.
+    // Caveat: without Accessibility the tap cannot be created and the keystroke
+    // does reach the app again — but Polish Selected needs Accessibility to
+    // copy and paste at all, so it is broken in that state regardless.
     static let defaultSmartDictation = KeyCombo(
         keyCode: 11, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "B")
+    // kVK_ANSI_Backslash. label "|" is what KeyRecorderView captures for this
+    // combo (charactersIgnoringModifiers keeps Shift's character), so a
+    // hand-written default and a recorded one render identically.
     static let defaultPolishSelected = KeyCombo(
-        keyCode: 35, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "P")
+        keyCode: 42, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "|")
     static let defaultBrainDump = KeyCombo(
         keyCode: 2, modifiers: NSEvent.ModifierFlags([.command, .shift]).rawValue, label: "D")
 
@@ -2026,7 +2038,7 @@ final class AppState {
         toggleOrStop(mode: .normal)
     }
 
-    /// Cmd+Shift+B — identical to toggleDictation() except it flags the session
+    /// ⌘⇧B (default) — identical to toggleDictation() except it flags the session
     /// as smart, so stopDictation() runs the active polish style before pasting.
     /// Toggle-style, like Cmd+Shift+V — no separate PTT variant for this one.
     func beginSmartDictation() {
@@ -2034,7 +2046,7 @@ final class AppState {
     }
 
     /// ⌘⇧D — capture a long ramble, then structure it into the active brain-dump
-    /// shape on stop. Toggle-style, like ⌘⇧V/⌘⇧B.
+    /// shape on stop. Toggle-style, like the dictation and smart-dictation shortcuts.
     func beginBrainDump() {
         toggleOrStop(mode: .brainDump)
     }
@@ -2083,6 +2095,10 @@ final class AppState {
         overlayPreviewTask?.cancel()   // a settings Preview must not clobber a real session
         dictation = .starting
         sessionOverlayStyle = overlayStyle
+        // A failure capsule from the previous session may still be on screen —
+        // showFailure holds it for 2.2s. Without this the new session's HUD
+        // opens reading "POLISH FAILED".
+        overlayPhase = .none
         finalizedTranscript = ""
         volatileTranscript = ""
         overlay.show(appState: self)   // instant — warming look, before any permission/capture work
@@ -2101,7 +2117,7 @@ final class AppState {
         }
     }
 
-    /// Cmd+Shift+P. Guarded on dictation == .idle so this can't fire mid-session
+    /// ⌘⇧\\ (default). Guarded on dictation == .idle so this can't fire mid-session
     /// and race the dictation state machine — press it while dictating and it's
     /// simply ignored. Nothing is selected -> silent no-op (no overlay, no paste).
     func beginPolishSelectedText() {
@@ -2110,13 +2126,23 @@ final class AppState {
     }
 
     private func runPolishSelectedText() async {
-        guard let original = await PasteService.copySelection() else { return }
+        // Named, not silent: a copy that doesn't land (nothing selected, or the
+        // app didn't answer Cmd+C) is indistinguishable from a broken feature
+        // otherwise — which is exactly how this looked when polish itself broke.
+        guard let original = await PasteService.copySelection() else {
+            await showFailure(label: "NOTHING SELECTED",
+                              message: "Polish Selected Text: couldn't read a selection from the frontmost app.")
+            return
+        }
         overlayPhase = .polishing
         overlay.show(appState: self)
-        let result = await polishedText(for: original)
+        let (result, failure) = await polishedText(for: original)
         overlay.hide()
         overlayPhase = .none
         pasteRespectingClipboardSettings(result)
+        // Paste first, then report: the selection is restored either way, and a
+        // 2.2s capsule must not delay putting the text back.
+        if let failure { await showFailure(label: "POLISH FAILED", message: failure) }
     }
 
     /// Play a one-off canned demo of `style` in the real HUD so the settings
@@ -2308,15 +2334,23 @@ final class AppState {
             SoundPlayer.play(.stop, volume: Float(soundVolume))
         }
 
+        // Non-nil only when Smart Dictation's polish or brain-dump's structuring
+        // genuinely broke — surfaced after the overlay's exit below, so the
+        // capsule doesn't fight it.
+        var polishFailure: String?
+        // Brain-dump's failure is not a polish failure; naming it "POLISH
+        // FAILED" would send someone to the wrong setting.
+        var failureLabel = "POLISH FAILED"
         if phase == .pasting {
             switch sessionMode {
             case .smart where !Self.tooShortForPolish(text):
                 overlayPhase = .polishing
-                text = await polishedText(for: text)
+                (text, polishFailure) = await polishedText(for: text)
                 overlayPhase = phase
             case .brainDump:
                 overlayPhase = .polishing
-                text = await brainDumpStructured(for: text)
+                (text, polishFailure) = await brainDumpStructured(for: text)
+                failureLabel = "STRUCTURING FAILED"
                 overlayPhase = phase
             default:
                 break
@@ -2355,6 +2389,7 @@ final class AppState {
         sessionMode = .normal
         onboardingDemoActive = false   // demo bracket ends with the session (set on .recording in TryItStep)
         await finishOverlayExit(exitDuration(for: phase))
+        if let polishFailure { await showFailure(label: failureLabel, message: polishFailure) }
     }
 
     // MARK: Reply assist (S4)
@@ -2428,10 +2463,27 @@ final class AppState {
     /// Show the cause in the HUD, record it, and clear after a beat. One path so
     /// no failure can be added later that forgets to surface itself.
     private func failReplyAssist(_ failure: ReplyAssistFailure) async {
-        errorMessage = failure.message
-        overlayPhase = .error(label: failure.overlayLabel)
+        await showFailure(label: failure.overlayLabel, message: failure.message)
+    }
+
+    /// The HUD's error capsule for a feature that ran and produced nothing.
+    /// Shared by reply assist and by the two shortcuts where polish IS the
+    /// deliverable — there the fail-safe's raw text is not a consolation, it is
+    /// the whole request silently failing.
+    private func showFailure(label: String, message: String) async {
+        errorMessage = message
+        // A live session owns the HUD. Report through errorMessage alone rather
+        // than painting an error capsule over someone's running recording.
+        guard dictation == .idle else { return }
+        overlayPhase = .error(label: label)
         overlay.show(appState: self)
         try? await Task.sleep(for: .milliseconds(2200))
+        // A dictation started during that beat now owns the overlay — abandon
+        // quietly, the same way runOverlayPreview does. Hiding here would
+        // orderOut the panel that session just showed, and startDictation never
+        // re-shows it ("overlay already shown in toggleDictation()"), so the
+        // rest of the session would run with no HUD at all.
+        guard dictation == .idle else { return }
         overlay.hide()
         overlayPhase = .none
     }
@@ -2559,10 +2611,16 @@ final class AppState {
         }
     }
 
-    private func polishedText(for original: String) async -> String {
+    /// Returns the text to paste plus, when polish genuinely broke, the message
+    /// to show. `failure` is nil for configuration states (backend disabled, no
+    /// active style) — the user turned polish off, that is not a fault. It is
+    /// non-nil only when polish was asked for and could not run, because the
+    /// fail-safe pastes the original and an unannounced fallback is
+    /// indistinguishable from a working feature.
+    private func polishedText(for original: String) async -> (text: String, failure: String?) {
         // Sarvam already produced English — paste as-is; never run the
         // translate/polish prompt on it, and no polish backend is required.
-        if crossLingualUsesSarvam { return original }
+        if crossLingualUsesSarvam { return (original, nil) }
         // The one-time nudge fires only when System is selected but off — not for
         // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
         if polishBackend == .system, !SystemLLM.isAvailable() {
@@ -2572,11 +2630,11 @@ final class AppState {
                 errorMessage = systemUnavailableMessage("polish") + " Pasted raw text for now."
             }
             escalateDegradationIfNeeded(.polish)
-            return original
+            return (original, systemUnavailableMessage("polish") + " Pasted raw text.")
         }
         guard let backend = activePolishBackend() else {
             Degradation.recordUnlessConfiguration(.polish, reason: "backend disabled")
-            return original
+            return (original, nil)
         }
         let style: PolishStyle
         let target: String?
@@ -2589,7 +2647,7 @@ final class AppState {
         } else {
             guard let active = activePolishStyle else {
                 Degradation.recordUnlessConfiguration(.polish, reason: "no active style")
-                return original
+                return (original, nil)
             }
             style = active
             target = active.requiresTargetLanguage ? translateTargetLanguage : nil
@@ -2597,12 +2655,12 @@ final class AppState {
         do {
             let polished = try await backend.polish(original, style: style, targetLanguage: target)
             Degradation.recordSuccess(.polish)
-            return polished
+            return (polished, nil)
         } catch {
             log.error("polishedText — polish failed: \(error)")
             Degradation.record(.polish, reason: error.localizedDescription)
             escalateDegradationIfNeeded(.polish)
-            return original
+            return (original, "Polish failed: \(error.localizedDescription) Pasted your original text.")
         }
     }
 
@@ -2617,13 +2675,18 @@ final class AppState {
     /// Structure a brain-dump ramble into the active shape via the active backend,
     /// grounded in the target app + captured screen terms. Any failure returns the
     /// raw ramble — words are never dropped (same rule as polishedText).
-    private func brainDumpStructured(for original: String) async -> String {
+    /// Same contract as `polishedText`: nil failure for configuration states,
+    /// non-nil when structuring was asked for and could not run. A brain-dump
+    /// that silently pastes the raw ramble is the worst case of all — the whole
+    /// point was the shape, and an unstructured wall of text looks like the
+    /// feature simply did nothing.
+    private func brainDumpStructured(for original: String) async -> (text: String, failure: String?) {
         if polishBackend == .system, !SystemLLM.isAvailable() {
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
                 errorMessage = systemUnavailableMessage("structure brain-dumps") + " Pasted raw text for now."
             }
-            return original
+            return (original, systemUnavailableMessage("structure brain-dumps") + " Pasted raw text.")
         }
         // Long-form, not dictation: a ramble is large input the user is
         // deliberately waiting on, so it takes Ollama's 12,000-char envelope and
@@ -2633,23 +2696,29 @@ final class AppState {
                                   ollamaChunkLimit: BrainDumpStructurer.ollamaChunkLimit,
                                   systemChunkLimit: BrainDumpStructurer.chunkCharLimit,
                                   cloudChunkLimit: BrainDumpStructurer.cloudChunkLimit)
-        guard !candidates.isEmpty, let shape = activeBrainDumpShape else { return original }
+        // Configuration, not fault: no backend enabled or no shape chosen means
+        // the user turned structuring off, which must not raise an alarm.
+        guard !candidates.isEmpty, let shape = activeBrainDumpShape else { return (original, nil) }
         var parts: [String] = []
         if let app = NSWorkspace.shared.frontmostApplication?.localizedName { parts.append("Target app: \(app)") }
         if !sessionScreenTerms.isEmpty { parts.append("On-screen terms: \(sessionScreenTerms.prefix(20).joined(separator: ", "))") }
         let context = parts.isEmpty ? nil : parts.joined(separator: ". ")
         // Falls through the list rather than straight to raw text: Ollama being
         // down should cost the bigger envelope, not the structuring entirely.
+        var lastError: Error?
         for candidate in candidates {
             do {
-                return try await BrainDumpStructurer.structure(
+                let structured = try await BrainDumpStructurer.structure(
                     transcript: original, shape: shape, context: context,
                     polish: candidate.polish, chunkLimit: candidate.chunkLimit)
+                return (structured, nil)
             } catch {
                 log.error("brainDumpStructured — \(String(describing: candidate.kind)) failed: \(error)")
+                lastError = error
             }
         }
-        return original
+        let reason = lastError.map { "Structuring failed: \($0.localizedDescription)" } ?? "Structuring failed."
+        return (original, reason + " Pasted your raw text.")
     }
 
     /// Re-runs a past history entry's text through the current polish
@@ -2657,7 +2726,7 @@ final class AppState {
     /// pastes into the frontmost app the way live dictation's stop-and-paste
     /// does, since there's no "target app" context for a hub-window action.
     func rePolish(_ text: String) async -> String {
-        await polishedText(for: text)
+        await polishedText(for: text).text
     }
 
     /// Pure decision: what the overlay's exit flourish should be. Evaluated

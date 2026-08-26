@@ -183,7 +183,9 @@ struct AISettingsView: View {
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
                 }
-                Text("Cmd+Shift+B always polishes what you just said. Cmd+Shift+P polishes whatever's selected in the frontmost app.")
+                // Read from the live bindings — a combo written down by hand is a
+                // combo that goes stale the moment anyone rebinds it.
+                Text("\(appState.smartDictationShortcut?.display ?? "Smart Dictation (no shortcut)") always polishes what you just said. \(appState.polishSelectedShortcut?.display ?? "Polish Selected Text (no shortcut)") polishes whatever's selected in the frontmost app.")
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)
             }

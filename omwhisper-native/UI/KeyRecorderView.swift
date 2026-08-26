@@ -31,8 +31,10 @@ struct KeyRecorderView: View {
     }
 
     private func startRecording() {
+        guard !recording else { return }   // balance the count: one begin per stop
         recording = true
         hint = nil
+        GlobalHotkey.beginShortcutRecording()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             handle(event)
             return nil   // swallow keystrokes while recording
@@ -55,8 +57,10 @@ struct KeyRecorderView: View {
     }
 
     private func stop() {
+        guard recording else { return }
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         recording = false
+        GlobalHotkey.endShortcutRecording()
     }
 }

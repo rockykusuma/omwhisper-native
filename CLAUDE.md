@@ -11,7 +11,14 @@ OmWhisper — menu-bar dictation for macOS, written in Swift. Currently **2.0.x*
 - **Platform**: macOS 26+, Apple Silicon only. No availability gating, no fallback paths —
   SpeechTranscriber and Foundation Models are assumed present.
 - **UI**: SwiftUI-first, AppKit where the platform demands it (`MenuBarExtra`, `NSPanel`
-  non-activating overlay, `CGEventTap` for PTT).
+  non-activating overlay, `CGEventTap` for global shortcuts). This line read "`CGEventTap`
+  for PTT" until 2026-08-25 and was never true: `PushToTalkMonitor` watches `.flagsChanged`
+  through `NSEvent` monitors, and no event tap existed anywhere in the codebase. The tap is
+  `GlobalHotkey`'s, added 2026-08-25, and the distinction is the whole point of it — an
+  `NSEvent` global monitor can only observe, so a shortcut also reached the frontmost app
+  and ran whatever menu command shared its combo (⌘⇧P is Page Setup, ⌘| is Center). PTT is
+  still `NSEvent`-based: a bare modifier generates no key equivalent, so there is nothing
+  to swallow.
 - **Distribution**: Developer ID + notarization, direct download — **not** the App Store.
   The app is NOT sandboxed: Accessibility-based paste (`CGEventPost`) and global event taps
   require entitlements the App Store sandbox forbids.
@@ -89,7 +96,7 @@ Sign-off criteria (gate M1 and M4):
 
 | Layer | Technology |
 |-------|-----------|
-| UI | SwiftUI + AppKit (`MenuBarExtra`, `NSPanel`, `CGEventTap`) |
+| UI | SwiftUI + AppKit (`MenuBarExtra`, `NSPanel`, `CGEventTap` for hotkeys — PTT is `NSEvent`) |
 | State | Single `@Observable` `AppState` — no per-view settings read-modify-write |
 | Transcription | `TranscriptionEngine` protocol → `AppleEngine` (SpeechTranscriber, default) / `ParakeetEngine` (FluidAudio CoreML, optional) / `CloudEngine` (streaming WebSocket) |
 | Polish | `PolishBackend` protocol → `SystemLLM` (Foundation Models, default) / `Ollama` / `CloudLLM` (OpenAI-compatible, keys in Keychain) |
