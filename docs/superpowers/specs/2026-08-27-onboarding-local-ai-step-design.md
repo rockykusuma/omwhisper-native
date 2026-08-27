@@ -87,8 +87,13 @@ whatever the filesystem says (Docker, a custom prefix, a remote `baseURL`). Only
 when unreachable does `appInstalled` decide between `.installedNotRunning` and
 `.notInstalled`.
 
-`Ollama.checkStatus` stays — `detect` needs both the reachability answer and the
-list, and the Settings "Test Connection" button still wants a plain yes/no.
+`detect` makes **one** request to `/api/tags`, not two. `Ollama.listModels`
+cannot serve this alone: it returns `[]` both when the server is unreachable and
+when it is running with nothing pulled — the very rows that must be told apart.
+So `detect` performs the request itself and reads *no response* as unreachable
+and *2xx with an empty array* as `.runningNoModels`. `Ollama.checkStatus` and
+`listModels` both stay, unchanged: Settings' "Test Connection" button still
+wants a plain yes/no, and the existing model picker still wants a list.
 
 ### The step
 
@@ -116,6 +121,14 @@ reintroduce exactly the bug it was written to fix.
 
 **Skip for now** is always enabled and never a dead end, matching the rule
 already established for the Try It step: denial is never a dead end.
+
+**When neither backend is usable** — no Apple Intelligence on this locale and no
+Ollama installed — the step still shows, with both cards stating their real
+reason and Skip as the only action. It is not hidden. A screen that silently
+disappears on the machines where it has the most to explain would leave those
+users believing the app has no local AI, which is the opposite of true: it has
+two, and this Mac can run one of them after a download. Hiding the step is how
+the "listening locally" claim and the vocabulary toggle went unnoticed.
 
 ### What it writes
 
