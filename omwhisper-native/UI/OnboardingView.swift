@@ -297,6 +297,11 @@ private struct AIPolishStep: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            // Smaller than Welcome's 190 and Done's 150: this is the only step
+            // carrying two cards, and the orb is here to anchor the step to the
+            // rest of the flow, not to be the subject of it.
+            OmOrbView(appState: appState)
+                .frame(width: 96, height: 96)
             KickerText("OPTIONAL")
             Text("Want your words cleaned up?")
                 .font(.system(size: 25, weight: .semibold))
@@ -308,7 +313,7 @@ private struct AIPolishStep: View {
             appleCard
             ollamaCard
 
-            Button("Skip for now", action: onNext)
+            Button("Not now", action: onNext)
                 .buttonStyle(.plain)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.omGlyphCore.opacity(0.65))
