@@ -5,7 +5,8 @@ struct OnboardingStepTests {
     @Test func nextAdvancesThenStops() {
         #expect(OnboardingStep.welcome.next == .permissions)
         #expect(OnboardingStep.permissions.next == .tryIt)
-        #expect(OnboardingStep.tryIt.next == .done)
+        #expect(OnboardingStep.tryIt.next == .aiPolish)
+        #expect(OnboardingStep.aiPolish.next == .done)
         #expect(OnboardingStep.done.next == .done)   // clamps at the last step
     }
 
@@ -13,10 +14,11 @@ struct OnboardingStepTests {
         #expect(OnboardingStep.done.isLast)
         #expect(!OnboardingStep.welcome.isLast)
         #expect(!OnboardingStep.tryIt.isLast)
+        #expect(!OnboardingStep.aiPolish.isLast)
     }
 
     @Test func allCasesInOrder() {
-        #expect(OnboardingStep.allCases == [.welcome, .permissions, .tryIt, .done])
+        #expect(OnboardingStep.allCases == [.welcome, .permissions, .tryIt, .aiPolish, .done])
     }
 }
 
