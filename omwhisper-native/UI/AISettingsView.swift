@@ -20,9 +20,14 @@ struct AISettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var newStyleName = ""
     @State private var newStylePrompt = ""
-    @State private var ollamaReachable: Bool?
-    @State private var ollamaModels: [String] = []
+    @State private var ollamaState: OllamaState?
     @State private var ollamaChecking = false
+    /// Derived, not stored: the per-feature backend menu below also lists these,
+    /// and one source of truth means the menu cannot disagree with the section.
+    private var ollamaModels: [String] {
+        if case .ready(let models) = ollamaState { return models }
+        return []
+    }
     @State private var cloudKeyInput = ""
     @State private var cloudHasSavedKey = false
     @State private var cloudTesting = false
@@ -77,12 +82,24 @@ struct AISettingsView: View {
                     HStack {
                         Button(ollamaChecking ? "Checking…" : "Test Connection") { testOllama(state.ollamaBaseURL) }
                             .disabled(ollamaChecking)
-                        if let ollamaReachable {
-                            Text(ollamaReachable
-                                 ? "Connected — \(ollamaModels.count) model\(ollamaModels.count == 1 ? "" : "s")"
-                                 : "Couldn't reach Ollama. Is it running?")
-                                .font(.caption)
-                                .foregroundStyle(ollamaReachable ? Color.Porcelain.dim : .red)
+                        // One sentence per state. This used to print "Couldn't
+                        // reach Ollama. Is it running?" for all three failures,
+                        // including to people who had never installed it.
+                        switch ollamaState {
+                        case nil:
+                            EmptyView()
+                        case .ready(let models):
+                            Text("Connected — \(models.count) model\(models.count == 1 ? "" : "s")")
+                                .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                        case .runningNoModels:
+                            Text("Connected — no models installed yet")
+                                .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                        case .installedNotRunning:
+                            Text("Ollama is installed but not running.")
+                                .font(.caption).foregroundStyle(.red)
+                        case .notInstalled:
+                            Text("Ollama isn't installed on this Mac.")
+                                .font(.caption).foregroundStyle(.red)
                         }
                     }
                     if !ollamaModels.isEmpty {
@@ -92,8 +109,20 @@ struct AISettingsView: View {
                         }
                         .tint(Color.Porcelain.emerald)
                         .foregroundStyle(Color.Porcelain.ink)
-                    } else if ollamaReachable == true {
-                        Text("No models installed — run `ollama pull <model>` in Terminal.")
+                    } else if ollamaState == .runningNoModels || ollamaState == .notInstalled {
+                        HStack(spacing: 8) {
+                            Text(OllamaPresence.pullCommand)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(Color.Porcelain.ink)
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(OllamaPresence.pullCommand, forType: .string)
+                            }
+                            .buttonStyle(.plain)
+                            .font(.caption)
+                            .foregroundStyle(Color.Porcelain.emerald)
+                        }
+                        Text("\(OllamaPresence.recommendedModelSize) download · needs at least 16 GB of memory")
                             .font(.caption).foregroundStyle(Color.Porcelain.dim)
                     } else if !state.ollamaModel.isEmpty {
                         Text("Model: \(state.ollamaModel)")
@@ -231,9 +260,7 @@ struct AISettingsView: View {
     private func testOllama(_ baseURL: String) {
         ollamaChecking = true
         Task {
-            let reachable = await Ollama.checkStatus(baseURL: baseURL)
-            ollamaModels = reachable ? await Ollama.listModels(baseURL: baseURL) : []
-            ollamaReachable = reachable
+            ollamaState = await OllamaPresence.detect(baseURL: baseURL)
             ollamaChecking = false
         }
     }

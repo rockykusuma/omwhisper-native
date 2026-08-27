@@ -10,7 +10,7 @@
 import SwiftUI
 
 nonisolated enum OnboardingStep: Int, CaseIterable {
-    case welcome, permissions, tryIt, done
+    case welcome, permissions, tryIt, aiPolish, done
 
     /// Advances to the following step; clamps at `.done`.
     var next: OnboardingStep { OnboardingStep(rawValue: rawValue + 1) ?? self }
@@ -64,7 +64,8 @@ struct OnboardingView: View {
         switch step {
         case .welcome:     WelcomeStep { step = .permissions }
         case .permissions: PermissionsStep { step = .tryIt }
-        case .tryIt:       TryItStep { step = .done }
+        case .tryIt:       TryItStep { step = .aiPolish }
+        case .aiPolish:    AIPolishStep { step = .done }
         case .done:        DoneStep(onFinish: finish)
         }
     }
@@ -276,6 +277,207 @@ private struct DoneStep: View {
                 .font(.system(size: 12))
                 .foregroundStyle(Color.omGlyphCore.opacity(0.5))
         }
+    }
+}
+
+/// Offers the two ON-DEVICE backends. Cloud is deliberately absent: it needs an
+/// API key, costs money and sends text off the Mac, none of which belongs in a
+/// first-run wizard.
+///
+/// Writes `dictationPolish` and nothing else. `FeatureBackend.ollama(model:)`
+/// carries the model inline, so there is no second write to keep in sync, and
+/// leaving the global `polishBackend` alone keeps the other four features at
+/// `.useDefault` without needing a guard.
+private struct AIPolishStep: View {
+    @Environment(AppState.self) private var appState
+    let onNext: () -> Void
+
+    @State private var ollama: OllamaState?
+    @State private var picked = ""
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Smaller than Welcome's 190 and Done's 150: this is the only step
+            // carrying two cards, and the orb is here to anchor the step to the
+            // rest of the flow, not to be the subject of it.
+            OmOrbView(appState: appState)
+                .frame(width: 96, height: 96)
+            KickerText("OPTIONAL")
+            Text("Want your words cleaned up?")
+                .font(.system(size: 25, weight: .semibold))
+                .foregroundStyle(Color.omGlyphCore)
+            Text("Both of these run on this Mac. Nothing is sent anywhere.")
+                .font(.system(size: 13))
+                .foregroundStyle(Color.omGlyphCore.opacity(0.6))
+
+            appleCard
+            ollamaCard
+
+            Button("Not now", action: onNext)
+                .buttonStyle(.plain)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.omGlyphCore.opacity(0.65))
+                .padding(.top, 2)
+            Text("You can change this any time in Settings → AI Models.")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.omGlyphCore.opacity(0.4))
+        }
+        // Re-runs whenever the user comes back to this step; Refresh below
+        // re-runs it on demand after they pull a model in Terminal.
+        .task { await refresh() }
+    }
+
+    private func refresh() async {
+        let state = await OllamaPresence.detect(baseURL: appState.ollamaBaseURL)
+        ollama = state
+        // Preselect the recommended model when it is installed — but never
+        // overwrite a choice already made, so Refresh cannot undo a selection.
+        if case .ready(let models) = state, picked.isEmpty {
+            picked = OllamaPresence.recommended(in: models) ?? ""
+        }
+    }
+
+    // MARK: Apple Intelligence
+
+    @ViewBuilder private var appleCard: some View {
+        OnboardingCard(title: "Apple Intelligence") {
+            // unavailableReason() names the REAL cause, including the en-IN case
+            // where availability reports .available and every generation throws.
+            // Summarising it here would reintroduce the bug it was written for.
+            if let reason = SystemLLM.unavailableReason() {
+                Text(reason)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.omGlyphCore.opacity(0.55))
+            } else {
+                Text("Built into macOS. No download.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.omGlyphCore.opacity(0.55))
+                OnboardingButton("Use Apple Intelligence") {
+                    appState.setBackend(.system, for: .dictationPolish)
+                    onNext()
+                }
+            }
+        }
+    }
+
+    // MARK: Ollama
+
+    @ViewBuilder private var ollamaCard: some View {
+        OnboardingCard(title: "Ollama") {
+            switch ollama {
+            case nil:
+                Text("Checking…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.omGlyphCore.opacity(0.55))
+
+            case .ready(let models):
+                // A 3B model makes polish and summaries look broken, and the
+                // picker otherwise presents it as an equal choice. The pull
+                // command's recommendation is invisible to anyone who already
+                // has models installed — which is most people who get here.
+                Picker("", selection: $picked) {
+                    Text("Choose a model").tag("")
+                    ForEach(models, id: \.self) { model in
+                        Text(OllamaPresence.isRecommended(model) ? "\(model) — recommended" : model)
+                            .tag(model)
+                    }
+                }
+                .labelsHidden()
+                .tint(Color.omEmerald)
+                OnboardingButton("Use Ollama") {
+                    appState.setBackend(.ollama(model: picked), for: .dictationPolish)
+                    onNext()
+                }
+                // .disabled propagates to the inner Button, but OnboardingButton
+                // paints its own gradient capsule and will NOT dim — it would
+                // look enabled while doing nothing. Fade it explicitly.
+                .disabled(picked.isEmpty)
+                .opacity(picked.isEmpty ? 0.45 : 1)
+
+            case .runningNoModels:
+                Text("Ollama is running, but has no models yet.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.omGlyphCore.opacity(0.55))
+                commandRow
+                refreshButton
+
+            case .installedNotRunning:
+                Text("Ollama is installed but not running.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.omGlyphCore.opacity(0.55))
+                HStack(spacing: 10) {
+                    linkButton("Open Ollama") {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications/Ollama.app"))
+                    }
+                    refreshButton
+                }
+
+            case .notInstalled:
+                Text("Ollama isn’t installed. It’s a free local model runner.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.omGlyphCore.opacity(0.55))
+                HStack(spacing: 10) {
+                    linkButton("Get Ollama") {
+                        NSWorkspace.shared.open(URL(string: "https://ollama.com/download")!)
+                    }
+                    refreshButton
+                }
+                commandRow
+            }
+        }
+    }
+
+    private var commandRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(OllamaPresence.pullCommand)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Color.omGlyphCore.opacity(0.85))
+                linkButton("Copy") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(OllamaPresence.pullCommand, forType: .string)
+                }
+            }
+            // The size is stated because recommending a model on answer quality
+            // without checking whether the hardware can hold it is a mistake
+            // this project has already made once.
+            Text("\(OllamaPresence.recommendedModelSize) download · needs at least 16 GB of memory")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.omGlyphCore.opacity(0.4))
+        }
+    }
+
+    private var refreshButton: some View {
+        linkButton("Refresh") { Task { await refresh() } }
+    }
+
+    private func linkButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.omEmerald)
+    }
+}
+
+/// A bordered panel on the dark onboarding ground. Local to onboarding on
+/// purpose — `omCard()` is a Porcelain component and follows the appearance
+/// picker, which every onboarding step ignores.
+private struct OnboardingCard<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.omGlyphCore)
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 13).fill(Color.omGlyphCore.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.omGlyphCore.opacity(0.12)))
+        .frame(maxWidth: 380)
     }
 }
 
