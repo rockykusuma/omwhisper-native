@@ -328,7 +328,13 @@ private struct AIPolishStep: View {
     }
 
     private func refresh() async {
-        ollama = await OllamaPresence.detect(baseURL: appState.ollamaBaseURL)
+        let state = await OllamaPresence.detect(baseURL: appState.ollamaBaseURL)
+        ollama = state
+        // Preselect the recommended model when it is installed — but never
+        // overwrite a choice already made, so Refresh cannot undo a selection.
+        if case .ready(let models) = state, picked.isEmpty {
+            picked = OllamaPresence.recommended(in: models) ?? ""
+        }
     }
 
     // MARK: Apple Intelligence
@@ -365,9 +371,16 @@ private struct AIPolishStep: View {
                     .foregroundStyle(Color.omGlyphCore.opacity(0.55))
 
             case .ready(let models):
+                // A 3B model makes polish and summaries look broken, and the
+                // picker otherwise presents it as an equal choice. The pull
+                // command's recommendation is invisible to anyone who already
+                // has models installed — which is most people who get here.
                 Picker("", selection: $picked) {
                     Text("Choose a model").tag("")
-                    ForEach(models, id: \.self) { Text($0).tag($0) }
+                    ForEach(models, id: \.self) { model in
+                        Text(OllamaPresence.isRecommended(model) ? "\(model) — recommended" : model)
+                            .tag(model)
+                    }
                 }
                 .labelsHidden()
                 .tint(Color.omEmerald)

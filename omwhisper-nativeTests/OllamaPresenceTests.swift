@@ -44,6 +44,23 @@ struct OllamaPresenceTests {
         }
     }
 
+    /// Matched at a tag boundary, not by bare prefix. `qwen3.5-coder` starts
+    /// with `qwen3.5` and is a different model — the same prefix trap that made
+    /// `com.microsoft.teams2` match the `com.microsoft.teams` entry.
+    @Test func recommendedMatchesTheTagButNotANeighbour() {
+        #expect(OllamaPresence.isRecommended("qwen3.5"))
+        #expect(OllamaPresence.isRecommended("qwen3.5:latest"))
+        #expect(!OllamaPresence.isRecommended("qwen3.5-coder:7b"))
+        #expect(!OllamaPresence.isRecommended("llama3.2:latest"))
+        #expect(!OllamaPresence.isRecommended(""))
+    }
+
+    @Test func picksTheRecommendedModelOutOfAnInstalledList() {
+        #expect(OllamaPresence.recommended(in: ["llama3.2:latest", "qwen3.5:latest"]) == "qwen3.5:latest")
+        #expect(OllamaPresence.recommended(in: ["llama3.2:latest", "gemma4:latest"]) == nil)
+        #expect(OllamaPresence.recommended(in: []) == nil)
+    }
+
     /// Two surfaces print this command. If they drift, one of them teaches the
     /// user to pull a model the other does not recommend.
     @Test func pullCommandNamesTheRecommendedModel() {

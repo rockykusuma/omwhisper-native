@@ -31,6 +31,19 @@ nonisolated enum OllamaPresence {
     static let recommendedModelSize = "6.6 GB"
     static let pullCommand = "ollama pull qwen3.5"
 
+    /// Whether an installed model IS the recommended one. Matched at a tag
+    /// boundary rather than by bare prefix: `qwen3.5-coder` starts with
+    /// `qwen3.5` and is a different model — the same trap that made
+    /// `com.microsoft.teams2` match the `com.microsoft.teams` entry.
+    static func isRecommended(_ modelName: String) -> Bool {
+        modelName == recommendedModel || modelName.hasPrefix(recommendedModel + ":")
+    }
+
+    /// The recommended model among what is installed, if it is installed at all.
+    static func recommended(in models: [String]) -> String? {
+        models.first(where: isRecommended)
+    }
+
     /// Proof Ollama is on this Mac even when nothing is listening. Checked in
     /// order; any hit is enough.
     static let installPaths = [
