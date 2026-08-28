@@ -354,6 +354,9 @@ private struct AIPolishStep: View {
                     .foregroundStyle(Color.omGlyphCore.opacity(0.55))
                 OnboardingButton("Use Apple Intelligence") {
                     appState.setBackend(.system, for: .dictationPolish)
+                    // Without this the step picks a backend for a feature that
+                    // stays off, and appears to do nothing.
+                    appState.dictationPolishEnabled = true
                     onNext()
                 }
             }
@@ -386,6 +389,7 @@ private struct AIPolishStep: View {
                 .tint(Color.omEmerald)
                 OnboardingButton("Use Ollama") {
                     appState.setBackend(.ollama(model: picked), for: .dictationPolish)
+                    appState.dictationPolishEnabled = true
                     onNext()
                 }
                 // .disabled propagates to the inner Button, but OnboardingButton
