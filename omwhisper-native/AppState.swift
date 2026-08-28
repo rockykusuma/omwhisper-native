@@ -162,7 +162,7 @@ final class AppState {
     /// sees it) — `.system`/`.dark` remain explicit choices in the picker.
     /// Drives the window's NSAppearance + SwiftUI colorScheme (see
     /// HubShellView). access/withMutation needed for the same reason as
-    /// polishBackend — it backs a Picker that must re-highlight on change.
+    /// the AI backend settings — they back controls that must re-highlight on change.
     var appearancePreference: AppearancePreference {
         get {
             access(keyPath: \.appearancePreference)
@@ -272,18 +272,6 @@ final class AppState {
     /// re-highlight the selected option, so without this it stays showing the
     /// stale selection until some unrelated event forces the view to rebuild
     /// (e.g. switching Settings tabs and back) — found via live verification.
-    var polishBackend: PolishBackendKind {
-        get {
-            access(keyPath: \.polishBackend)
-            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.polishBackend) else { return .disabled }
-            return PolishBackendKind(rawValue: raw) ?? .disabled
-        }
-        set {
-            withMutation(keyPath: \.polishBackend) {
-                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.polishBackend)
-            }
-        }
-    }
     var ollamaBaseURL: String {
         get {
             access(keyPath: \.ollamaBaseURL)
@@ -985,7 +973,7 @@ final class AppState {
     }
 
     /// Backends for work with large inputs, in preference order — see
-    /// LongFormBackends for why this ignores `polishBackend`. Meetings,
+    /// LongFormBackends for the resolution rules. Meetings,
     /// chronicles and brain-dump all come through here.
     ///
     /// Ollama gets `longFormTimeout` (300s), not the 30s dictation timeout:
@@ -2873,10 +2861,6 @@ nonisolated extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }
 
-nonisolated enum PolishBackendKind: String, Codable, CaseIterable {
-    case disabled, system, ollama, cloud
-}
-
 nonisolated enum AppearancePreference: String, Codable, CaseIterable, Identifiable {
     case system, light, dark
     var id: String { rawValue }
@@ -2894,6 +2878,9 @@ nonisolated enum SettingsKeys {
     static let restoreClipboard = "restoreClipboard"
     static let clipboardRestoreDelayMS = "clipboardRestoreDelayMS"
     static let appearancePreference = "appearancePreference"
+    /// The property is gone (2026-08-28); this key survives because
+    /// PolishBackendMigration still reads it once per install. Deleting it
+    /// would silently strand anyone who has not launched since the change.
     static let polishBackend = "polishBackend"
     static let defaultAIBackend = "defaultAIBackend"
     static let dictationPolishEnabled = "dictationPolishEnabled"

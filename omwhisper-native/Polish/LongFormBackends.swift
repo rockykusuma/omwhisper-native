@@ -6,7 +6,8 @@
 //  chronicles, brain-dump structuring -- as opposed to polishing a sentence of
 //  dictation.
 //
-//  Deliberately NOT a function of AppState.polishBackend. That setting says
+//  Deliberately NOT a function of the old global `polishBackend` (deleted
+//  2026-08-28). That setting said
 //  what should polish your dictation, where latency dominates: measured on this
 //  Mac, SystemLLM answers in ~2.1s while Ollama qwen3.5 takes 36.4s from cold,
 //  and Ollama evicts after ~5 minutes idle, so a first dictation after any gap

@@ -89,7 +89,8 @@ nonisolated enum DebugInfo {
           Cross-lingual: \(onOff(state.crossLingualEnabled)) (via Sarvam: \(onOff(state.crossLingualUseSarvam)), \(keyState(Keychain.loadSarvamKey())))
 
         POLISH
-          Backend: \(state.polishBackend.rawValue)
+          Default backend: \(state.defaultBackend.rawValue)
+          Dictation polish: \(state.dictationPolishEnabled ? "on" : "off")
           Apple Intelligence: \(SystemLLM.isAvailable() ? "available" : "unavailable")
           Ollama: \(state.ollamaBaseURL) — model \(orDash(state.ollamaModel))
           Cloud: \(state.cloudAPIURL) — model \(orDash(state.cloudModel)), \(keyState(Keychain.loadCloudLLMKey()))

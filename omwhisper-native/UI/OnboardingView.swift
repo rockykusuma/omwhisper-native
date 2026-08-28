@@ -286,7 +286,7 @@ private struct DoneStep: View {
 ///
 /// Writes `dictationPolish` and nothing else. `FeatureBackend.ollama(model:)`
 /// carries the model inline, so there is no second write to keep in sync, and
-/// leaving the global `polishBackend` alone keeps the other four features at
+/// leaving the Default row alone keeps the other four features at
 /// `.useDefault` without needing a guard.
 private struct AIPolishStep: View {
     @Environment(AppState.self) private var appState

@@ -37,15 +37,13 @@ struct AISettingsView: View {
         @Bindable var state = appState
         return PorcelainPage {
             PorcelainSection(eyebrow: "Backend") {
-                Picker("Polish backend", selection: $state.polishBackend) {
-                    Text("Disabled").tag(PolishBackendKind.disabled)
-                    Text("System (Apple Intelligence)").tag(PolishBackendKind.system)
-                    Text("Ollama (local)").tag(PolishBackendKind.ollama)
-                    Text("Cloud (OpenAI-compatible)").tag(PolishBackendKind.cloud)
-                }
-                .pickerStyle(.radioGroup)
-                .tint(Color.Porcelain.emerald)
-                .foregroundStyle(Color.Porcelain.ink)
+                Toggle("Polish my dictation with AI", isOn: $state.dictationPolishEnabled)
+                    .toggleStyle(.switch)
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                Text("Off by default. Meetings, Reply Assist and Memory have their own switches — this one governs dictation only.")
+                    .font(.caption)
+                    .foregroundStyle(Color.Porcelain.dim)
 
                 // Polish fails SAFE -- any failure pastes the original text --
                 // which means an unusable on-device model is indistinguishable
@@ -76,7 +74,7 @@ struct AISettingsView: View {
                 }
             }
 
-            if state.polishBackend == .ollama {
+            if usesOllamaAnywhere {
                 PorcelainSection(eyebrow: "Ollama") {
                     TextField("Base URL", text: $state.ollamaBaseURL).porcelainField()
                     HStack {
@@ -133,7 +131,7 @@ struct AISettingsView: View {
                 }
             }
 
-            if state.polishBackend == .cloud {
+            if usesCloudAnywhere {
                 PorcelainSection(eyebrow: "Cloud") {
                     Text("Your dictated text is sent to this provider while polishing. Secrets and PII (emails, keys, cards) are redacted before it leaves your Mac. Requires your own API key.")
                         .font(.caption)
@@ -326,6 +324,19 @@ struct AISettingsView: View {
         case .ollama(let model): return "Ollama · \(model)"
         case .cloud:             return "Cloud · \(appState.cloudModel)"
         }
+    }
+
+    /// A backend's settings appear when something actually resolves to it, so a
+    /// Cloud API-key field never greets someone who chose nothing cloud-related.
+    private func anyRowUses(_ match: (FeatureBackend) -> Bool) -> Bool {
+        if match(appState.defaultBackend) { return true }
+        return AIFeature.allCases.contains { match(appState.backend(for: $0)) }
+    }
+    private var usesOllamaAnywhere: Bool {
+        anyRowUses { if case .ollama = $0 { return true } else { return false } }
+    }
+    private var usesCloudAnywhere: Bool {
+        anyRowUses { $0 == .cloud }
     }
 
     /// Features whose data would leave the Mac, after resolving Default.
