@@ -27,6 +27,16 @@ Two consequences, both reachable today:
 
 R's call (2026-08-28): Disabled should mean off everywhere.
 
+**How that call is honoured, and how it is not.** This design removes the
+control that lied rather than making it true: after it, no control claims to be
+global while governing three of five features. It does NOT add a single "turn
+all AI off" switch — each feature owns its off-switch, and dictation polish
+finally gets one. Blessed explicitly by R (2026-08-28) after the gap was
+raised, because the alternative is a fourth layer (master → Default →
+per-feature → each feature's own enable toggle) and users would have to work out
+which layer they were in. Recorded here because "off everywhere" was the stated
+requirement and this is a deliberate narrowing of it, not an oversight.
+
 ## Why it happened, and why a quick patch is wrong
 
 `defaultBackend` was introduced with per-feature backends and only half the
@@ -146,6 +156,7 @@ order. Existing users see no behaviour change, and the honest default stays
 
 - No `.disabled` in `FeatureBackend`, and therefore no way to keep a feature on
   while turning only its AI off.
+- **No single "turn all AI off" control.** See the decision recorded above.
 - No change to `LongFormBackends.candidates`, to the rule that cloud is never a
   fallback, or to meeting audio never leaving the Mac.
 - No change to what any feature does once a backend is resolved.
@@ -171,10 +182,14 @@ Live verification, each naming a result that could come back negative:
    cfprefsd serves other processes stale values.
 2. With `polishBackend = disabled` stored, launch once → the Dictation polish
    toggle is off, and a dictation pastes raw text with no error capsule.
-3. Turn Dictation polish off by hand → a meeting summary still generates. That
-   is the bug this design fixes, so **it must now fail**: with the toggle off
-   and everything on Default, summaries should still run on-device, because the
-   toggle governs dictation polish only. **Control:** set the Default row to
-   Disabled — which this design does not offer — is impossible, so instead
-   confirm the Default row still governs meetings by setting it to Ollama and
-   watching the meeting caption name Ollama.
+3. **Dictation polish off must not silence meetings.** Turn the toggle off, then
+   run Transcribe & Summarize on a recorded meeting → a summary still appears,
+   because that toggle governs one feature. **Control:** turn Meetings' own
+   toggle off and confirm the feature is then unavailable — without it, "a
+   summary appeared" is equally explained by the toggle being wired to nothing.
+4. **The Default row governs meetings.** Set it to Ollama, regenerate a meeting
+   summary → the stored caption reads `Ollama (<model>)`. This is the other half
+   of the fix: before it, the Default row governed three features and the
+   deleted `polishBackend` governed two. A summary merely appearing proves
+   nothing — the on-device fallback produces one too, which is why the caption,
+   not the summary, is the evidence.
