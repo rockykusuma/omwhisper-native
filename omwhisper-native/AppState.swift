@@ -990,8 +990,20 @@ final class AppState {
     ///
     /// Ollama gets `longFormTimeout` (300s), not the 30s dictation timeout:
     /// nobody is waiting on a keystroke here, and a cold model takes ~36s to
-    /// load. Cloud is never constructed, so recorded calls and chronicles
-    /// cannot egress even as text, whatever the polish backend is.
+    /// load.
+    ///
+    /// **This comment used to say "Cloud is never constructed, so recorded
+    /// calls and chronicles cannot egress even as text". That stopped being
+    /// true when per-feature backends shipped** — the body below constructs
+    /// `CloudLLM` whenever the resolved choice is `.cloud`. The guarantee that
+    /// survives is narrower and still worth stating: cloud is reached ONLY from
+    /// an explicit `.cloud` choice (the feature's own row, or the Default row it
+    /// defers to), never as a fallback when an on-device backend is missing or
+    /// failing. Meeting AUDIO never leaves the Mac either way — `transcribeMeeting`
+    /// hardcodes AppleEngine and Whisper.
+    ///
+    /// The same sentence was copied into the public privacy page and went stale
+    /// there too, so it claimed more privacy than the app provides.
     ///
     /// The Default row. Ships as `.useDefault`, which means today's automatic
     /// on-device order -- so an existing user sees no change until they
@@ -2589,6 +2601,18 @@ final class AppState {
     ///
     /// A feature left on Default falls through to `polishBackend`, which keeps
     /// the AI tab's existing radio group meaning exactly what it means today.
+    ///
+    /// **KNOWN DEFECT — "Default" resolves through two different settings.**
+    /// Short-form (here) falls back to `polishBackend`; long-form
+    /// (`backends(for:)`) falls back to `defaultBackend`. They are separate
+    /// UserDefaults keys with separate controls on the same screen, so:
+    /// setting Polish backend to Disabled stops dictation polish while meeting
+    /// summaries, chronicles and brain-dump keep running, and setting the
+    /// Default row to Cloud moves those three without moving dictation.
+    /// R's call (2026-08-28): Disabled should mean off everywhere. Not patched
+    /// here on purpose — the fix has to decide where "Disabled" lives, and
+    /// `FeatureBackend` has no `.disabled` case, which is the whole reason both
+    /// settings still exist. Needs its own design pass.
     func activePolishBackend(for feature: AIFeature = .dictationPolish) -> PolishBackend? {
         switch backend(for: feature) {
         case .system:
