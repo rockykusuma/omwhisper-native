@@ -2022,6 +2022,7 @@ final class AppState {
             dictationPolishEnabled = plan.dictationPolishEnabled
             if let b = plan.dictationBackend { setBackend(b, for: .dictationPolish) }
             if let b = plan.replyAssistBackend { setBackend(b, for: .replyAssist) }
+            if let enabled = plan.replyAssistEnabled { replyAssistEnabled = enabled }
             UserDefaults.standard.set(true, forKey: SettingsKeys.hasMigratedPolishBackend)
         }
 
