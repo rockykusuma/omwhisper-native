@@ -215,7 +215,20 @@ enum MeetingAIDiagnostics {
     /// which would open every store and start the daemons.
     private static func backend() -> Backend? {
         let defaults = UserDefaults.standard
-        let kind = defaults.string(forKey: "defaultAIBackend") ?? "default"
+        // Parsed, not string-compared: the stored value is a FeatureBackend
+        // rawValue, so Ollama reads "ollama:qwen3.5:latest" and a bare
+        // `== "ollama"` never matched — the harness would then run a DIFFERENT
+        // configuration from the shipping one, which this file has been burned
+        // by before.
+        let stored = defaults.string(forKey: "defaultAIBackend") ?? "default"
+        let kind: String = {
+            switch FeatureBackend(rawValue: stored) ?? .useDefault {
+            case .ollama: return "ollama"
+            case .system: return "system"
+            case .cloud:  return "cloud"
+            case .useDefault: return "default"
+            }
+        }()
         let model = defaults.string(forKey: "ollamaModel") ?? ""
         if kind == "ollama", !model.isEmpty {
             let baseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"

@@ -37,11 +37,11 @@ struct AISettingsView: View {
         @Bindable var state = appState
         return PorcelainPage {
             PorcelainSection(eyebrow: "Backend") {
-                Toggle("Polish my dictation with AI", isOn: $state.dictationPolishEnabled)
+                Toggle("AI polish for dictation and selected text", isOn: $state.dictationPolishEnabled)
                     .toggleStyle(.switch)
                     .tint(Color.Porcelain.emerald)
                     .foregroundStyle(Color.Porcelain.ink)
-                Text("Off by default. Meetings, Reply Assist and Memory have their own switches — this one governs dictation only.")
+                Text("Off by default. Governs Smart Dictation, Polish Selected Text and Re-polish — with it off, those commands paste your text unchanged. Meetings, Reply Assist and Memory have their own switches.")
                     .font(.caption)
                     .foregroundStyle(Color.Porcelain.dim)
 
@@ -74,66 +74,68 @@ struct AISettingsView: View {
                 }
             }
 
-            if usesOllamaAnywhere {
-                PorcelainSection(eyebrow: "Ollama") {
-                    TextField("Base URL", text: $state.ollamaBaseURL).porcelainField()
-                    HStack {
-                        Button(ollamaChecking ? "Checking…" : "Test Connection") { testOllama(state.ollamaBaseURL) }
-                            .disabled(ollamaChecking)
-                        // One sentence per state. This used to print "Couldn't
-                        // reach Ollama. Is it running?" for all three failures,
-                        // including to people who had never installed it.
-                        switch ollamaState {
-                        case nil:
-                            EmptyView()
-                        case .ready(let models):
-                            Text("Connected — \(models.count) model\(models.count == 1 ? "" : "s")")
-                                .font(.caption).foregroundStyle(Color.Porcelain.dim)
-                        case .runningNoModels:
-                            Text("Connected — no models installed yet")
-                                .font(.caption).foregroundStyle(Color.Porcelain.dim)
-                        case .installedNotRunning:
-                            Text("Ollama is installed but not running.")
-                                .font(.caption).foregroundStyle(.red)
-                        case .notInstalled:
-                            Text("Ollama isn't installed on this Mac.")
-                                .font(.caption).foregroundStyle(.red)
-                        }
-                    }
-                    if !ollamaModels.isEmpty {
-                        Picker("Model", selection: $state.ollamaModel) {
-                            Text("Select a model").tag("")
-                            ForEach(ollamaModels, id: \.self) { Text($0).tag($0) }
-                        }
-                        .tint(Color.Porcelain.emerald)
-                        .foregroundStyle(Color.Porcelain.ink)
-                    } else if ollamaState == .runningNoModels || ollamaState == .notInstalled {
-                        HStack(spacing: 8) {
-                            Text(OllamaPresence.pullCommand)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(Color.Porcelain.ink)
-                            Button("Copy") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(OllamaPresence.pullCommand, forType: .string)
-                            }
-                            .buttonStyle(.plain)
-                            .font(.caption)
-                            .foregroundStyle(Color.Porcelain.emerald)
-                        }
-                        Text("\(OllamaPresence.recommendedModelSize) download · needs at least 16 GB of memory")
+            // Always shown. Test Connection here is the ONLY thing that populates
+            // the model list the rows choose from, so revealing this section only
+            // once something already uses Ollama made Ollama unselectable — and
+            // hid the base URL and model that long-form work still uses.
+            PorcelainSection(eyebrow: "Ollama") {
+                TextField("Base URL", text: $state.ollamaBaseURL).porcelainField()
+                HStack {
+                    Button(ollamaChecking ? "Checking…" : "Test Connection") { testOllama(state.ollamaBaseURL) }
+                        .disabled(ollamaChecking)
+                    // One sentence per state. This used to print "Couldn't
+                    // reach Ollama. Is it running?" for all three failures,
+                    // including to people who had never installed it.
+                    switch ollamaState {
+                    case nil:
+                        EmptyView()
+                    case .ready(let models):
+                        Text("Connected — \(models.count) model\(models.count == 1 ? "" : "s")")
                             .font(.caption).foregroundStyle(Color.Porcelain.dim)
-                    } else if !state.ollamaModel.isEmpty {
-                        Text("Model: \(state.ollamaModel)")
+                    case .runningNoModels:
+                        Text("Connected — no models installed yet")
                             .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                    case .installedNotRunning:
+                        Text("Ollama is installed but not running.")
+                            .font(.caption).foregroundStyle(.red)
+                    case .notInstalled:
+                        Text("Ollama isn't installed on this Mac.")
+                            .font(.caption).foregroundStyle(.red)
                     }
-                    Text("Runs entirely on your Mac via Ollama. Nothing leaves this device.")
+                }
+                if !ollamaModels.isEmpty {
+                    Picker("Model", selection: $state.ollamaModel) {
+                        Text("Select a model").tag("")
+                        ForEach(ollamaModels, id: \.self) { Text($0).tag($0) }
+                    }
+                    .tint(Color.Porcelain.emerald)
+                    .foregroundStyle(Color.Porcelain.ink)
+                } else if ollamaState == .runningNoModels || ollamaState == .notInstalled {
+                    HStack(spacing: 8) {
+                        Text(OllamaPresence.pullCommand)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Color.Porcelain.ink)
+                        Button("Copy") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(OllamaPresence.pullCommand, forType: .string)
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(Color.Porcelain.emerald)
+                    }
+                    Text("\(OllamaPresence.recommendedModelSize) download · needs at least 16 GB of memory")
+                        .font(.caption).foregroundStyle(Color.Porcelain.dim)
+                } else if !state.ollamaModel.isEmpty {
+                    Text("Model: \(state.ollamaModel)")
                         .font(.caption).foregroundStyle(Color.Porcelain.dim)
                 }
+                Text("Runs entirely on your Mac via Ollama. Nothing leaves this device.")
+                    .font(.caption).foregroundStyle(Color.Porcelain.dim)
             }
 
-            if usesCloudAnywhere {
+            if usesCloudAnywhere || cloudHasSavedKey {
                 PorcelainSection(eyebrow: "Cloud") {
-                    Text("Your dictated text is sent to this provider while polishing. Secrets and PII (emails, keys, cards) are redacted before it leaves your Mac. Requires your own API key.")
+                    Text("Whatever you route here is sent to this provider — dictated text, and if you choose it for them, meeting transcripts, chronicles built from captured screen text, or reply drafts. Secrets and PII (emails, keys, cards) are redacted before it leaves your Mac. Requires your own API key.")
                         .font(.caption)
                         .foregroundStyle(Color.Porcelain.dim)
                     Menu {
@@ -326,27 +328,10 @@ struct AISettingsView: View {
         }
     }
 
-    /// A backend's settings appear when something actually resolves to it, so a
-    /// Cloud API-key field never greets someone who chose nothing cloud-related.
-    private func anyRowUses(_ match: (FeatureBackend) -> Bool) -> Bool {
-        if match(appState.defaultBackend) { return true }
-        return AIFeature.allCases.contains { match(appState.backend(for: $0)) }
-    }
-    private var usesOllamaAnywhere: Bool {
-        anyRowUses { if case .ollama = $0 { return true } else { return false } }
-    }
-    private var usesCloudAnywhere: Bool {
-        anyRowUses { $0 == .cloud }
-    }
-
-    /// Features whose data would leave the Mac, after resolving Default.
-    private var cloudFeatures: [AIFeature] {
-        AIFeature.allCases.filter { feature in
-            var choice = appState.backend(for: feature)
-            if case .useDefault = choice { choice = appState.defaultBackend }
-            return choice == .cloud
-        }
-    }
+    /// Resolved, not raw — and the SAME answer AppState gives the sidebar, so
+    /// the two cannot disagree about the same configuration.
+    private var cloudFeatures: [AIFeature] { appState.cloudFeatures }
+    private var usesCloudAnywhere: Bool { !cloudFeatures.isEmpty }
 
     /// One factual line naming the real host — not a banner, and not repeated
     /// on every row.

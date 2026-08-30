@@ -993,9 +993,6 @@ final class AppState {
     /// The same sentence was copied into the public privacy page and went stale
     /// there too, so it claimed more privacy than the app provides.
     ///
-    /// The Default row. Ships as `.useDefault`, which means today's automatic
-    /// on-device order -- so an existing user sees no change until they
-    /// deliberately choose something.
     /// Dictation polish's own off-switch, replacing `polishBackend == .disabled`.
     ///
     /// Defaults to FALSE: `polishBackend` defaulted to `.disabled`, so polish is
@@ -1018,6 +1015,10 @@ final class AppState {
         }
     }
 
+    /// The Default row every feature defers to. Ships as `.useDefault`, which
+    /// means the automatic on-device order — never "no backend", and never
+    /// cloud. Both the short-form and long-form paths resolve through this one
+    /// value; until 2026-08-28 short-form used a second global instead.
     var defaultBackend: FeatureBackend {
         get {
             access(keyPath: \.defaultBackend)
@@ -1734,21 +1735,29 @@ final class AppState {
     /// Any active path that sends data off this Mac — drives the honest privacy
     /// status line. Cross-lingual+Sarvam is the easy one to miss: it overrides
     /// the engine picker without changing `engineKind`.
-    var usesCloud: Bool {
-        if engineKind == .cloud || crossLingualUsesSarvam { return true }
-        // `dictationPolishEnabled: true` deliberately: this answers "is a cloud
-        // path configured", and a feature switched off must not make the privacy
-        // line claim less than the configuration does.
-        return AIFeature.allCases.contains { feature in
-            // `dictationPolishEnabled: true` deliberately: this answers "is a
-            // cloud path configured", and a feature switched off must not make
-            // the privacy line claim less than the configuration does.
+    /// Features whose data would leave the Mac, after resolving Default. The
+    /// single source for the AI screen's egress line, the sidebar privacy line
+    /// and `usesCloud` — three copies of this rule disagreed before.
+    ///
+    /// `dictationPolishEnabled: true` deliberately: this answers "is a cloud
+    /// path configured", and a feature switched off must not make the privacy
+    /// line claim less than the configuration does.
+    var cloudFeatures: [AIFeature] {
+        AIFeature.allCases.filter { feature in
             ShortFormBackend.candidates(
                 feature: feature, choice: backend(for: feature), defaultChoice: defaultBackend,
                 ollamaConfigured: !ollamaModel.isEmpty, systemAvailable: SystemLLM.isAvailable(),
                 cloudConfigured: true, dictationPolishEnabled: true
             ).first == .cloud
         }
+    }
+
+    var usesCloud: Bool {
+        if engineKind == .cloud || crossLingualUsesSarvam { return true }
+        // `dictationPolishEnabled: true` deliberately: this answers "is a cloud
+        // path configured", and a feature switched off must not make the privacy
+        // line claim less than the configuration does.
+        return !cloudFeatures.isEmpty
     }
 
     /// One line naming what will actually transcribe your voice, and whether that
@@ -2011,9 +2020,19 @@ final class AppState {
         // isRunningUnderTests for the same reason every other store daemon is,
         // and off the main thread because it is file I/O. Runs here, before any
         // recorder can have started, so it cannot race a live recording.
+        if !isRunningUnderTests, let store = meetingStore, let appSupportDir {
+            let root = appSupportDir.appendingPathComponent("meetings", isDirectory: true)
+            Task.detached(priority: .utility) { MeetingOrphanSweep.run(store: store, root: root) }
+        }
+
         // One-time move off the old global. Guarded so a user who later clears a
-        // per-feature choice does not get the old value pushed back at them.
-        if !UserDefaults.standard.bool(forKey: SettingsKeys.hasMigratedPolishBackend) {
+        // per-feature choice does not get the old value pushed back at them, and
+        // by isRunningUnderTests like every other side-effecting init step: the
+        // test host IS the .dev app and shares its UserDefaults, so a future test
+        // that constructs AppState would otherwise rewrite real settings. Checked
+        // to be unreachable today; forbidding is not enforcing.
+        if !isRunningUnderTests,
+           !UserDefaults.standard.bool(forKey: SettingsKeys.hasMigratedPolishBackend) {
             let plan = PolishBackendMigration.plan(
                 old: UserDefaults.standard.string(forKey: SettingsKeys.polishBackend),
                 existingDictation: backend(for: .dictationPolish),
@@ -2024,11 +2043,6 @@ final class AppState {
             if let b = plan.replyAssistBackend { setBackend(b, for: .replyAssist) }
             if let enabled = plan.replyAssistEnabled { replyAssistEnabled = enabled }
             UserDefaults.standard.set(true, forKey: SettingsKeys.hasMigratedPolishBackend)
-        }
-
-        if !isRunningUnderTests, let store = meetingStore, let appSupportDir {
-            let root = appSupportDir.appendingPathComponent("meetings", isDirectory: true)
-            Task.detached(priority: .utility) { MeetingOrphanSweep.run(store: store, root: root) }
         }
 
         // Stores are open now -- start input monitors and re-run the enable
