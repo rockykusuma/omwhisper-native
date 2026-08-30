@@ -286,7 +286,7 @@ private struct DoneStep: View {
 ///
 /// Writes `dictationPolish` and nothing else. `FeatureBackend.ollama(model:)`
 /// carries the model inline, so there is no second write to keep in sync, and
-/// leaving the global `polishBackend` alone keeps the other four features at
+/// leaving the Default row alone keeps the other four features at
 /// `.useDefault` without needing a guard.
 private struct AIPolishStep: View {
     @Environment(AppState.self) private var appState
@@ -354,6 +354,9 @@ private struct AIPolishStep: View {
                     .foregroundStyle(Color.omGlyphCore.opacity(0.55))
                 OnboardingButton("Use Apple Intelligence") {
                     appState.setBackend(.system, for: .dictationPolish)
+                    // Without this the step picks a backend for a feature that
+                    // stays off, and appears to do nothing.
+                    appState.dictationPolishEnabled = true
                     onNext()
                 }
             }
@@ -386,6 +389,7 @@ private struct AIPolishStep: View {
                 .tint(Color.omEmerald)
                 OnboardingButton("Use Ollama") {
                     appState.setBackend(.ollama(model: picked), for: .dictationPolish)
+                    appState.dictationPolishEnabled = true
                     onNext()
                 }
                 // .disabled propagates to the inner Button, but OnboardingButton

@@ -215,7 +215,7 @@ enum MeetingAIDiagnostics {
     /// which would open every store and start the daemons.
     private static func backend() -> Backend? {
         let defaults = UserDefaults.standard
-        let kind = defaults.string(forKey: "polishBackend")
+        let kind = defaults.string(forKey: "defaultAIBackend") ?? "default"
         let model = defaults.string(forKey: "ollamaModel") ?? ""
         if kind == "ollama", !model.isEmpty {
             let baseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"

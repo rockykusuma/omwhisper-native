@@ -162,7 +162,7 @@ final class AppState {
     /// sees it) — `.system`/`.dark` remain explicit choices in the picker.
     /// Drives the window's NSAppearance + SwiftUI colorScheme (see
     /// HubShellView). access/withMutation needed for the same reason as
-    /// polishBackend — it backs a Picker that must re-highlight on change.
+    /// the AI backend settings — they back controls that must re-highlight on change.
     var appearancePreference: AppearancePreference {
         get {
             access(keyPath: \.appearancePreference)
@@ -272,18 +272,6 @@ final class AppState {
     /// re-highlight the selected option, so without this it stays showing the
     /// stale selection until some unrelated event forces the view to rebuild
     /// (e.g. switching Settings tabs and back) — found via live verification.
-    var polishBackend: PolishBackendKind {
-        get {
-            access(keyPath: \.polishBackend)
-            guard let raw = UserDefaults.standard.string(forKey: SettingsKeys.polishBackend) else { return .disabled }
-            return PolishBackendKind(rawValue: raw) ?? .disabled
-        }
-        set {
-            withMutation(keyPath: \.polishBackend) {
-                UserDefaults.standard.set(newValue.rawValue, forKey: SettingsKeys.polishBackend)
-            }
-        }
-    }
     var ollamaBaseURL: String {
         get {
             access(keyPath: \.ollamaBaseURL)
@@ -985,7 +973,7 @@ final class AppState {
     }
 
     /// Backends for work with large inputs, in preference order — see
-    /// LongFormBackends for why this ignores `polishBackend`. Meetings,
+    /// LongFormBackends for the resolution rules. Meetings,
     /// chronicles and brain-dump all come through here.
     ///
     /// Ollama gets `longFormTimeout` (300s), not the 30s dictation timeout:
@@ -1008,6 +996,28 @@ final class AppState {
     /// The Default row. Ships as `.useDefault`, which means today's automatic
     /// on-device order -- so an existing user sees no change until they
     /// deliberately choose something.
+    /// Dictation polish's own off-switch, replacing `polishBackend == .disabled`.
+    ///
+    /// Defaults to FALSE: `polishBackend` defaulted to `.disabled`, so polish is
+    /// off on a fresh install today. Defaulting this to true would switch it on
+    /// for every new user — latency on every dictation and a new way to fail —
+    /// which is a product change disguised as a refactor.
+    ///
+    /// Meetings, Reply Assist and Memory already own equivalent flags; this is
+    /// the one feature that had none, which is the entire reason "Disabled"
+    /// ended up inside a backend enum.
+    var dictationPolishEnabled: Bool {
+        get {
+            access(keyPath: \.dictationPolishEnabled)
+            return UserDefaults.standard.object(forKey: SettingsKeys.dictationPolishEnabled) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.dictationPolishEnabled) {
+                UserDefaults.standard.set(newValue, forKey: SettingsKeys.dictationPolishEnabled)
+            }
+        }
+    }
+
     var defaultBackend: FeatureBackend {
         get {
             access(keyPath: \.defaultBackend)
@@ -1725,7 +1735,15 @@ final class AppState {
     /// status line. Cross-lingual+Sarvam is the easy one to miss: it overrides
     /// the engine picker without changing `engineKind`.
     var usesCloud: Bool {
-        engineKind == .cloud || crossLingualUsesSarvam || polishBackend == .cloud
+        if engineKind == .cloud || crossLingualUsesSarvam { return true }
+        // `dictationPolishEnabled: true` deliberately: this answers "is a cloud
+        // path configured", and a feature switched off must not make the privacy
+        // line claim less than the configuration does.
+        return AIFeature.allCases.contains { feature in
+            ShortFormBackend.resolve(feature: feature, choice: backend(for: feature),
+                                     defaultChoice: defaultBackend,
+                                     dictationPolishEnabled: true) == .cloud
+        }
     }
 
     /// One line naming what will actually transcribe your voice, and whether that
@@ -1988,6 +2006,20 @@ final class AppState {
         // isRunningUnderTests for the same reason every other store daemon is,
         // and off the main thread because it is file I/O. Runs here, before any
         // recorder can have started, so it cannot race a live recording.
+        // One-time move off the old global. Guarded so a user who later clears a
+        // per-feature choice does not get the old value pushed back at them.
+        if !UserDefaults.standard.bool(forKey: SettingsKeys.hasMigratedPolishBackend) {
+            let plan = PolishBackendMigration.plan(
+                old: UserDefaults.standard.string(forKey: SettingsKeys.polishBackend),
+                existingDictation: backend(for: .dictationPolish),
+                existingReplyAssist: backend(for: .replyAssist),
+                ollamaModel: ollamaModel)
+            dictationPolishEnabled = plan.dictationPolishEnabled
+            if let b = plan.dictationBackend { setBackend(b, for: .dictationPolish) }
+            if let b = plan.replyAssistBackend { setBackend(b, for: .replyAssist) }
+            UserDefaults.standard.set(true, forKey: SettingsKeys.hasMigratedPolishBackend)
+        }
+
         if !isRunningUnderTests, let store = meetingStore, let appSupportDir {
             let root = appSupportDir.appendingPathComponent("meetings", isDirectory: true)
             Task.detached(priority: .utility) { MeetingOrphanSweep.run(store: store, root: root) }
@@ -2599,40 +2631,34 @@ final class AppState {
     /// chronicles are: a draft written into someone else's chat window and a
     /// sentence you just dictated are not the same egress decision.
     ///
-    /// A feature left on Default falls through to `polishBackend`, which keeps
-    /// the AI tab's existing radio group meaning exactly what it means today.
-    ///
-    /// **KNOWN DEFECT — "Default" resolves through two different settings.**
-    /// Short-form (here) falls back to `polishBackend`; long-form
-    /// (`backends(for:)`) falls back to `defaultBackend`. They are separate
-    /// UserDefaults keys with separate controls on the same screen, so:
-    /// setting Polish backend to Disabled stops dictation polish while meeting
-    /// summaries, chronicles and brain-dump keep running, and setting the
-    /// Default row to Cloud moves those three without moving dictation.
-    /// R's call (2026-08-28): Disabled should mean off everywhere. Not patched
-    /// here on purpose — the fix has to decide where "Disabled" lives, and
-    /// `FeatureBackend` has no `.disabled` case, which is the whole reason both
-    /// settings still exist. Needs its own design pass.
+    /// A feature left on Default falls through to the Default row
+    /// (`defaultBackend`) — the same one the long-form path uses, so "Default"
+    /// now means one thing for all five features. Until 2026-08-28 this fell
+    /// through to a second global, `polishBackend`, so "Disabled" silenced two
+    /// features out of five while reading as global.
     func activePolishBackend(for feature: AIFeature = .dictationPolish) -> PolishBackend? {
-        switch backend(for: feature) {
+        guard let resolved = activePolishBackendKind(for: feature) else { return nil }
+        switch resolved {
         case .system:
             return SystemLLM.isAvailable() ? systemLLM : nil
         case .ollama(let model):
+            // Unchanged from today: an empty model resolves to nil rather than
+            // falling back to the global `ollamaModel`.
             return model.isEmpty ? nil : Ollama(baseURL: ollamaBaseURL, model: model)
         case .cloud:
             guard let key = Keychain.loadCloudLLMKey(), !key.isEmpty else { return nil }
             return CloudLLM(apiURL: cloudAPIURL, model: cloudModel, apiKey: key)
         case .useDefault:
-            break
+            return nil   // unreachable: resolve() never returns .useDefault
         }
-        switch polishBackend {
-        case .disabled: return nil
-        case .system: return SystemLLM.isAvailable() ? systemLLM : nil
-        case .ollama: return ollamaModel.isEmpty ? nil : Ollama(baseURL: ollamaBaseURL, model: ollamaModel)
-        case .cloud:
-            guard let key = Keychain.loadCloudLLMKey(), !key.isEmpty else { return nil }
-            return CloudLLM(apiURL: cloudAPIURL, model: cloudModel, apiKey: key)
-        }
+    }
+
+    /// The resolved choice without building the backend — the Apple Intelligence
+    /// nudge needs to know System was ASKED for, which a nil backend cannot say.
+    func activePolishBackendKind(for feature: AIFeature = .dictationPolish) -> FeatureBackend? {
+        ShortFormBackend.resolve(feature: feature, choice: backend(for: feature),
+                                 defaultChoice: defaultBackend,
+                                 dictationPolishEnabled: dictationPolishEnabled)
     }
 
     /// Returns the text to paste plus, when polish genuinely broke, the message
@@ -2647,7 +2673,7 @@ final class AppState {
         if crossLingualUsesSarvam { return (original, nil) }
         // The one-time nudge fires only when System is selected but off — not for
         // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
-        if polishBackend == .system, !SystemLLM.isAvailable() {
+        if activePolishBackendKind(for: .dictationPolish) == .system, !SystemLLM.isAvailable() {
             Degradation.record(.polish, reason: SystemLLM.unavailableReason() ?? "on-device model unavailable")
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
@@ -2705,7 +2731,7 @@ final class AppState {
     /// point was the shape, and an unstructured wall of text looks like the
     /// feature simply did nothing.
     private func brainDumpStructured(for original: String) async -> (text: String, failure: String?) {
-        if polishBackend == .system, !SystemLLM.isAvailable() {
+        if activePolishBackendKind(for: .brainDump) == .system, !SystemLLM.isAvailable() {
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
                 errorMessage = systemUnavailableMessage("structure brain-dumps") + " Pasted raw text for now."
@@ -2835,10 +2861,6 @@ nonisolated extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }
 
-nonisolated enum PolishBackendKind: String, Codable, CaseIterable {
-    case disabled, system, ollama, cloud
-}
-
 nonisolated enum AppearancePreference: String, Codable, CaseIterable, Identifiable {
     case system, light, dark
     var id: String { rawValue }
@@ -2856,8 +2878,13 @@ nonisolated enum SettingsKeys {
     static let restoreClipboard = "restoreClipboard"
     static let clipboardRestoreDelayMS = "clipboardRestoreDelayMS"
     static let appearancePreference = "appearancePreference"
+    /// The property is gone (2026-08-28); this key survives because
+    /// PolishBackendMigration still reads it once per install. Deleting it
+    /// would silently strand anyone who has not launched since the change.
     static let polishBackend = "polishBackend"
     static let defaultAIBackend = "defaultAIBackend"
+    static let dictationPolishEnabled = "dictationPolishEnabled"
+    static let hasMigratedPolishBackend = "hasMigratedPolishBackend"
     static let ollamaBaseURL = "ollamaBaseURL"
     static let ollamaModel = "ollamaModel"
     static let cloudAPIURL = "cloudAPIURL"
