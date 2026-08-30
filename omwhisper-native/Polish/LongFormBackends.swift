@@ -6,9 +6,8 @@
 //  chronicles, brain-dump structuring -- as opposed to polishing a sentence of
 //  dictation.
 //
-//  Deliberately NOT a function of the old global `polishBackend` (deleted
-//  2026-08-28). That setting said
-//  what should polish your dictation, where latency dominates: measured on this
+//  The ORDER differs from short-form dictation on purpose, and the difference
+//  is measured, not stylistic. Dictation is where latency dominates: on this
 //  Mac, SystemLLM answers in ~2.1s while Ollama qwen3.5 takes 36.4s from cold,
 //  and Ollama evicts after ~5 minutes idle, so a first dictation after any gap
 //  blows the 30s dictation timeout and pastes raw text. Long-form work has the
@@ -16,6 +15,11 @@
 //  much fits in one call -- 12,000 characters against 1,800 turns an hour-long
 //  call into ~6 passes instead of ~40, and every extra compression pass loses
 //  detail.
+//
+//  So both paths share ONE resolution rule -- `candidates(...)` below -- and
+//  differ only in which on-device order they hand it. Until 2026-08-30 they did
+//  not: short-form resolved Default-on-Default to *nothing*, so enabling polish
+//  on a stock install silently did nothing while meetings worked fine.
 //
 //  The on-device candidates run locally, so preferring the better-fitting one
 //  carries no privacy consequence. Cloud used to be absent BY CONSTRUCTION --
@@ -59,20 +63,34 @@ nonisolated enum LongFormBackends {
                            ollamaConfigured: Bool,
                            systemAvailable: Bool,
                            cloudConfigured: Bool) -> [Kind] {
+        candidates(choice: choice, defaultChoice: defaultChoice,
+                   onDevice: order(ollamaConfigured: ollamaConfigured,
+                                   systemAvailable: systemAvailable),
+                   cloudConfigured: cloudConfigured)
+    }
+
+    /// The rule itself, with the on-device order supplied by the caller. Short-
+    /// form dictation passes a System-first order; long-form passes Ollama-first.
+    /// One rule, two orderings — rather than two rules that happen to agree in
+    /// some cases, which is what shipped between 2026-08-28 and 2026-08-30.
+    static func candidates(choice: FeatureBackend,
+                           defaultChoice: FeatureBackend,
+                           onDevice: [Kind],
+                           cloudConfigured: Bool) -> [Kind] {
         // Resolve the sentinel once. A Default row left on Default means the
-        // automatic on-device order, which is exactly today's behaviour.
+        // automatic on-device order — never "no backend".
         var resolved = choice
         if case .useDefault = choice { resolved = defaultChoice }
-
-        let onDevice = order(ollamaConfigured: ollamaConfigured, systemAvailable: systemAvailable)
 
         switch resolved {
         case .useDefault:
             return onDevice
+        // Membership of `onDevice` IS availability — it is built from exactly
+        // those two facts — so the rule needs no separate flags.
         case .system:
-            return systemAvailable ? [.system] + onDevice.filter { $0 != .system } : onDevice
+            return onDevice.contains(.system) ? [.system] + onDevice.filter { $0 != .system } : onDevice
         case .ollama:
-            return ollamaConfigured ? [.ollama] + onDevice.filter { $0 != .ollama } : onDevice
+            return onDevice.contains(.ollama) ? [.ollama] + onDevice.filter { $0 != .ollama } : onDevice
         case .cloud:
             return (cloudConfigured ? [.cloud] : []) + onDevice
         }
@@ -90,6 +108,19 @@ nonisolated enum LongFormBackends {
         var order: [Kind] = []
         if ollamaConfigured { order.append(.ollama) }
         if systemAvailable { order.append(.system) }
+        return order
+    }
+
+    /// Short-form preference: Apple Intelligence FIRST. Measured on this Mac,
+    /// SystemLLM answers in ~2.1s while Ollama qwen3.5 takes 36.4s from cold and
+    /// Ollama evicts after ~5 minutes idle, so preferring Ollama for dictation
+    /// blows the 30s timeout and pastes raw text on the first dictation after
+    /// any gap. The long-form order above is the exact opposite, for the exact
+    /// opposite reason.
+    static func shortFormOrder(ollamaConfigured: Bool, systemAvailable: Bool) -> [Kind] {
+        var order: [Kind] = []
+        if systemAvailable { order.append(.system) }
+        if ollamaConfigured { order.append(.ollama) }
         return order
     }
 

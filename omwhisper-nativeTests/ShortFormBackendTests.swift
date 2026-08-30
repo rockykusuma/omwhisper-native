@@ -1,38 +1,54 @@
 import Testing
 @testable import OmWhisper
 
-/// Mirrors LongFormBackends: the whole decision is pure, so "which backend does
-/// this feature actually use" is answerable without constructing AppState.
+/// Short-form shares LongFormBackends' rule and supplies its own on-device
+/// order. The tests that matter are the ones that would have caught the
+/// 2026-08-28 regression: Default-on-Default must be an order, never nothing.
 struct ShortFormBackendTests {
-    @Test func defaultResolvesThroughTheDefaultRow() {
-        #expect(ShortFormBackend.resolve(feature: .dictationPolish, choice: .useDefault,
-                                         defaultChoice: .system, dictationPolishEnabled: true)
-                == .system)
+    private func c(_ feature: AIFeature = .dictationPolish,
+                   choice: FeatureBackend = .useDefault,
+                   def: FeatureBackend = .useDefault,
+                   ollama: Bool = true, system: Bool = true, cloud: Bool = true,
+                   enabled: Bool = true) -> [LongFormBackends.Kind] {
+        ShortFormBackend.candidates(feature: feature, choice: choice, defaultChoice: def,
+                                    ollamaConfigured: ollama, systemAvailable: system,
+                                    cloudConfigured: cloud, dictationPolishEnabled: enabled)
     }
 
-    @Test func anExplicitChoiceWinsOverTheDefaultRow() {
-        #expect(ShortFormBackend.resolve(feature: .dictationPolish, choice: .cloud,
-                                         defaultChoice: .system, dictationPolishEnabled: true)
-                == .cloud)
+    /// The regression that shipped: this used to be empty, so switching polish
+    /// on did nothing on a stock install and said nothing about it.
+    @Test func defaultOnDefaultIsTheOnDeviceOrderNotNothing() {
+        #expect(c() == [.system, .ollama])
     }
 
-    /// The toggle governs dictation polish ONLY. Reply Assist has its own
-    /// enable flag and must not be switched off by another feature's control —
-    /// that coupling is the bug this whole change exists to remove.
+    /// Dictation is latency-bound, so Apple Intelligence comes first — the
+    /// exact opposite of the long-form order, for a measured reason.
+    @Test func shortFormPrefersSystemWhereLongFormPrefersOllama() {
+        #expect(c() == [.system, .ollama])
+        #expect(LongFormBackends.candidates(choice: .useDefault, defaultChoice: .useDefault,
+                                            ollamaConfigured: true, systemAvailable: true,
+                                            cloudConfigured: true) == [.ollama, .system])
+    }
+
+    @Test func anExplicitChoiceLeadsAndOnDeviceStillFollows() {
+        #expect(c(choice: .ollama(model: "m")) == [.ollama, .system])
+        #expect(c(def: .system) == [.system, .ollama])
+    }
+
+    /// Cloud is never a fallback — only ever first, and only when chosen.
+    @Test func cloudAppearsOnlyWhenChosen() {
+        #expect(c() .contains(.cloud) == false)
+        #expect(c(choice: .cloud) == [.cloud, .system, .ollama])
+        #expect(c(choice: .cloud, cloud: false) == [.system, .ollama])
+    }
+
     @Test func theToggleGovernsDictationPolishAlone() {
-        #expect(ShortFormBackend.resolve(feature: .dictationPolish, choice: .system,
-                                         defaultChoice: .useDefault, dictationPolishEnabled: false)
-                == nil)
-        #expect(ShortFormBackend.resolve(feature: .replyAssist, choice: .system,
-                                         defaultChoice: .useDefault, dictationPolishEnabled: false)
-                == .system)
+        #expect(c(.dictationPolish, enabled: false).isEmpty)
+        #expect(c(.replyAssist, enabled: false) == [.system, .ollama])
     }
 
-    /// Both left on Default means "no backend chosen", not a silent fallback to
-    /// something. The caller treats nil as a configuration state, not a fault.
-    @Test func defaultOnDefaultIsNoChoice() {
-        #expect(ShortFormBackend.resolve(feature: .replyAssist, choice: .useDefault,
-                                         defaultChoice: .useDefault, dictationPolishEnabled: true)
-                == nil)
+    /// Nothing usable is empty, not an invented fallback.
+    @Test func nothingAvailableIsEmpty() {
+        #expect(c(ollama: false, system: false).isEmpty)
     }
 }

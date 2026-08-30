@@ -1740,9 +1740,14 @@ final class AppState {
         // path configured", and a feature switched off must not make the privacy
         // line claim less than the configuration does.
         return AIFeature.allCases.contains { feature in
-            ShortFormBackend.resolve(feature: feature, choice: backend(for: feature),
-                                     defaultChoice: defaultBackend,
-                                     dictationPolishEnabled: true) == .cloud
+            // `dictationPolishEnabled: true` deliberately: this answers "is a
+            // cloud path configured", and a feature switched off must not make
+            // the privacy line claim less than the configuration does.
+            ShortFormBackend.candidates(
+                feature: feature, choice: backend(for: feature), defaultChoice: defaultBackend,
+                ollamaConfigured: !ollamaModel.isEmpty, systemAvailable: SystemLLM.isAvailable(),
+                cloudConfigured: true, dictationPolishEnabled: true
+            ).first == .cloud
         }
     }
 
@@ -2637,28 +2642,49 @@ final class AppState {
     /// through to a second global, `polishBackend`, so "Disabled" silenced two
     /// features out of five while reading as global.
     func activePolishBackend(for feature: AIFeature = .dictationPolish) -> PolishBackend? {
-        guard let resolved = activePolishBackendKind(for: feature) else { return nil }
-        switch resolved {
-        case .system:
-            return SystemLLM.isAvailable() ? systemLLM : nil
-        case .ollama(let model):
-            // Unchanged from today: an empty model resolves to nil rather than
-            // falling back to the global `ollamaModel`.
-            return model.isEmpty ? nil : Ollama(baseURL: ollamaBaseURL, model: model)
-        case .cloud:
-            guard let key = Keychain.loadCloudLLMKey(), !key.isEmpty else { return nil }
-            return CloudLLM(apiURL: cloudAPIURL, model: cloudModel, apiKey: key)
-        case .useDefault:
-            return nil   // unreachable: resolve() never returns .useDefault
+        // First candidate that can actually be built. The list already encodes
+        // the rule that cloud is never a fallback, so walking it cannot egress.
+        for kind in shortFormCandidates(for: feature) {
+            switch kind {
+            case .system:
+                if SystemLLM.isAvailable() { return systemLLM }
+            case .ollama:
+                // An explicit per-feature model wins; otherwise the shared one,
+                // which is what made this candidate available in the first place.
+                let model = {
+                    if case .ollama(let m) = backend(for: feature), !m.isEmpty { return m }
+                    return ollamaModel
+                }()
+                if !model.isEmpty { return Ollama(baseURL: ollamaBaseURL, model: model) }
+            case .cloud:
+                if let key = Keychain.loadCloudLLMKey(), !key.isEmpty {
+                    return CloudLLM(apiURL: cloudAPIURL, model: cloudModel, apiKey: key)
+                }
+            }
         }
+        return nil
     }
 
-    /// The resolved choice without building the backend — the Apple Intelligence
-    /// nudge needs to know System was ASKED for, which a nil backend cannot say.
-    func activePolishBackendKind(for feature: AIFeature = .dictationPolish) -> FeatureBackend? {
-        ShortFormBackend.resolve(feature: feature, choice: backend(for: feature),
-                                 defaultChoice: defaultBackend,
-                                 dictationPolishEnabled: dictationPolishEnabled)
+    /// Whether this feature's own row, or the Default row it defers to, names
+    /// Apple Intelligence. Distinct from "System is in the candidate list":
+    /// the nudge exists to explain a choice that could not be honoured.
+    func wantsSystem(for feature: AIFeature) -> Bool {
+        let choice = backend(for: feature)
+        return (choice == .useDefault ? defaultBackend : choice) == .system
+    }
+
+    /// Ordered candidates for a short-form feature — the same shape
+    /// `backends(for:)` returns for long-form work, so both paths answer
+    /// "what can serve this" the same way.
+    func shortFormCandidates(for feature: AIFeature) -> [LongFormBackends.Kind] {
+        ShortFormBackend.candidates(
+            feature: feature,
+            choice: backend(for: feature),
+            defaultChoice: defaultBackend,
+            ollamaConfigured: !ollamaModel.isEmpty,
+            systemAvailable: SystemLLM.isAvailable(),
+            cloudConfigured: !(Keychain.loadCloudLLMKey() ?? "").isEmpty,
+            dictationPolishEnabled: dictationPolishEnabled)
     }
 
     /// Returns the text to paste plus, when polish genuinely broke, the message
@@ -2671,9 +2697,12 @@ final class AppState {
         // Sarvam already produced English — paste as-is; never run the
         // translate/polish prompt on it, and no polish backend is required.
         if crossLingualUsesSarvam { return (original, nil) }
-        // The one-time nudge fires only when System is selected but off — not for
-        // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
-        if activePolishBackendKind(for: .dictationPolish) == .system, !SystemLLM.isAvailable() {
+        // Fires only when Apple Intelligence was ASKED for and NOTHING else can
+        // serve — an empty candidate list. Keying it off "System is unavailable"
+        // alone short-circuited a perfectly good Ollama fallback: the candidate
+        // list already drops System when it cannot run and keeps Ollama.
+        if wantsSystem(for: .dictationPolish), shortFormCandidates(for: .dictationPolish).isEmpty,
+           !SystemLLM.isAvailable() {
             Degradation.record(.polish, reason: SystemLLM.unavailableReason() ?? "on-device model unavailable")
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
@@ -2731,7 +2760,16 @@ final class AppState {
     /// point was the shape, and an unstructured wall of text looks like the
     /// feature simply did nothing.
     private func brainDumpStructured(for original: String) async -> (text: String, failure: String?) {
-        if activePolishBackendKind(for: .brainDump) == .system, !SystemLLM.isAvailable() {
+        // Same correction as polishedText: only when System was asked for AND no
+        // candidate at all can serve. The old condition returned here whenever
+        // System was unavailable, never trying a configured Ollama that would
+        // have succeeded — the candidate list below exists precisely to try it.
+        if wantsSystem(for: .brainDump),
+           backends(for: .brainDump,
+                    ollamaChunkLimit: BrainDumpStructurer.ollamaChunkLimit,
+                    systemChunkLimit: BrainDumpStructurer.chunkCharLimit,
+                    cloudChunkLimit: BrainDumpStructurer.cloudChunkLimit).isEmpty,
+           !SystemLLM.isAvailable() {
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
                 errorMessage = systemUnavailableMessage("structure brain-dumps") + " Pasted raw text for now."
