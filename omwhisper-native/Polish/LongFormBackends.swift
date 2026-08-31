@@ -69,10 +69,7 @@ nonisolated enum LongFormBackends {
                    cloudConfigured: cloudConfigured)
     }
 
-    /// The rule itself, with the on-device order supplied by the caller. Short-
-    /// form dictation passes a System-first order; long-form passes Ollama-first.
-    /// One rule, two orderings — rather than two rules that happen to agree in
-    /// some cases, which is what shipped between 2026-08-28 and 2026-08-30.
+    /// The rule itself, with the on-device order supplied by the caller.
     static func candidates(choice: FeatureBackend,
                            defaultChoice: FeatureBackend,
                            onDevice: [Kind],
@@ -108,19 +105,6 @@ nonisolated enum LongFormBackends {
         var order: [Kind] = []
         if ollamaConfigured { order.append(.ollama) }
         if systemAvailable { order.append(.system) }
-        return order
-    }
-
-    /// Short-form preference: Apple Intelligence FIRST. Measured on this Mac,
-    /// SystemLLM answers in ~2.1s while Ollama qwen3.5 takes 36.4s from cold and
-    /// Ollama evicts after ~5 minutes idle, so preferring Ollama for dictation
-    /// blows the 30s timeout and pastes raw text on the first dictation after
-    /// any gap. The long-form order above is the exact opposite, for the exact
-    /// opposite reason.
-    static func shortFormOrder(ollamaConfigured: Bool, systemAvailable: Bool) -> [Kind] {
-        var order: [Kind] = []
-        if systemAvailable { order.append(.system) }
-        if ollamaConfigured { order.append(.ollama) }
         return order
     }
 

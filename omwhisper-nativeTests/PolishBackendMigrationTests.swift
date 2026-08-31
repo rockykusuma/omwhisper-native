@@ -8,9 +8,11 @@ import Testing
 struct PolishBackendMigrationTests {
     private func plan(_ old: String?, dictation: FeatureBackend = .useDefault,
                       reply: FeatureBackend = .useDefault,
-                      ollamaModel: String = "") -> PolishBackendMigration.Plan {
+                      ollamaModel: String = "",
+                      defaultIsCloud: Bool = false) -> PolishBackendMigration.Plan {
         PolishBackendMigration.plan(old: old, existingDictation: dictation,
-                                    existingReplyAssist: reply, ollamaModel: ollamaModel)
+                                    existingReplyAssist: reply, ollamaModel: ollamaModel,
+                                    defaultIsCloud: defaultIsCloud)
     }
 
     @Test func absentKeyChangesNothing() {
@@ -67,11 +69,17 @@ struct PolishBackendMigrationTests {
     /// "Disabled" meant no AI for BOTH short-form features. Reply Assist has no
     /// backend value for that, and Default now resolves through the Default row,
     /// so its own switch has to carry the meaning across.
-    @Test func disabledAlsoProtectsReplyAssist() {
-        #expect(plan("disabled").replyAssistEnabled == false)
+    /// Reply Assist is switched off ONLY where leaving it on Default would now
+    /// egress. Doing it unconditionally was a regression: on a stock install the
+    /// Default row resolves on-device, so it gained no privacy and silently
+    /// killed a feature the user had enabled.
+    @Test func disabledProtectsReplyAssistOnlyWhenDefaultWouldEgress() {
+        #expect(plan("disabled", defaultIsCloud: true).replyAssistEnabled == false)
+        #expect(plan("disabled", defaultIsCloud: false).replyAssistEnabled == nil,
+                "Reply Assist was disabled for no privacy gain")
         #expect(plan("disabled").dictationPolishEnabled == false)
         // An explicit Reply Assist choice was already working — leave it alone.
-        #expect(plan("disabled", reply: .system).replyAssistEnabled == nil)
+        #expect(plan("disabled", reply: .system, defaultIsCloud: true).replyAssistEnabled == nil)
     }
 
     @Test func anExplicitPerFeatureChoiceIsNeverOverwritten() {

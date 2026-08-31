@@ -305,7 +305,7 @@ struct AISettingsView: View {
                 // which side of the line it sits on.
                 Section("On this Mac") {
                     Button("Apple Intelligence") { set(.system) }
-                    ForEach(ollamaModels, id: \.self) { model in
+                    ForEach(selectableOllamaModels, id: \.self) { model in
                         Button("Ollama · \(model)") { set(.ollama(model: model)) }
                     }
                 }
@@ -326,6 +326,17 @@ struct AISettingsView: View {
         case .ollama(let model): return "Ollama · \(model)"
         case .cloud:             return "Cloud · \(appState.cloudModel)"
         }
+    }
+
+    /// What the per-feature menu can offer. `ollamaModels` is transient @State
+    /// reset every time the view is recreated (hub navigation does that), so on
+    /// its own a row already reading `Ollama · qwen3.5:latest` could not be
+    /// re-selected without clicking Test Connection again. The saved model is
+    /// always offered.
+    private var selectableOllamaModels: [String] {
+        let saved = appState.ollamaModel
+        guard !saved.isEmpty, !ollamaModels.contains(saved) else { return ollamaModels }
+        return [saved] + ollamaModels
     }
 
     /// Resolved, not raw — and the SAME answer AppState gives the sidebar, so

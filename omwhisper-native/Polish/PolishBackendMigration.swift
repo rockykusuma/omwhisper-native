@@ -33,10 +33,22 @@ nonisolated enum PolishBackendMigration {
 
     /// `old` is the raw stored `polishBackend` string, nil when absent.
     /// `ollamaModel` is the separate setting the old global did not carry.
+    /// Bumped when the rules change, so a machine that ran an earlier, buggier
+    /// version gets the corrections. A Bool could not express that: the
+    /// 2026-08-28 version wrote cloud into unset slots and switched polish off
+    /// for explicit-choice users, then set its flag, locking those accounts out
+    /// of every later fix. Safe to re-run — the plan never overwrites an
+    /// explicit choice.
+    static let currentVersion = 2
+
+    /// `defaultIsCloud` is an INPUT, not an output: the plan still cannot write
+    /// the Default row (Rule 2), but it must know whether leaving a feature on
+    /// Default would send its data off the Mac.
     static func plan(old: String?,
                      existingDictation: FeatureBackend,
                      existingReplyAssist: FeatureBackend,
-                     ollamaModel: String) -> Plan {
+                     ollamaModel: String,
+                     defaultIsCloud: Bool) -> Plan {
         // An explicit per-feature choice already worked on the old build:
         // activePolishBackend switched on `backend(for:)` FIRST and only fell
         // through to the global on .useDefault. Keying the toggle off the global
@@ -50,15 +62,18 @@ nonisolated enum PolishBackendMigration {
 
         if old == "disabled" {
             // The global meant "no AI" for BOTH short-form features. Dictation
-            // keeps that via its new toggle. Reply Assist has no equivalent
-            // backend value, and leaving it on Default would now resolve through
-            // the Default row — cloud included — so its own switch carries the
-            // meaning across. It could not have worked before anyway: every
-            // draft failed with NO AI BACKEND.
+            // keeps that via its new toggle.
+            //
+            // Reply Assist is switched off ONLY where leaving it on Default
+            // would now egress. Disabling it unconditionally was a regression:
+            // on a stock install the Default row is `.useDefault`, which
+            // resolves on-device, so turning the feature off gained no privacy
+            // and silently killed something the user had enabled.
+            let replyWouldEgress = defaultIsCloud && existingReplyAssist == .useDefault
             return Plan(dictationPolishEnabled: explicitDictation,
                         dictationBackend: nil,
                         replyAssistBackend: nil,
-                        replyAssistEnabled: existingReplyAssist == .useDefault ? false : nil)
+                        replyAssistEnabled: replyWouldEgress ? false : nil)
         }
 
         // Two separate questions, and conflating them was a bug the tests caught:
