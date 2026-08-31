@@ -91,6 +91,8 @@ nonisolated enum DebugInfo {
         POLISH
           Default backend: \(state.defaultBackend.rawValue)
           Dictation polish: \(state.dictationPolishEnabled ? "on" : "off")
+          Per-feature: \(AIFeature.allCases.map { "\($0.rawValue)=\(state.backend(for: $0).rawValue)" }.joined(separator: ", "))
+          Leaves this Mac: \(state.cloudFeatures.isEmpty ? "nothing" : state.cloudFeatures.map(\.displayName).joined(separator: ", "))
           Apple Intelligence: \(SystemLLM.isAvailable() ? "available" : "unavailable")
           Ollama: \(state.ollamaBaseURL) — model \(orDash(state.ollamaModel))
           Cloud: \(state.cloudAPIURL) — model \(orDash(state.cloudModel)), \(keyState(Keychain.loadCloudLLMKey()))
