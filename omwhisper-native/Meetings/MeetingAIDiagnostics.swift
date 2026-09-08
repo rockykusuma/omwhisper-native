@@ -215,9 +215,31 @@ enum MeetingAIDiagnostics {
     /// which would open every store and start the daemons.
     private static func backend() -> Backend? {
         let defaults = UserDefaults.standard
-        let kind = defaults.string(forKey: "defaultAIBackend") ?? "default"
-        let model = defaults.string(forKey: "ollamaModel") ?? ""
-        if kind == "ollama", !model.isEmpty {
+        // Resolved the way production resolves, not string-compared against one
+        // key. Three separate defects lived here: the stored value is a
+        // FeatureBackend rawValue so Ollama reads "ollama:qwen3.5:latest" and a
+        // bare `== "ollama"` never matched; the per-feature `aiBackend.meetings`
+        // key was ignored entirely, so a user who pointed Meetings somewhere was
+        // diagnosed against the Default row; and a Default row left on Default
+        // was treated as SystemLLM when production runs the Ollama-first
+        // on-device order. Each made the harness run a DIFFERENT configuration
+        // from the one that ships — the exact failure this file records twice.
+        let feature = FeatureBackend(rawValue: defaults.string(forKey: "aiBackend.meetings") ?? "")
+            ?? .useDefault
+        let defaultRow = FeatureBackend(rawValue: defaults.string(forKey: "defaultAIBackend") ?? "")
+            ?? .useDefault
+        let sharedModel = defaults.string(forKey: "ollamaModel") ?? ""
+        let resolved = feature == .useDefault ? defaultRow : feature
+
+        // Long-form order: Ollama first when configured. Mirrors
+        // LongFormBackends.order, which is what meetingSummaryBackends walks.
+        let model: String
+        switch resolved {
+        case .ollama(let m):   model = m.isEmpty ? sharedModel : m
+        case .useDefault:      model = sharedModel      // automatic → Ollama first
+        case .system, .cloud:  model = ""
+        }
+        if !model.isEmpty {
             let baseURL = defaults.string(forKey: "ollamaBaseURL") ?? "http://localhost:11434"
             // longFormTimeout, matching meetingSummaryBackends(). Without it
             // this harness ran a DIFFERENT configuration from the one that

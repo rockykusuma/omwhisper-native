@@ -993,9 +993,7 @@ final class AppState {
     /// The same sentence was copied into the public privacy page and went stale
     /// there too, so it claimed more privacy than the app provides.
     ///
-    /// The Default row. Ships as `.useDefault`, which means today's automatic
-    /// on-device order -- so an existing user sees no change until they
-    /// deliberately choose something.
+
     /// Dictation polish's own off-switch, replacing `polishBackend == .disabled`.
     ///
     /// Defaults to FALSE: `polishBackend` defaulted to `.disabled`, so polish is
@@ -1018,6 +1016,10 @@ final class AppState {
         }
     }
 
+    /// The Default row every feature defers to. Ships as `.useDefault`, which
+    /// means the automatic on-device order — never "no backend", and never
+    /// cloud. Both the short-form and long-form paths resolve through this one
+    /// value; until 2026-08-28 short-form used a second global instead.
     var defaultBackend: FeatureBackend {
         get {
             access(keyPath: \.defaultBackend)
@@ -1731,6 +1733,19 @@ final class AppState {
         crossLingualEnabled && crossLingualUseSarvam && Keychain.loadSarvamKey() != nil
     }
 
+    /// Features whose data would leave the Mac, after resolving Default. The
+    /// single source for the AI screen's egress line, the sidebar privacy line
+    /// and `usesCloud` — three copies of this rule disagreed before.
+    ///
+    /// Deliberately independent of whether a feature is switched ON: this
+    /// answers "is a cloud path configured", and a feature switched off must not
+    /// make the privacy line claim less than the configuration does.
+    var cloudFeatures: [AIFeature] {
+        AIFeature.allCases.filter {
+            ShortFormBackend.egresses(choice: backend(for: $0), defaultChoice: defaultBackend)
+        }
+    }
+
     /// Any active path that sends data off this Mac — drives the honest privacy
     /// status line. Cross-lingual+Sarvam is the easy one to miss: it overrides
     /// the engine picker without changing `engineKind`.
@@ -1739,11 +1754,7 @@ final class AppState {
         // `dictationPolishEnabled: true` deliberately: this answers "is a cloud
         // path configured", and a feature switched off must not make the privacy
         // line claim less than the configuration does.
-        return AIFeature.allCases.contains { feature in
-            ShortFormBackend.resolve(feature: feature, choice: backend(for: feature),
-                                     defaultChoice: defaultBackend,
-                                     dictationPolishEnabled: true) == .cloud
-        }
+        return !cloudFeatures.isEmpty
     }
 
     /// One line naming what will actually transcribe your voice, and whether that
@@ -2006,23 +2017,32 @@ final class AppState {
         // isRunningUnderTests for the same reason every other store daemon is,
         // and off the main thread because it is file I/O. Runs here, before any
         // recorder can have started, so it cannot race a live recording.
+        if !isRunningUnderTests, let store = meetingStore, let appSupportDir {
+            let root = appSupportDir.appendingPathComponent("meetings", isDirectory: true)
+            Task.detached(priority: .utility) { MeetingOrphanSweep.run(store: store, root: root) }
+        }
+
         // One-time move off the old global. Guarded so a user who later clears a
-        // per-feature choice does not get the old value pushed back at them.
-        if !UserDefaults.standard.bool(forKey: SettingsKeys.hasMigratedPolishBackend) {
+        // per-feature choice does not get the old value pushed back at them, and
+        // by isRunningUnderTests like every other side-effecting init step: the
+        // test host IS the .dev app and shares its UserDefaults, so a future test
+        // that constructs AppState would otherwise rewrite real settings. Checked
+        // to be unreachable today; forbidding is not enforcing.
+        if !isRunningUnderTests,
+           UserDefaults.standard.integer(forKey: SettingsKeys.polishBackendMigrationVersion)
+               < PolishBackendMigration.currentVersion {
             let plan = PolishBackendMigration.plan(
                 old: UserDefaults.standard.string(forKey: SettingsKeys.polishBackend),
                 existingDictation: backend(for: .dictationPolish),
                 existingReplyAssist: backend(for: .replyAssist),
-                ollamaModel: ollamaModel)
+                ollamaModel: ollamaModel,
+                defaultIsCloud: defaultBackend == .cloud)
             dictationPolishEnabled = plan.dictationPolishEnabled
             if let b = plan.dictationBackend { setBackend(b, for: .dictationPolish) }
             if let b = plan.replyAssistBackend { setBackend(b, for: .replyAssist) }
-            UserDefaults.standard.set(true, forKey: SettingsKeys.hasMigratedPolishBackend)
-        }
-
-        if !isRunningUnderTests, let store = meetingStore, let appSupportDir {
-            let root = appSupportDir.appendingPathComponent("meetings", isDirectory: true)
-            Task.detached(priority: .utility) { MeetingOrphanSweep.run(store: store, root: root) }
+            if let enabled = plan.replyAssistEnabled { replyAssistEnabled = enabled }
+            UserDefaults.standard.set(PolishBackendMigration.currentVersion,
+                                      forKey: SettingsKeys.polishBackendMigrationVersion)
         }
 
         // Stores are open now -- start input monitors and re-run the enable
@@ -2637,27 +2657,33 @@ final class AppState {
     /// through to a second global, `polishBackend`, so "Disabled" silenced two
     /// features out of five while reading as global.
     func activePolishBackend(for feature: AIFeature = .dictationPolish) -> PolishBackend? {
-        guard let resolved = activePolishBackendKind(for: feature) else { return nil }
-        switch resolved {
+        switch shortFormChoice(for: feature) {
         case .system:
-            return SystemLLM.isAvailable() ? systemLLM : nil
+            return systemLLM                      // resolve() only returns it when available
         case .ollama(let model):
-            // Unchanged from today: an empty model resolves to nil rather than
-            // falling back to the global `ollamaModel`.
-            return model.isEmpty ? nil : Ollama(baseURL: ollamaBaseURL, model: model)
+            return Ollama(baseURL: ollamaBaseURL, model: model)   // never empty by construction
         case .cloud:
             guard let key = Keychain.loadCloudLLMKey(), !key.isEmpty else { return nil }
             return CloudLLM(apiURL: cloudAPIURL, model: cloudModel, apiKey: key)
-        case .useDefault:
-            return nil   // unreachable: resolve() never returns .useDefault
+        case .useDefault, nil:
+            return nil                            // resolve() never returns .useDefault
         }
     }
 
-    /// The resolved choice without building the backend — the Apple Intelligence
-    /// nudge needs to know System was ASKED for, which a nil backend cannot say.
-    func activePolishBackendKind(for feature: AIFeature = .dictationPolish) -> FeatureBackend? {
-        ShortFormBackend.resolve(feature: feature, choice: backend(for: feature),
+    /// Whether this feature's own row, or the Default row it defers to, names
+    /// Apple Intelligence. Distinct from "System is in the candidate list":
+    /// the nudge exists to explain a choice that could not be honoured.
+    func wantsSystem(for feature: AIFeature) -> Bool {
+        ShortFormBackend.wantsSystem(choice: backend(for: feature), defaultChoice: defaultBackend)
+    }
+
+    /// The backend a short-form feature will actually use, model included.
+    func shortFormChoice(for feature: AIFeature) -> FeatureBackend? {
+        ShortFormBackend.resolve(feature: feature,
+                                 choice: backend(for: feature),
                                  defaultChoice: defaultBackend,
+                                 sharedOllamaModel: ollamaModel,
+                                 systemAvailable: SystemLLM.isAvailable(),
                                  dictationPolishEnabled: dictationPolishEnabled)
     }
 
@@ -2671,9 +2697,16 @@ final class AppState {
         // Sarvam already produced English — paste as-is; never run the
         // translate/polish prompt on it, and no polish backend is required.
         if crossLingualUsesSarvam { return (original, nil) }
-        // The one-time nudge fires only when System is selected but off — not for
-        // Disabled or an unconfigured Ollama, which are deliberate "no polish" states.
-        if activePolishBackendKind(for: .dictationPolish) == .system, !SystemLLM.isAvailable() {
+        // Fires only when Apple Intelligence was ASKED for and NOTHING else can
+        // serve — an empty candidate list. Keying it off "System is unavailable"
+        // alone short-circuited a perfectly good Ollama fallback: the candidate
+        // list already drops System when it cannot run and keeps Ollama.
+        // `dictationPolishEnabled` is checked FIRST: without it the nudge fired
+        // for a feature the user had deliberately switched off, showing POLISH
+        // FAILED on every Smart Dictation. nil-with-the-toggle-on is the only
+        // state that means "Apple Intelligence was asked for and nothing served".
+        if dictationPolishEnabled, wantsSystem(for: .dictationPolish),
+           shortFormChoice(for: .dictationPolish) == nil {
             Degradation.record(.polish, reason: SystemLLM.unavailableReason() ?? "on-device model unavailable")
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
@@ -2683,8 +2716,21 @@ final class AppState {
             return (original, systemUnavailableMessage("polish") + " Pasted raw text.")
         }
         guard let backend = activePolishBackend() else {
-            Degradation.recordUnlessConfiguration(.polish, reason: "backend disabled")
-            return (original, nil)
+            // Polish switched OFF is a configuration state and stays silent.
+            // Polish switched ON with nothing able to serve is a fault: the user
+            // asked, and got raw text. That case used to record "backend
+            // disabled", which Degradation drops as configuration, so it
+            // produced no capsule, no alert and no streak — silence being the
+            // exact failure this whole area keeps reproducing.
+            guard dictationPolishEnabled else {
+                Degradation.recordUnlessConfiguration(.polish, reason: "backend disabled")
+                return (original, nil)
+            }
+            let reason = SystemLLM.unavailableReason()
+                ?? "No AI backend is available. Pick one under AI Models."
+            Degradation.record(.polish, reason: reason)
+            escalateDegradationIfNeeded(.polish)
+            return (original, reason + " Pasted your text unchanged.")
         }
         let style: PolishStyle
         let target: String?
@@ -2731,21 +2777,27 @@ final class AppState {
     /// point was the shape, and an unstructured wall of text looks like the
     /// feature simply did nothing.
     private func brainDumpStructured(for original: String) async -> (text: String, failure: String?) {
-        if activePolishBackendKind(for: .brainDump) == .system, !SystemLLM.isAvailable() {
+        // Same correction as polishedText: only when System was asked for AND no
+        // candidate at all can serve. The old condition returned here whenever
+        // System was unavailable, never trying a configured Ollama that would
+        // have succeeded — the candidate list below exists precisely to try it.
+        // Long-form, not dictation: a ramble is large input the user is
+        // deliberately waiting on, so it takes Ollama's 12,000-char envelope and
+        // 300s timeout rather than the 30s dictation one, which a cold model
+        // blows every time. Built ONCE — the guard below and the loop that walks
+        // it must describe the same configuration, and each build costs a
+        // Keychain read plus a Foundation Models availability query.
+        let candidates = backends(for: .brainDump,
+                                  ollamaChunkLimit: BrainDumpStructurer.ollamaChunkLimit,
+                                  systemChunkLimit: BrainDumpStructurer.chunkCharLimit,
+                                  cloudChunkLimit: BrainDumpStructurer.cloudChunkLimit)
+        if wantsSystem(for: .brainDump), candidates.isEmpty {
             if !didNudgeFoundationModelsUnavailable {
                 didNudgeFoundationModelsUnavailable = true
                 errorMessage = systemUnavailableMessage("structure brain-dumps") + " Pasted raw text for now."
             }
             return (original, systemUnavailableMessage("structure brain-dumps") + " Pasted raw text.")
         }
-        // Long-form, not dictation: a ramble is large input the user is
-        // deliberately waiting on, so it takes Ollama's 12,000-char envelope and
-        // 300s timeout rather than the 30s dictation one, which a cold model
-        // blows every time.
-        let candidates = backends(for: .brainDump,
-                                  ollamaChunkLimit: BrainDumpStructurer.ollamaChunkLimit,
-                                  systemChunkLimit: BrainDumpStructurer.chunkCharLimit,
-                                  cloudChunkLimit: BrainDumpStructurer.cloudChunkLimit)
         // Configuration, not fault: no backend enabled or no shape chosen means
         // the user turned structuring off, which must not raise an alarm.
         guard !candidates.isEmpty, let shape = activeBrainDumpShape else { return (original, nil) }
@@ -2884,7 +2936,7 @@ nonisolated enum SettingsKeys {
     static let polishBackend = "polishBackend"
     static let defaultAIBackend = "defaultAIBackend"
     static let dictationPolishEnabled = "dictationPolishEnabled"
-    static let hasMigratedPolishBackend = "hasMigratedPolishBackend"
+    static let polishBackendMigrationVersion = "polishBackendMigrationVersion"
     static let ollamaBaseURL = "ollamaBaseURL"
     static let ollamaModel = "ollamaModel"
     static let cloudAPIURL = "cloudAPIURL"
