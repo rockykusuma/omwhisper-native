@@ -44,18 +44,24 @@ struct SalientTermExtractorTests {
     }
 
     @Test func detectsRareWords() async {
-        let words = await SalientTermExtractor.rareWords(in: "Please check the polymorphism in that classe")
+        // Language pinned, not inherited. Read from the process, this asserts about
+        // the machine's spell-check language as much as the code — "classe" is a
+        // real word in French and Italian, which is how a true CI signal was
+        // mistaken for a flake for 53 runs.
+        let words = await SalientTermExtractor.rareWords(
+            in: "Please check the polymorphism in that classe", language: "en")
         #expect(words.contains(where: { $0.caseInsensitiveCompare("classe") == .orderedSame }))
     }
 
     @Test func commonWordsNotFlaggedAsRare() async {
-        let words = await SalientTermExtractor.rareWords(in: "the quick brown fox jumps over the lazy dog")
+        let words = await SalientTermExtractor.rareWords(
+            in: "the quick brown fox jumps over the lazy dog", language: "en")
         #expect(words.isEmpty)
     }
 
     @Test func combinesAllThreeCategories() async {
         let text = "Sarah Connor uses getUserById in her codebase with polymorphism and classe issues."
-        let terms = await SalientTermExtractor.extractSalientTerms(from: text)
+        let terms = await SalientTermExtractor.extractSalientTerms(from: text, language: "en")
         #expect(terms.contains("Sarah Connor"))
         #expect(terms.contains("getUserById"))
         #expect(terms.contains(where: { $0.caseInsensitiveCompare("classe") == .orderedSame }))
