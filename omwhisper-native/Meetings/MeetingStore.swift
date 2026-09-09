@@ -75,7 +75,14 @@ nonisolated enum MeetingDetails {
     /// words and the line structure. Deliberately not a markdown parser — the
     /// input is only ever what export() just wrote plus model-written summary
     /// markdown, and both use exactly these two markers.
-    private static func stripMarkdown(_ text: String) -> String {
+    ///
+    /// Internal rather than private so a diagnostic can build its expectation
+    /// with the SAME transform the export applies. MeetingAIDiagnostics searched
+    /// the .text export for a needle cut from the raw transcript, which still
+    /// carried `**You:**` and so could never match — a permanent FAIL on correct
+    /// output. A harness that re-derives production's transform drifts from it;
+    /// calling it cannot.
+    static func stripMarkdown(_ text: String) -> String {
         text.components(separatedBy: .newlines)
             .map { line -> String in
                 var l = line

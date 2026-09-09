@@ -66,9 +66,21 @@ enum MeetingAIDiagnostics {
         // comparing with the raw text fails even when export is correct.
         let renamed = MeetingDiarization.applySpeakerNames(
             meeting.transcript ?? "", names: meeting.speakerNames ?? [:])
-        let needle = String(renamed.dropFirst(80).prefix(40))
         for format in [MeetingExportFormat.markdown, .text] {
             let out = MeetingDetails.export(meeting, format: format)
+            // .text also runs stripMarkdown, so a needle cut from the raw
+            // transcript still carries `**You:**` and can never appear in it —
+            // this check reported FAIL on healthy output until the needle was
+            // taken from the SAME transform. Cut it from the whole transformed
+            // text, not by transforming a 40-char slice: stripMarkdown trims
+            // each line, so a slice's boundaries would strip differently.
+            let reference = format == .markdown ? renamed : MeetingDetails.stripMarkdown(renamed)
+            // The TAIL, not a window at offset 80: a 70-char transcript made
+            // that window empty, so two healthy exports reported FAIL. The tail
+            // is non-empty whenever the transcript is, and it also catches
+            // truncation — the reduce stage silently dropping the back half is
+            // a bug this codebase has actually shipped.
+            let needle = String(reference.suffix(40))
             let hasTranscript = !needle.isEmpty && out.contains(needle)
             print("\(format): \(out.count) chars, contains transcript: \(hasTranscript)")
             if !hasTranscript { print("  FAIL: transcript missing from export") }

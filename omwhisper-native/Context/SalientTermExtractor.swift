@@ -54,8 +54,20 @@ nonisolated enum SalientTermExtractor {
     /// this one specifically needs the hop. Anything the system dictionary
     /// doesn't recognize is a free, already-available proxy for "rare/technical"
     /// without bundling a word-frequency corpus.
-    @MainActor static func rareWords(in text: String) -> [String] {
+    ///
+    /// `language` defaults to the checker's own, which is the user's spell-check
+    /// language. It is a parameter so a caller can state the language instead of
+    /// inheriting whatever the process happens to be set to: this pass's whole
+    /// history is a language it did not choose deciding whether a rare word is a
+    /// rare word, and a test that reads the ambient value asserts about the
+    /// machine as much as the code.
+    @MainActor static func rareWords(in text: String, language: String? = nil) -> [String] {
         let checker = NSSpellChecker.shared
+        // Resolved ONCE. `language()` is a synchronous call into the spell
+        // service, and asking per iteration paid that round trip for every word
+        // found, on MainActor — while letting a mid-loop change of a global
+        // setting split one pass across two languages.
+        let language = language ?? checker.language()
         let ns = text as NSString
         var results: [String] = []
         var offset = 0
@@ -76,7 +88,7 @@ nonisolated enum SalientTermExtractor {
             // spell-check language, so this respects non-English users without
             // making the result depend on a per-call guess.
             let misspelled = checker.checkSpelling(
-                of: text, startingAt: offset, language: checker.language(),
+                of: text, startingAt: offset, language: language,
                 wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
             guard misspelled.location != NSNotFound, misspelled.length > 0 else { break }
             let word = ns.substring(with: misspelled)
@@ -91,10 +103,12 @@ nonisolated enum SalientTermExtractor {
     /// Merges all three categories, case-insensitive dedupe (first-seen casing
     /// wins), capped at `limit` — kept separate from the user's own
     /// customVocabulary, which is never trimmed.
-    static func extractSalientTerms(from text: String, limit: Int = 30) async -> [String] {
+    static func extractSalientTerms(from text: String, limit: Int = 30,
+                                    language: String? = nil) async -> [String] {
         var seen = Set<String>()
         var results: [String] = []
-        let candidates = properNouns(in: text) + codeIdentifiers(in: text) + (await rareWords(in: text))
+        let candidates = properNouns(in: text) + codeIdentifiers(in: text)
+            + (await rareWords(in: text, language: language))
         for term in candidates {
             let key = term.lowercased()
             guard !seen.contains(key) else { continue }
