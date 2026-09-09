@@ -195,3 +195,79 @@ Parakeet's "no change" is weaker evidence than Apple's.
 Accented speech · background noise · far-field mics · disfluency and self-correction ·
 overlapping speakers · streaming partial quality (only final text is scored) · punctuation and
 casing (normalized away before scoring).
+
+## Recording one in your own voice — 2026-09-09
+
+`bash scripts/record-wer-corpus.sh <out-dir> [device]` prints a sentence, you read it, it saves
+the audio beside exactly what you read. Re-running skips takes you already have, so a session
+can be stopped and resumed. List your inputs by running it with no arguments.
+
+Every take is classified before it is accepted. A corpus of silence scores catastrophically on
+every engine at once and reads as an engine bug, which is the expensive way to discover the mic
+was muted or the device flag was wrong. `--self-check` proves that guard both directions with no
+microphone:
+
+```
+ok   silent.wav → silent (-91.0 dB)
+ok   speech.wav → speech (-4.6 dB)
+ok   missing file → unreadable
+```
+
+Three properties of the sentence set, each one a lesson already paid for here:
+
+- **They contain the words engines get wrong** — `appcast`, `Vercel`, `notarize`, `SwiftUI`,
+  `WhisperKit`, `Parakeet`, `OmWhisper`, `async`, plus `GATT` and `Auracast`. A vocabulary
+  benchmark whose corpus lacks the failing words measures nothing; that mistake was made on
+  2026-08-01 and again on 2026-08-07.
+- **Non-repeating prose.** The duration sweep that built samples by repeating one sentence
+  measured the fixture, not the engine.
+- **One deliberately disfluent sample**, with a filled pause and a mid-sentence restart. `say`
+  cannot produce either, and real dictation is full of both.
+
+### Synthetic floor for these exact sentences
+
+Run the same ten sentences through `say` and you get the floor to compare a voice recording
+against — same references, same vocabulary, only the speech is different. 10 samples, 234
+reference words, M2 Pro:
+
+| Engine | off | off+fix | on | on+fix | RTF |
+|---|---|---|---|---|---|
+| Whisper large-v3 turbo | 2.6% | 0.9% | 1.7% | **0.4%** | 0.46x |
+| Whisper small | 5.1% | 2.6% | 1.7% | **1.3%** | 0.10x |
+| Parakeet v2 | 5.1% | 1.7% | 5.1% | **1.7%** | 0.04x |
+| Whisper base | 6.8% | 4.3% | 1.7% | **1.7%** | 0.05x |
+| Parakeet v3 | 5.6% | 2.6% | 5.6% | **2.6%** | 0.04x |
+| **Apple Speech** *(default)* | 6.4% | 4.3% | 6.4% | **4.3%** | 0.04x |
+
+Two prior findings reproduce on this new corpus, which is worth more than either did alone:
+post-processing helps every engine (Apple 6.4% → 4.3%), and **engine biasing remains exactly
+inert on Apple Speech and both Parakeet variants** — identical to the third decimal, off and on.
+
+**A number in this table is not a claim about your dictation.** Synthetic speech is clean,
+unaccented, close-mic'd and disfluency-free. Recording the same sentences in a real voice is the
+only way to learn what your own accuracy is, and it should score worse.
+
+### A sample that measured the fixture
+
+The first version of sample 08 read "…runs six hundred and thirty eight tests in ninety five
+suites". Every engine scored **33–37%** on it, all with the same five deletions, because they
+all correctly wrote "638" and "95" and there is no number normalization here. It penalised
+correct output uniformly and inflated every engine's pooled WER by roughly three points — Apple
+Speech read 9.8% with it and 6.4% without. Replaced with an editing-request sentence, which
+scores 0.0–4.2%. **A fixture that makes every engine fail is measuring the fixture.**
+
+### Cloud streaming cannot be benchmarked this way — AssemblyAI returns empty
+
+AssemblyAI scored **87.6%** with biasing off and **100%** with it on, because most samples came
+back `<empty>` while three were transcribed perfectly. Not a dead key, which would fail all ten,
+and not a length threshold — the pattern is a race.
+
+The suspect is `CloudEngine.swift`'s fixed one-second drain after `Terminate`, which carries a
+`ponytail` note reading "revisit if endings clip". The harness pushes a whole file in
+milliseconds, so the server still has seconds of audio queued when the socket closes. Live
+dictation never hits this because audio arrives in real time and the server is nearly caught up
+when you stop speaking.
+
+So the cloud columns here measure the harness's feed rate, not the provider. **Not fixed** —
+fixing it means waiting for the `Termination` message rather than sleeping, and whether the same
+race can clip a real dictation's final sentence is untested either way.
