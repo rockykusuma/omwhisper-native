@@ -142,7 +142,11 @@ record 04-engines      "We swapped WhisperKit for Parakeet before OmWhisper star
 record 05-work         "The firmware team found that the hearing aid drops the GATT connection whenever Auracast slicing is enabled."
 record 06-conversational "Honestly I think we should just ship it and see what happens, because waiting another week is not going to make it any better."
 record 07-longer       "I spent most of the morning trying to work out why the update never reached anyone, and it turned out the download link had been pointing at an old version for weeks. Once that was fixed, everything else fell into place and the rest of the afternoon was straightforward."
-record 08-numbers      "The build takes about four minutes on this machine and the whole suite runs six hundred and thirty eight tests in ninety five suites."
+# No large spelled-out numbers: there is no number normalisation, so a reference
+# of "six hundred and thirty eight" scores every engine that correctly writes
+# "638" as five deletions. Measured — that sample cost 33-37% on ALL SIX
+# engines, which is the fixture failing, not the engines.
+record 08-editing      "Can you take another look at the second paragraph, because I do not think that sentence says what we actually agreed in the review."
 record 09-disfluent    "So, um, what I was going to say is that the meeting detection thing, it just never fired for the Teams call, and I had to record it by hand."
 record 10-mixed        "Please review the pull request and let me know whether the approach makes sense before I merge it into the main branch."
 
