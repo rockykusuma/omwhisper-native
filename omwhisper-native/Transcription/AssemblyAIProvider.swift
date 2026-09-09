@@ -56,6 +56,17 @@ nonisolated struct AssemblyAIProvider {
         return (turn.endOfTurn ?? false) ? .final(transcript) : .partial(transcript)
     }
 
+    /// True for the server's `Termination`, which it sends once it has flushed
+    /// every remaining turn after our `Terminate`. It is the ONLY signal that the
+    /// transcript is complete: `parseServerMessage` returns nil for it (and for
+    /// every non-Turn message), so a caller that only watches transcript events
+    /// cannot tell "still working" from "done" and has to guess a duration.
+    nonisolated static func isTermination(_ data: Data) -> Bool {
+        (try? JSONDecoder().decode(TypeOnlyMessage.self, from: data))?.type == "Termination"
+    }
+
+    private struct TypeOnlyMessage: Decodable { let type: String? }
+
     /// Validates a key against AssemblyAI's token endpoint (raw-key auth, 200 = OK).
     nonisolated static func testConnection(apiKey: String) async -> String? {
         var components = URLComponents(string: "https://streaming.assemblyai.com/v3/token")!

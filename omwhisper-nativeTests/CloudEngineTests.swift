@@ -10,6 +10,32 @@ struct CloudEngineTests {
         #expect(AssemblyAIProvider.cappedKeyterms(vocabulary).count == 100)
     }
 
+    // The drain waits for this message, so a detector that never fires turns the
+    // 5s ceiling into the normal wait, and one that fires on a Turn truncates the
+    // transcript. Both directions are pinned.
+    @Test func terminationIsRecognisedAndNothingElseIs() {
+        let termination = Data(#"{"type":"Termination","audio_duration_seconds":12.4}"#.utf8)
+        #expect(AssemblyAIProvider.isTermination(termination))
+
+        for other in [
+            #"{"type":"Turn","transcript":"hello there","end_of_turn":true}"#,
+            #"{"type":"Begin","id":"abc"}"#,
+            #"{"type":"TerminationPending"}"#,   // not a prefix match
+            #"not json at all"#,
+        ] {
+            #expect(!AssemblyAIProvider.isTermination(Data(other.utf8)),
+                    "should not be terminal: \(other)")
+        }
+    }
+
+    // A Termination carries no transcript, so ending the loop on it must not be
+    // confused with parsing one — the two run off the same bytes.
+    @Test func terminationYieldsNoTranscriptEvent() {
+        let termination = Data(#"{"type":"Termination","audio_duration_seconds":12.4}"#.utf8)
+        #expect(AssemblyAIProvider.parseServerMessage(termination) == nil)
+        #expect(AssemblyAIProvider.isTermination(termination))
+    }
+
     @Test func sarvamConfigShape() {
         let c = BatchCloudTranscriber.sarvam()
         #expect(c.url.absoluteString == "https://api.sarvam.ai/speech-to-text")
